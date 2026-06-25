@@ -1,0 +1,25 @@
+# Internal tools and agent configs
+.trellis/
+.claude/
+.codex/
+.cursor/
+.agents/
+
+# Reference projects
+reference/
+
+# Sensitive project context
+CONTEXT.md
+AGENTS.md
+
+# Go
+/sshq
+*.exe
+*.test
+*.out
+/dist/
+/bin/
+
+# OS
+.DS_Store
+Thumbs.db
