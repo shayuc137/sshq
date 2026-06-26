@@ -49,7 +49,7 @@ func NewRootCommand() *cobra.Command {
 		newInfoCommand(),
 		newExecCommand(),
 		newStubCommand("cp", "Copy files between local and remote hosts", 2),
-		newStubCommand("probe", "Check TCP connectivity to a host", 1),
+		newProbeCommand(),
 		newStubCommand("daemon", "Manage the connection pool daemon", 1),
 		newStubCommand("config", "Manage sshq configuration", 1),
 	)
