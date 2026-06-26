@@ -56,7 +56,7 @@ func newCpCommand() *cobra.Command {
 			case transfer.Download:
 				return cpTransfer(ctx, w, store, parsed, recursive, progressFn)
 			case transfer.Relay:
-				return output.Errorf("server-to-server relay not yet implemented", "planned for Phase 2 C3")
+				return cpRelay(ctx, w, store, parsed, recursive, progressFn)
 			}
 			return nil
 		},
@@ -119,6 +119,61 @@ func cpTransfer(ctx context.Context, w *output.Writer, store *config.Store, pars
 	if err != nil {
 		if ctx.Err() != nil {
 			return output.Errorf("transfer cancelled", "remote temp file cleaned up")
+		}
+		return output.Errorf(err.Error(), "")
+	}
+
+	renderCpResult(w, result)
+	return nil
+}
+
+func cpRelay(ctx context.Context, w *output.Writer, store *config.Store, parsed transfer.ParsedArgs, recursive bool, progress transfer.ProgressFunc) error {
+	srcHost, err := store.Get(parsed.Src.Alias)
+	if err != nil {
+		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
+	}
+	dstHost, err := store.Get(parsed.Dst.Alias)
+	if err != nil {
+		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
+	}
+
+	srcCfg := sshclient.ConnConfig{
+		Host: srcHost.HostName, Port: srcHost.Port,
+		User: srcHost.User, IdentityFile: srcHost.IdentityFile,
+		Timeout: 30 * time.Second,
+	}
+	dstCfg := sshclient.ConnConfig{
+		Host: dstHost.HostName, Port: dstHost.Port,
+		User: dstHost.User, IdentityFile: dstHost.IdentityFile,
+		Timeout: 30 * time.Second,
+	}
+
+	w.Info("connecting to " + parsed.Src.Alias + "...")
+	srcClient, err := sshclient.Dial(ctx, srcCfg)
+	if err != nil {
+		return connErrorToOutput(err, parsed.Src.Alias)
+	}
+	defer srcClient.Close()
+
+	w.Info("connecting to " + parsed.Dst.Alias + "...")
+	dstClient, err := sshclient.Dial(ctx, dstCfg)
+	if err != nil {
+		return connErrorToOutput(err, parsed.Dst.Alias)
+	}
+	defer dstClient.Close()
+
+	infoFn := func(msg string) { w.Info(msg) }
+
+	var result *transfer.Result
+	if recursive {
+		result, err = transfer.RunRelayRecursive(ctx, srcClient, dstClient, parsed.Src.Path, parsed.Dst.Path, infoFn, progress)
+	} else {
+		result, err = transfer.RunRelay(ctx, srcClient, dstClient, parsed.Src.Path, parsed.Dst.Path, infoFn, progress)
+	}
+
+	if err != nil {
+		if ctx.Err() != nil {
+			return output.Errorf("relay cancelled", "remote temp files cleaned up")
 		}
 		return output.Errorf(err.Error(), "")
 	}

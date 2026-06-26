@@ -391,6 +391,5 @@ type sessionWriter struct {
 
 func (w *sessionWriter) Write(p []byte) (int, error) { return w.writer.Write(p) }
 func (w *sessionWriter) Close() error {
-	w.writer.Close()
-	return w.session.Wait()
+	return w.writer.Close()
 }
