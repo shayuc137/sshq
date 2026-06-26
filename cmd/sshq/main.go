@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/shayuc137/sshq/internal/cli"
 	"github.com/shayuc137/sshq/internal/exec"
@@ -11,7 +13,8 @@ import (
 )
 
 func main() {
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 	cmd := cli.NewRootCommand()
 
 	if err := cmd.ExecuteContext(ctx); err != nil {
