@@ -2,14 +2,23 @@
 
 Copy files between local and remote hosts
 
+### Synopsis
+
+Copy files using alias:path syntax to determine direction:
+  sshq cp local.txt ali:/tmp/          upload
+  sshq cp ali:/var/log/app.log ./      download
+  sshq cp ali:/data/f.tar rn:/backup/  server-to-server relay
+
 ```
-sshq cp [flags]
+sshq cp <src> <dst> [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help   help for cp
+  -h, --help          help for cp
+      --no-progress   disable progress output
+  -r, --recursive     copy directories recursively
 ```
 
 ### Options inherited from parent commands
