@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"os"
 
 	"github.com/shayuc137/sshq/internal/output"
 )
@@ -16,5 +17,5 @@ func writerFrom(ctx context.Context) *output.Writer {
 	if w, ok := ctx.Value(writerKey{}).(*output.Writer); ok {
 		return w
 	}
-	return output.New(nil, nil)
+	return output.New(os.Stdout, os.Stderr)
 }

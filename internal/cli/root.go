@@ -14,15 +14,12 @@ func NewRootCommand() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			w := output.New(cmd.OutOrStdout(), cmd.ErrOrStderr())
 			jsonFlag, _ := cmd.Flags().GetBool("json")
 			if jsonFlag || output.DetectEnvJSONMode() {
-				w := output.New(cmd.OutOrStdout(), cmd.ErrOrStderr())
 				w.SetJSONMode(true)
-				cmd.SetContext(withWriter(cmd.Context(), w))
-			} else {
-				w := output.New(cmd.OutOrStdout(), cmd.ErrOrStderr())
-				cmd.SetContext(withWriter(cmd.Context(), w))
 			}
+			cmd.SetContext(withWriter(cmd.Context(), w))
 			return nil
 		},
 	}

@@ -15,9 +15,7 @@ func main() {
 
 	if err := cmd.ExecuteContext(ctx); err != nil {
 		w := output.New(cmd.OutOrStdout(), cmd.ErrOrStderr())
-		if cmd.Flag("json") != nil && cmd.Flag("json").Changed {
-			w.SetJSONMode(true)
-		} else if output.DetectEnvJSONMode() {
+		if (cmd.Flag("json") != nil && cmd.Flag("json").Changed) || output.DetectEnvJSONMode() {
 			w.SetJSONMode(true)
 		}
 
