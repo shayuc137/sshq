@@ -272,7 +272,8 @@ func handleExec(conn net.Conn, store *config.Store, p *pool.Pool, req ipc.Reques
 
 	client, err := p.Get(context.Background(), req.Alias, cfg)
 	if err != nil {
-		ipc.Send(conn, ipc.Frame{Type: "error", Hint: err.Error(), Action: "check connectivity and credentials"})
+		ce := connErrorToOutput(err, req.Alias)
+		ipc.Send(conn, ipc.Frame{Type: "error", Hint: ce.Hint, Action: ce.Action})
 		return
 	}
 

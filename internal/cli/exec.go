@@ -121,7 +121,7 @@ func execDirect(cmd *cobra.Command, w *output.Writer, alias, command string) err
 
 	client, err := sshclient.Dial(ctx, cfg)
 	if err != nil {
-		return output.Errorf(err.Error(), "check connectivity and credentials")
+		return connErrorToOutput(err, alias)
 	}
 	defer client.Close()
 

@@ -24,5 +24,6 @@ Agent-native SSH multiplexing CLI
 * [sshq ls](sshq_ls.md)	 - List configured SSH hosts
 * [sshq probe](sshq_probe.md)	 - Check TCP connectivity to a host
 * [sshq search](sshq_search.md)	 - Search SSH hosts by pattern
+* [sshq trust](sshq_trust.md)	 - Fetch and trust a host's SSH key
 * [sshq version](sshq_version.md)	 - Print version information
 

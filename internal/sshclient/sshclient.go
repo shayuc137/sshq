@@ -147,18 +147,64 @@ func hostKeyCallback() (ssh.HostKeyCallback, error) {
 	return knownhosts.New(path)
 }
 
-func categorizeError(err error, cfg ConnConfig) error {
-	if _, ok := err.(*net.OpError); ok {
-		return fmt.Errorf("network error connecting to %s:%s: %w", cfg.Host, cfg.Port, err)
-	}
-	errMsg := err.Error()
-	if strings.Contains(errMsg, "unable to authenticate") || strings.Contains(errMsg, "no supported methods") {
-		return fmt.Errorf("authentication failed for %s@%s:%s: %w", cfg.User, cfg.Host, cfg.Port, err)
-	}
-	if strings.Contains(errMsg, "host key") || strings.Contains(errMsg, "knownhosts") {
-		return fmt.Errorf("host key verification failed for %s:%s: %w", cfg.Host, cfg.Port, err)
-	}
-	return fmt.Errorf("SSH handshake with %s:%s: %w", cfg.Host, cfg.Port, err)
+type ConnErrorKind int
+
+const (
+	ErrNetwork         ConnErrorKind = iota
+	ErrAuth
+	ErrHostKeyMismatch
+	ErrHostKeyUnknown
+	ErrGeneric
+)
+
+type ConnError struct {
+	Kind  ConnErrorKind
+	Host  string
+	Port  string
+	User  string
+	Cause error
 }
 
-// strings.Contains used directly — removed custom contains/searchString
+func (e *ConnError) Error() string {
+	switch e.Kind {
+	case ErrNetwork:
+		return fmt.Sprintf("network error connecting to %s:%s", e.Host, e.Port)
+	case ErrAuth:
+		return fmt.Sprintf("authentication failed for %s@%s:%s", e.User, e.Host, e.Port)
+	case ErrHostKeyMismatch:
+		return fmt.Sprintf("host key CHANGED for %s:%s", e.Host, e.Port)
+	case ErrHostKeyUnknown:
+		return fmt.Sprintf("host key unknown for %s:%s", e.Host, e.Port)
+	default:
+		return fmt.Sprintf("SSH handshake with %s:%s failed", e.Host, e.Port)
+	}
+}
+
+func (e *ConnError) Unwrap() error { return e.Cause }
+
+func categorizeError(err error, cfg ConnConfig) error {
+	ce := &ConnError{Host: cfg.Host, Port: cfg.Port, User: cfg.User, Cause: err}
+
+	if _, ok := err.(*net.OpError); ok {
+		ce.Kind = ErrNetwork
+		return ce
+	}
+
+	errMsg := err.Error()
+	if strings.Contains(errMsg, "unable to authenticate") || strings.Contains(errMsg, "no supported methods") {
+		ce.Kind = ErrAuth
+		return ce
+	}
+	if strings.Contains(errMsg, "knownhosts: key mismatch") {
+		ce.Kind = ErrHostKeyMismatch
+		return ce
+	}
+	if strings.Contains(errMsg, "knownhosts: key is unknown") ||
+		strings.Contains(errMsg, "knownhosts") || strings.Contains(errMsg, "host key") {
+		ce.Kind = ErrHostKeyUnknown
+		return ce
+	}
+
+	ce.Kind = ErrGeneric
+	return ce
+}

@@ -48,9 +48,10 @@ func NewRootCommand() *cobra.Command {
 		newSearchCommand(),
 		newInfoCommand(),
 		newExecCommand(),
-		newStubCommand("cp", "Copy files between local and remote hosts", 2),
+		newCpCommand(),
 		newProbeCommand(),
 		newDaemonCommand(),
+		newTrustCommand(),
 		newStubCommand("config", "Manage sshq configuration", 1),
 		newDocsCommand(),
 	)
