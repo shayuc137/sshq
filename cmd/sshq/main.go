@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/shayuc137/sshq/internal/cli"
+	"github.com/shayuc137/sshq/internal/exec"
 	"github.com/shayuc137/sshq/internal/output"
 )
 
@@ -14,6 +15,11 @@ func main() {
 	cmd := cli.NewRootCommand()
 
 	if err := cmd.ExecuteContext(ctx); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			os.Exit(exitErr.Code)
+		}
+
 		w := output.New(cmd.OutOrStdout(), cmd.ErrOrStderr())
 		if (cmd.Flag("json") != nil && cmd.Flag("json").Changed) || output.DetectEnvJSONMode() {
 			w.SetJSONMode(true)

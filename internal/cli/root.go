@@ -47,7 +47,7 @@ func NewRootCommand() *cobra.Command {
 		newLsCommand(),
 		newSearchCommand(),
 		newInfoCommand(),
-		newStubCommand("exec", "Execute a command on a remote host", 1),
+		newExecCommand(),
 		newStubCommand("cp", "Copy files between local and remote hosts", 2),
 		newStubCommand("probe", "Check TCP connectivity to a host", 1),
 		newStubCommand("daemon", "Manage the connection pool daemon", 1),
