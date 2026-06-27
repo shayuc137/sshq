@@ -60,6 +60,7 @@ func NewRootCommand() *cobra.Command {
 		newTrustCommand(),
 		newConfigCommand(),
 		newClusterCommand(),
+		newTunnelCommand(),
 		newDocsCommand(),
 	)
 

@@ -18,6 +18,7 @@ import (
 	"github.com/shayuc137/sshq/internal/output"
 	"github.com/shayuc137/sshq/internal/pool"
 	"github.com/shayuc137/sshq/internal/remote"
+	"github.com/shayuc137/sshq/internal/tunnel"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
 )
@@ -140,6 +141,7 @@ type daemonContext struct {
 	store      *config.Store
 	pool       *pool.Pool
 	cache      *remote.Cache
+	tunnels    *tunnel.Registry
 	startTime  time.Time
 	stopCh     chan struct{}
 	stopped    *bool
@@ -170,6 +172,7 @@ func runDaemon(w *output.Writer, store *config.Store) error {
 		store:     store,
 		pool:      pool.New(defaultIdleTimeout),
 		cache:     cache,
+		tunnels:   tunnel.NewRegistry(),
 		startTime: time.Now(),
 		stopCh:    make(chan struct{}),
 		stopped:   &stopped,
@@ -222,6 +225,7 @@ func runDaemon(w *output.Writer, store *config.Store) error {
 		if err != nil {
 			select {
 			case <-dc.stopCh:
+				dc.tunnels.StopAll()
 				dc.pool.CloseAll()
 				w.Info("daemon stopped")
 				return nil
@@ -294,6 +298,12 @@ func (dc *daemonContext) route(conn net.Conn, env ipc.Envelope) {
 		dc.handleProfile(conn, env.Payload)
 	case "cluster-exec":
 		dc.handleClusterExec(conn, env.Payload)
+	case "tunnel-start":
+		dc.handleTunnelStart(conn, env.Payload)
+	case "tunnel-stop":
+		dc.handleTunnelStop(conn, env.Payload)
+	case "tunnel-list":
+		dc.handleTunnelList(conn)
 	case "status":
 		dc.handleStatus(conn)
 	case "shutdown":

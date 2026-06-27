@@ -99,6 +99,24 @@ type ClusterSummary struct {
 	Failed  int `json:"failed"`
 }
 
+type TunnelStartPayload struct {
+	Direction  string `json:"direction"`
+	Alias      string `json:"alias"`
+	LocalAddr  string `json:"local_addr"`
+	RemoteAddr string `json:"remote_addr"`
+}
+
+type TunnelStopPayload struct {
+	ID string `json:"id"`
+}
+
+type TunnelStartResult struct {
+	ID        string `json:"id"`
+	Direction string `json:"direction"`
+	LocalAddr string `json:"local_addr"`
+	RemoteAddr string `json:"remote_addr"`
+}
+
 // StatusResponse is returned by the "status" action.
 type StatusResponse struct {
 	Running     bool       `json:"running"`
