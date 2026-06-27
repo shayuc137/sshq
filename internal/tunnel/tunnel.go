@@ -31,8 +31,6 @@ type Tunnel struct {
 	cancel     context.CancelFunc
 	listener   net.Listener
 	activeConn int64
-	mu         sync.Mutex
-	err        error
 }
 
 type Registry struct {
