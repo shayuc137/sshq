@@ -17,6 +17,7 @@ sshq cp <src> <dst> [flags]
 
 ```
   -h, --help          help for cp
+      --no-daemon     skip daemon, connect directly
       --no-progress   disable progress output
   -r, --recursive     copy directories recursively
 ```

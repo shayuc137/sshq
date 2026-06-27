@@ -17,6 +17,7 @@ import (
 	"github.com/shayuc137/sshq/internal/ipc"
 	"github.com/shayuc137/sshq/internal/output"
 	"github.com/shayuc137/sshq/internal/pool"
+	"github.com/shayuc137/sshq/internal/remote"
 	"github.com/shayuc137/sshq/internal/sshclient"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
@@ -65,20 +66,7 @@ func newDaemonStopCommand() *cobra.Command {
 		Short: "Stop the daemon",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			conn, err := ipc.Connect()
-			if err != nil {
-				return output.Errorf("daemon not running", "")
-			}
-			defer conn.Close()
-
-			req := ipc.Request{Action: "shutdown", ProtocolVersion: ipc.ProtocolVersion}
-			if err := ipc.Send(conn, req); err != nil {
-				return output.Errorf("send shutdown: "+err.Error(), "")
-			}
-
-			w := writerFrom(cmd.Context())
-			w.Success("daemon stopped")
-			return nil
+			return sendSimpleAction("shutdown", "daemon stopped", cmd)
 		},
 	}
 }
@@ -97,8 +85,8 @@ func newDaemonStatusCommand() *cobra.Command {
 			}
 			defer conn.Close()
 
-			req := ipc.Request{Action: "status", ProtocolVersion: ipc.ProtocolVersion}
-			if err := ipc.Send(conn, req); err != nil {
+			env, _ := ipc.MakeEnvelope("status", nil)
+			if err := ipc.Send(conn, env); err != nil {
 				return output.Errorf("send status: "+err.Error(), "")
 			}
 
@@ -108,19 +96,34 @@ func newDaemonStatusCommand() *cobra.Command {
 			}
 
 			w := writerFrom(cmd.Context())
-			if w.IsJSONMode() {
-				var resp ipc.StatusResponse
-				json.Unmarshal(msg, &resp)
-				w.JSONOut(resp)
-				return nil
-			}
-
 			var resp ipc.StatusResponse
 			json.Unmarshal(msg, &resp)
-			w.Value(renderDaemonStatus(resp))
+
+			if w.IsJSONMode() {
+				w.JSONOut(resp)
+			} else {
+				w.Value(renderDaemonStatus(resp))
+			}
 			return nil
 		},
 	}
+}
+
+func sendSimpleAction(action, successMsg string, cmd *cobra.Command) error {
+	conn, err := ipc.Connect()
+	if err != nil {
+		return output.Errorf("daemon not running", "")
+	}
+	defer conn.Close()
+
+	env, _ := ipc.MakeEnvelope(action, nil)
+	if err := ipc.Send(conn, env); err != nil {
+		return output.Errorf("send "+action+": "+err.Error(), "")
+	}
+
+	w := writerFrom(cmd.Context())
+	w.Success(successMsg)
+	return nil
 }
 
 func renderDaemonStatus(resp ipc.StatusResponse) string {
@@ -130,6 +133,18 @@ func renderDaemonStatus(resp ipc.StatusResponse) string {
 		s += fmt.Sprintf("  %s %s:%s idle=%s\n", c.Alias, c.Host, c.Port, idle)
 	}
 	return s
+}
+
+// --- daemon server ---
+
+type daemonContext struct {
+	store      *config.Store
+	pool       *pool.Pool
+	cache      *remote.Cache
+	startTime  time.Time
+	stopCh     chan struct{}
+	stopped    *bool
+	stoppedMu  sync.Mutex
 }
 
 func runDaemon(w *output.Writer, store *config.Store) error {
@@ -149,18 +164,25 @@ func runDaemon(w *output.Writer, store *config.Store) error {
 	defer removePID()
 	defer os.Remove(sockPath)
 
-	p := pool.New(defaultIdleTimeout)
-	startTime := time.Now()
+	cache, _ := remote.NewCache(remote.DefaultTTL)
+
+	stopped := false
+	dc := &daemonContext{
+		store:     store,
+		pool:      pool.New(defaultIdleTimeout),
+		cache:     cache,
+		startTime: time.Now(),
+		stopCh:    make(chan struct{}),
+		stopped:   &stopped,
+	}
+
 	lastActivity := time.Now()
 	var mu sync.Mutex
 
-	w.Success(fmt.Sprintf("daemon started on %s", sockPath))
+	w.Success(fmt.Sprintf("daemon started on %s (protocol v%d)", sockPath, ipc.ProtocolVersion))
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
-	stopCh := make(chan struct{})
-	var stopped bool
 
 	go func() {
 		ticker := time.NewTicker(reapInterval)
@@ -168,16 +190,16 @@ func runDaemon(w *output.Writer, store *config.Store) error {
 		for {
 			select {
 			case <-ticker.C:
-				p.Reap()
+				dc.pool.Reap()
 				mu.Lock()
 				idle := time.Since(lastActivity)
 				mu.Unlock()
 				if idle > defaultIdleTimeout {
 					w.Info("idle timeout, shutting down")
-					close(stopCh)
+					dc.shutdown()
 					return
 				}
-			case <-stopCh:
+			case <-dc.stopCh:
 				return
 			}
 		}
@@ -186,16 +208,13 @@ func runDaemon(w *output.Writer, store *config.Store) error {
 	go func() {
 		select {
 		case <-sigCh:
-			if !stopped {
-				stopped = true
-				close(stopCh)
-			}
-		case <-stopCh:
+			dc.shutdown()
+		case <-dc.stopCh:
 		}
 	}()
 
 	go func() {
-		<-stopCh
+		<-dc.stopCh
 		ln.Close()
 	}()
 
@@ -203,8 +222,8 @@ func runDaemon(w *output.Writer, store *config.Store) error {
 		conn, err := ln.Accept()
 		if err != nil {
 			select {
-			case <-stopCh:
-				p.CloseAll()
+			case <-dc.stopCh:
+				dc.pool.CloseAll()
 				w.Info("daemon stopped")
 				return nil
 			default:
@@ -216,11 +235,20 @@ func runDaemon(w *output.Writer, store *config.Store) error {
 		lastActivity = time.Now()
 		mu.Unlock()
 
-		go handleConn(conn, store, p, startTime, stopCh, &stopped)
+		go dc.handleConn(conn)
 	}
 }
 
-func handleConn(conn net.Conn, store *config.Store, p *pool.Pool, startTime time.Time, stopCh chan struct{}, stopped *bool) {
+func (dc *daemonContext) shutdown() {
+	dc.stoppedMu.Lock()
+	defer dc.stoppedMu.Unlock()
+	if !*dc.stopped {
+		*dc.stopped = true
+		close(dc.stopCh)
+	}
+}
+
+func (dc *daemonContext) handleConn(conn net.Conn) {
 	defer conn.Close()
 
 	msg, err := ipc.Recv(conn)
@@ -228,34 +256,62 @@ func handleConn(conn net.Conn, store *config.Store, p *pool.Pool, startTime time
 		return
 	}
 
-	var req ipc.Request
-	if err := json.Unmarshal(msg, &req); err != nil {
-		ipc.Send(conn, ipc.Frame{Type: "error", Hint: "invalid request"})
+	if ipc.DetectV1(msg) {
+		ipc.SendError(conn,
+			"protocol v1 is deprecated, upgrade sshq CLI",
+			"go install github.com/shayuc137/sshq/cmd/sshq@latest",
+		)
 		return
 	}
 
-	if req.ProtocolVersion != ipc.ProtocolVersion {
-		ipc.Send(conn, ipc.Frame{Type: "error", Hint: fmt.Sprintf("protocol version mismatch: got %d, want %d", req.ProtocolVersion, ipc.ProtocolVersion)})
+	env, err := ipc.ParseEnvelope(msg)
+	if err != nil {
+		ipc.SendError(conn, "invalid request: "+err.Error(), "")
 		return
 	}
 
-	switch req.Action {
+	if env.Version != ipc.ProtocolVersion {
+		ipc.SendError(conn,
+			fmt.Sprintf("protocol version mismatch: got %d, want %d", env.Version, ipc.ProtocolVersion),
+			"go install github.com/shayuc137/sshq/cmd/sshq@latest",
+		)
+		return
+	}
+
+	dc.route(conn, env)
+}
+
+func (dc *daemonContext) route(conn net.Conn, env ipc.Envelope) {
+	switch env.Action {
 	case "exec":
-		handleExec(conn, store, p, req)
+		dc.handleExec(conn, env.Payload)
+	case "script":
+		dc.handleScript(conn, env.Payload)
+	case "transfer":
+		dc.handleTransfer(conn, env.Payload)
+	case "relay":
+		dc.handleRelay(conn, env.Payload)
+	case "profile":
+		dc.handleProfile(conn, env.Payload)
 	case "status":
-		handleStatus(conn, p, startTime)
+		dc.handleStatus(conn)
 	case "shutdown":
-		if !*stopped {
-			*stopped = true
-			close(stopCh)
-		}
+		dc.shutdown()
+	default:
+		ipc.SendError(conn, "unknown action: "+env.Action, "")
 	}
 }
 
-func handleExec(conn net.Conn, store *config.Store, p *pool.Pool, req ipc.Request) {
-	host, err := store.Get(req.Alias)
+func (dc *daemonContext) handleExec(conn net.Conn, raw json.RawMessage) {
+	var payload ipc.ExecPayload
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		ipc.SendError(conn, "invalid exec payload: "+err.Error(), "")
+		return
+	}
+
+	host, err := dc.store.Get(payload.Alias)
 	if err != nil {
-		ipc.Send(conn, ipc.Frame{Type: "error", Hint: err.Error(), Action: "run 'sshq ls' to see available hosts"})
+		ipc.SendError(conn, err.Error(), "run 'sshq ls' to see available hosts")
 		return
 	}
 
@@ -264,22 +320,22 @@ func handleExec(conn net.Conn, store *config.Store, p *pool.Pool, req ipc.Reques
 		Port:         host.Port,
 		User:         host.User,
 		IdentityFile: host.IdentityFile,
-		Timeout:      time.Duration(req.Timeout) * time.Second,
+		Timeout:      time.Duration(payload.Timeout) * time.Second,
 	}
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 30 * time.Second
 	}
 
-	client, err := p.Get(context.Background(), req.Alias, cfg)
+	client, err := dc.pool.Get(context.Background(), payload.Alias, cfg)
 	if err != nil {
-		ce := connErrorToOutput(err, req.Alias)
-		ipc.Send(conn, ipc.Frame{Type: "error", Hint: ce.Hint, Action: ce.Action})
+		ce := connErrorToOutput(err, payload.Alias)
+		ipc.SendError(conn, ce.Hint, ce.Action)
 		return
 	}
 
 	session, err := client.NewSession()
 	if err != nil {
-		ipc.Send(conn, ipc.Frame{Type: "error", Hint: "create session: " + err.Error()})
+		ipc.SendError(conn, "create session: "+err.Error(), "")
 		return
 	}
 	defer session.Close()
@@ -287,8 +343,8 @@ func handleExec(conn net.Conn, store *config.Store, p *pool.Pool, req ipc.Reques
 	stdoutPipe, _ := session.StdoutPipe()
 	stderrPipe, _ := session.StderrPipe()
 
-	if err := session.Start(req.Command); err != nil {
-		ipc.Send(conn, ipc.Frame{Type: "error", Hint: "start command: " + err.Error()})
+	if err := session.Start(payload.Command); err != nil {
+		ipc.SendError(conn, "start command: "+err.Error(), "")
 		return
 	}
 
@@ -312,7 +368,7 @@ func handleExec(conn net.Conn, store *config.Store, p *pool.Pool, req ipc.Reques
 		if exitErr, ok := err.(*ssh.ExitError); ok {
 			exitCode = exitErr.ExitStatus()
 		} else {
-			ipc.Send(conn, ipc.Frame{Type: "error", Hint: "wait: " + err.Error()})
+			ipc.SendError(conn, "wait: "+err.Error(), "")
 			return
 		}
 	}
@@ -333,8 +389,8 @@ func streamPipe(conn net.Conn, pipe io.Reader, frameType string) {
 	}
 }
 
-func handleStatus(conn net.Conn, p *pool.Pool, startTime time.Time) {
-	stats := p.Stats()
+func (dc *daemonContext) handleStatus(conn net.Conn) {
+	stats := dc.pool.Stats()
 	conns := make([]ipc.ConnInfo, len(stats))
 	for i, s := range stats {
 		conns[i] = ipc.ConnInfo{
@@ -347,7 +403,7 @@ func handleStatus(conn net.Conn, p *pool.Pool, startTime time.Time) {
 	}
 	resp := ipc.StatusResponse{
 		Running:     true,
-		Uptime:      int64(time.Since(startTime).Seconds()),
+		Uptime:      int64(time.Since(dc.startTime).Seconds()),
 		Connections: conns,
 	}
 	ipc.Send(conn, resp)

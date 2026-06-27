@@ -12,6 +12,32 @@ import (
 
 const MaxMessageSize = 10 * 1024 * 1024 // 10MB
 
+// ParseEnvelope decodes a raw message into a v2 Envelope.
+func ParseEnvelope(raw json.RawMessage) (Envelope, error) {
+	var env Envelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return Envelope{}, fmt.Errorf("parse envelope: %w", err)
+	}
+	if env.Action == "" {
+		return Envelope{}, fmt.Errorf("envelope missing action field")
+	}
+	return env, nil
+}
+
+// DetectV1 checks whether a raw message is a v1-format request.
+func DetectV1(raw json.RawMessage) bool {
+	var probe v1Request
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return false
+	}
+	return probe.ProtocolVersion > 0
+}
+
+// SendError sends an error frame with hint and action.
+func SendError(conn net.Conn, hint, action string) error {
+	return Send(conn, Frame{Type: "error", Hint: hint, Action: action})
+}
+
 func SocketPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {

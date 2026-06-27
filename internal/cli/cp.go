@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/shayuc137/sshq/internal/config"
+	"github.com/shayuc137/sshq/internal/ipc"
 	"github.com/shayuc137/sshq/internal/output"
 	"github.com/shayuc137/sshq/internal/remote"
 	"github.com/shayuc137/sshq/internal/sshclient"
@@ -37,6 +39,7 @@ func newCpCommand() *cobra.Command {
 			w := writerFrom(cmd.Context())
 			recursive, _ := cmd.Flags().GetBool("recursive")
 			noProgress, _ := cmd.Flags().GetBool("no-progress")
+			noDaemon, _ := cmd.Flags().GetBool("no-daemon")
 			timeout, _ := cmd.Flags().GetDuration("timeout")
 
 			var progressFn transfer.ProgressFunc
@@ -51,13 +54,20 @@ func newCpCommand() *cobra.Command {
 				defer cancel()
 			}
 
+			if !noDaemon && ipc.IsRunning() {
+				switch parsed.Direction {
+				case transfer.Upload, transfer.Download:
+					return cpTransferViaDaemon(cmd, w, parsed, recursive, noProgress)
+				case transfer.Relay:
+					return cpRelayViaDaemon(cmd, w, parsed, recursive, noProgress)
+				}
+			}
+
 			switch parsed.Direction {
-			case transfer.Upload:
-				return cpTransfer(ctx, w, store, parsed, recursive, progressFn)
-			case transfer.Download:
-				return cpTransfer(ctx, w, store, parsed, recursive, progressFn)
+			case transfer.Upload, transfer.Download:
+				return cpTransferDirect(ctx, w, store, parsed, recursive, progressFn)
 			case transfer.Relay:
-				return cpRelay(ctx, w, store, parsed, recursive, progressFn)
+				return cpRelayDirect(ctx, w, store, parsed, recursive, progressFn)
 			}
 			return nil
 		},
@@ -65,10 +75,132 @@ func newCpCommand() *cobra.Command {
 
 	cmd.Flags().BoolP("recursive", "r", false, "copy directories recursively")
 	cmd.Flags().Bool("no-progress", false, "disable progress output")
+	cmd.Flags().Bool("no-daemon", false, "skip daemon, connect directly")
 	return cmd
 }
 
-func cpTransfer(ctx context.Context, w *output.Writer, store *config.Store, parsed transfer.ParsedArgs, recursive bool, progress transfer.ProgressFunc) error {
+// --- daemon paths ---
+
+func cpTransferViaDaemon(cmd *cobra.Command, w *output.Writer, parsed transfer.ParsedArgs, recursive, noProgress bool) error {
+	conn, err := ipc.Connect()
+	if err != nil {
+		w.Info("daemon unreachable, falling back to direct connection")
+		return cpTransferDirectFromCmd(cmd, w, parsed, recursive, noProgress)
+	}
+	defer conn.Close()
+
+	alias := parsed.Src.Alias
+	localPath := parsed.Src.Path
+	remotePath := parsed.Dst.Path
+	direction := "upload"
+	if alias == "" {
+		alias = parsed.Dst.Alias
+		localPath = parsed.Src.Path
+		remotePath = parsed.Dst.Path
+		direction = "upload"
+	}
+	if parsed.Direction == transfer.Download {
+		alias = parsed.Src.Alias
+		localPath = parsed.Dst.Path
+		remotePath = parsed.Src.Path
+		direction = "download"
+	}
+
+	env, _ := ipc.MakeEnvelope("transfer", ipc.TransferPayload{
+		Direction:  direction,
+		Alias:      alias,
+		LocalPath:  localPath,
+		RemotePath: remotePath,
+		Recursive:  recursive,
+	})
+	if err := ipc.Send(conn, env); err != nil {
+		w.Info("daemon send failed, falling back to direct connection")
+		return cpTransferDirectFromCmd(cmd, w, parsed, recursive, noProgress)
+	}
+
+	return recvTransferFrames(w, conn)
+}
+
+func cpRelayViaDaemon(cmd *cobra.Command, w *output.Writer, parsed transfer.ParsedArgs, recursive, noProgress bool) error {
+	conn, err := ipc.Connect()
+	if err != nil {
+		w.Info("daemon unreachable, falling back to direct connection")
+		return cpRelayDirectFromCmd(cmd, w, parsed, recursive, noProgress)
+	}
+	defer conn.Close()
+
+	env, _ := ipc.MakeEnvelope("relay", ipc.RelayPayload{
+		SrcAlias:  parsed.Src.Alias,
+		SrcPath:   parsed.Src.Path,
+		DstAlias:  parsed.Dst.Alias,
+		DstPath:   parsed.Dst.Path,
+		Recursive: recursive,
+	})
+	if err := ipc.Send(conn, env); err != nil {
+		w.Info("daemon send failed, falling back to direct connection")
+		return cpRelayDirectFromCmd(cmd, w, parsed, recursive, noProgress)
+	}
+
+	return recvTransferFrames(w, conn)
+}
+
+func recvTransferFrames(w *output.Writer, conn net.Conn) error {
+	for {
+		msg, err := ipc.Recv(conn)
+		if err != nil {
+			return output.Errorf("daemon connection lost", "retry or use --no-daemon")
+		}
+
+		var frame ipc.Frame
+		if err := json.Unmarshal(msg, &frame); err != nil {
+			return output.Errorf("invalid daemon response", "")
+		}
+
+		switch frame.Type {
+		case "stderr":
+			w.Info(frame.Data)
+		case "progress":
+			if !w.IsJSONMode() {
+				var info transfer.ProgressInfo
+				json.Unmarshal(frame.Payload, &info)
+				w.Info(fmt.Sprintf("%s %d%% %s/%s %s",
+					info.File, info.Percent,
+					transfer.HumanSize(info.Transferred),
+					transfer.HumanSize(info.Total),
+					info.Speed))
+			}
+		case "result":
+			var result transfer.Result
+			json.Unmarshal(frame.Payload, &result)
+			renderCpResult(w, &result)
+			return nil
+		case "error":
+			return output.Errorf(frame.Hint, frame.Action)
+		}
+	}
+}
+
+// --- direct paths (fallback) ---
+
+func cpTransferDirectFromCmd(cmd *cobra.Command, w *output.Writer, parsed transfer.ParsedArgs, recursive, noProgress bool) error {
+	store := configFrom(cmd.Context())
+	var progressFn transfer.ProgressFunc
+	if !noProgress {
+		progressFn = makeProgressFunc(w)
+	}
+	return cpTransferDirect(cmd.Context(), w, store, parsed, recursive, progressFn)
+}
+
+func cpRelayDirectFromCmd(cmd *cobra.Command, w *output.Writer, parsed transfer.ParsedArgs, recursive, noProgress bool) error {
+	store := configFrom(cmd.Context())
+	var progressFn transfer.ProgressFunc
+	if !noProgress {
+		progressFn = makeProgressFunc(w)
+	}
+	return cpRelayDirect(cmd.Context(), w, store, parsed, recursive, progressFn)
+}
+
+func cpTransferDirect(ctx context.Context, w *output.Writer, store *config.Store, parsed transfer.ParsedArgs, recursive bool, progress transfer.ProgressFunc) error {
 	alias := parsed.Src.Alias
 	if alias == "" {
 		alias = parsed.Dst.Alias
@@ -131,7 +263,7 @@ func cpTransfer(ctx context.Context, w *output.Writer, store *config.Store, pars
 	return nil
 }
 
-func cpRelay(ctx context.Context, w *output.Writer, store *config.Store, parsed transfer.ParsedArgs, recursive bool, progress transfer.ProgressFunc) error {
+func cpRelayDirect(ctx context.Context, w *output.Writer, store *config.Store, parsed transfer.ParsedArgs, recursive bool, progress transfer.ProgressFunc) error {
 	srcHost, err := store.Get(parsed.Src.Alias)
 	if err != nil {
 		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")

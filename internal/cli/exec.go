@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -61,6 +62,40 @@ func execScript(cmd *cobra.Command, w *output.Writer, alias, scriptFile string) 
 		return output.Errorf("read script file: "+err.Error(), "check file path")
 	}
 
+	noDaemon, _ := cmd.Flags().GetBool("no-daemon")
+	if !noDaemon && ipc.IsRunning() {
+		return execScriptViaDaemon(cmd, w, alias, script)
+	}
+
+	return execScriptDirect(cmd, w, alias, script)
+}
+
+func execScriptViaDaemon(cmd *cobra.Command, w *output.Writer, alias string, script []byte) error {
+	timeout, _ := cmd.Flags().GetDuration("timeout")
+	shellOverride, _ := cmd.Flags().GetString("shell")
+
+	conn, err := ipc.Connect()
+	if err != nil {
+		w.Info("daemon unreachable, falling back to direct connection")
+		return execScriptDirect(cmd, w, alias, script)
+	}
+	defer conn.Close()
+
+	env, _ := ipc.MakeEnvelope("script", ipc.ScriptPayload{
+		Alias:   alias,
+		Script:  script,
+		Shell:   shellOverride,
+		Timeout: int(timeout.Seconds()),
+	})
+	if err := ipc.Send(conn, env); err != nil {
+		w.Info("daemon send failed, falling back to direct connection")
+		return execScriptDirect(cmd, w, alias, script)
+	}
+
+	return recvExecFrames(cmd, conn)
+}
+
+func execScriptDirect(cmd *cobra.Command, w *output.Writer, alias string, script []byte) error {
 	store := configFrom(cmd.Context())
 	host, err := store.Get(alias)
 	if err != nil {
@@ -130,18 +165,20 @@ func execViaDaemon(cmd *cobra.Command, w *output.Writer, alias, command string) 
 	}
 	defer conn.Close()
 
-	req := ipc.Request{
-		Action:          "exec",
-		ProtocolVersion: ipc.ProtocolVersion,
-		Alias:           alias,
-		Command:         command,
-		Timeout:         int(timeout.Seconds()),
-	}
-	if err := ipc.Send(conn, req); err != nil {
+	env, _ := ipc.MakeEnvelope("exec", ipc.ExecPayload{
+		Alias:   alias,
+		Command: command,
+		Timeout: int(timeout.Seconds()),
+	})
+	if err := ipc.Send(conn, env); err != nil {
 		w.Info("daemon send failed, falling back to direct connection")
 		return execDirect(cmd, w, alias, command)
 	}
 
+	return recvExecFrames(cmd, conn)
+}
+
+func recvExecFrames(cmd *cobra.Command, conn net.Conn) error {
 	stdout := cmd.OutOrStdout()
 	stderr := cmd.ErrOrStderr()
 

@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/shayuc137/sshq/internal/config"
+	"github.com/shayuc137/sshq/internal/ipc"
 	"github.com/shayuc137/sshq/internal/output"
 	"github.com/shayuc137/sshq/internal/probe"
 	"github.com/shayuc137/sshq/internal/remote"
@@ -99,6 +101,60 @@ func newProbeCommand() *cobra.Command {
 }
 
 func refreshRemoteProfile(cmd *cobra.Command, w *output.Writer, host config.Host) *remote.Profile {
+	if ipc.IsRunning() {
+		return refreshProfileViaDaemon(w, host)
+	}
+	return refreshProfileDirect(cmd, w, host)
+}
+
+func refreshProfileViaDaemon(w *output.Writer, host config.Host) *remote.Profile {
+	conn, err := ipc.Connect()
+	if err != nil {
+		w.Info("daemon unreachable for profile detect")
+		return nil
+	}
+	defer conn.Close()
+
+	env, _ := ipc.MakeEnvelope("profile", ipc.ProfilePayload{
+		Alias:   host.Alias,
+		Refresh: true,
+	})
+	if err := ipc.Send(conn, env); err != nil {
+		w.Info("daemon send failed for profile detect")
+		return nil
+	}
+
+	msg, err := ipc.Recv(conn)
+	if err != nil {
+		w.Info("daemon recv failed for profile detect")
+		return nil
+	}
+
+	var frame ipc.Frame
+	if err := json.Unmarshal(msg, &frame); err != nil {
+		return nil
+	}
+
+	if frame.Type == "error" {
+		w.Info("profile detect: " + frame.Hint)
+		return nil
+	}
+
+	if frame.Type == "result" {
+		var pr ipc.ProfileResult
+		json.Unmarshal(frame.Payload, &pr)
+		return &remote.Profile{
+			OS:       remote.OS(pr.OS),
+			Shell:    remote.Shell(pr.Shell),
+			Encoding: pr.Encoding,
+			HomeDir:  pr.HomeDir,
+		}
+	}
+
+	return nil
+}
+
+func refreshProfileDirect(cmd *cobra.Command, w *output.Writer, host config.Host) *remote.Profile {
 	timeout, _ := cmd.Flags().GetDuration("timeout")
 	cfg := sshclient.ConnConfig{
 		Host: host.HostName, Port: host.Port,
