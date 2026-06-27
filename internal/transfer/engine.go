@@ -35,7 +35,7 @@ func NewEngine(client *ssh.Client, profile *remote.Profile, info func(string)) (
 	if err == nil {
 		return eng, nil
 	}
-	if profile != nil && profile.IsWindows() {
+	if profile != nil && profile.IsWindows() && profile.NeedsStdinInjection() {
 		return nil, fmt.Errorf("SFTP required on Windows — raw stream fallback not available; enable sftp-server on the remote host")
 	}
 	if info != nil {

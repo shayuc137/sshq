@@ -164,6 +164,9 @@ func TestNormOS(t *testing.T) {
 		{"Darwin", Darwin},
 		{"FreeBSD", FreeBSD},
 		{"Windows_NT", Windows},
+		{"MINGW64_NT-10.0-26200", Windows},
+		{"MSYS_NT-10.0-26200", Windows},
+		{"CYGWIN_NT-10.0", Windows},
 		{"something", Unknown},
 	}
 	for _, tt := range tests {

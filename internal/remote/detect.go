@@ -154,7 +154,8 @@ func codePageToEncoding(cp string) string {
 }
 
 func normOS(s string) OS {
-	switch strings.ToLower(s) {
+	lower := strings.ToLower(s)
+	switch lower {
 	case "linux":
 		return Linux
 	case "darwin":
@@ -164,6 +165,11 @@ func normOS(s string) OS {
 	case "windows", "windows_nt":
 		return Windows
 	default:
+		if strings.HasPrefix(lower, "mingw") ||
+			strings.HasPrefix(lower, "msys") ||
+			strings.HasPrefix(lower, "cygwin") {
+			return Windows
+		}
 		return Unknown
 	}
 }
