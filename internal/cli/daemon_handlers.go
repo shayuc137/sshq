@@ -22,12 +22,8 @@ func (dc *daemonContext) resolveHost(conn net.Conn, alias string) (*sshclient.Co
 		ipc.SendError(conn, err.Error(), "run 'sshq ls' to see available hosts")
 		return nil, false
 	}
-	cfg := &sshclient.ConnConfig{
-		Host:         host.HostName,
-		Port:         host.Port,
-		User:         host.User,
-		IdentityFile: host.IdentityFile,
-	}
+	c := hostToConnConfigWithStore(host, dc.store)
+	cfg := &c
 	return cfg, true
 }
 
@@ -291,13 +287,8 @@ func (dc *daemonContext) handleProfile(conn net.Conn, raw json.RawMessage) {
 		}
 	}
 
-	cfg := sshclient.ConnConfig{
-		Host:         host.HostName,
-		Port:         host.Port,
-		User:         host.User,
-		IdentityFile: host.IdentityFile,
-		Timeout:      30 * time.Second,
-	}
+	cfg := hostToConnConfigWithStore(host, dc.store)
+	cfg.Timeout = 30 * time.Second
 
 	client, ok := dc.getClient(conn, payload.Alias, &cfg)
 	if !ok {

@@ -19,10 +19,102 @@ type ConnConfig struct {
 	Port         string
 	User         string
 	IdentityFile string
+	ProxyJump    string
+	ProxyConfig  *ConnConfig
 	Timeout      time.Duration
 }
 
 func Dial(ctx context.Context, cfg ConnConfig) (*ssh.Client, error) {
+	if cfg.ProxyJump != "" {
+		return dialViaProxy(ctx, cfg)
+	}
+	return dialDirect(ctx, cfg)
+}
+
+func dialDirect(ctx context.Context, cfg ConnConfig) (*ssh.Client, error) {
+	sshCfg, err := buildSSHConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	addr := net.JoinHostPort(cfg.Host, cfg.Port)
+
+	dialer := net.Dialer{Timeout: cfg.Timeout}
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("connect to %s: %w", addr, err)
+	}
+
+	return handshake(ctx, conn, addr, sshCfg, cfg)
+}
+
+func dialViaProxy(ctx context.Context, cfg ConnConfig) (*ssh.Client, error) {
+	var proxyCfg ConnConfig
+	if cfg.ProxyConfig != nil {
+		proxyCfg = *cfg.ProxyConfig
+	} else {
+		var err error
+		proxyCfg, err = resolveProxyConfig(cfg.ProxyJump)
+		if err != nil {
+			return nil, fmt.Errorf("resolve proxy %q: %w", cfg.ProxyJump, err)
+		}
+	}
+	proxyCfg.Timeout = cfg.Timeout
+
+	proxyClient, err := Dial(ctx, proxyCfg)
+	if err != nil {
+		return nil, fmt.Errorf("connect to proxy %s: %w", cfg.ProxyJump, err)
+	}
+
+	targetAddr := net.JoinHostPort(cfg.Host, cfg.Port)
+	proxyConn, err := proxyClient.DialContext(ctx, "tcp", targetAddr)
+	if err != nil {
+		proxyClient.Close()
+		return nil, fmt.Errorf("proxy %s → %s: %w", cfg.ProxyJump, targetAddr, err)
+	}
+
+	sshCfg, err := buildSSHConfig(cfg)
+	if err != nil {
+		proxyConn.Close()
+		proxyClient.Close()
+		return nil, err
+	}
+
+	client, err := handshake(ctx, proxyConn, targetAddr, sshCfg, cfg)
+	if err != nil {
+		proxyClient.Close()
+		return nil, err
+	}
+
+	// Keep proxy alive: when the target client closes, the proxy conn is released
+	// but the proxy client stays in the pool (if pooled) or gets GC'd (if direct).
+	return client, nil
+}
+
+func resolveProxyConfig(proxyJump string) (ConnConfig, error) {
+	// ProxyJump format: [user@]host[:port]
+	proxy := ConnConfig{Port: "22"}
+
+	s := proxyJump
+	if idx := strings.LastIndex(s, "@"); idx >= 0 {
+		proxy.User = s[:idx]
+		s = s[idx+1:]
+	}
+	if idx := strings.LastIndex(s, ":"); idx >= 0 {
+		proxy.Host = s[:idx]
+		proxy.Port = s[idx+1:]
+	} else {
+		proxy.Host = s
+	}
+
+	if proxy.Host == "" {
+		return ConnConfig{}, fmt.Errorf("empty proxy host in %q", proxyJump)
+	}
+
+	return proxy, nil
+}
+
+func buildSSHConfig(cfg ConnConfig) (*ssh.ClientConfig, error) {
 	methods, err := authMethods(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("auth setup: %w", err)
@@ -36,23 +128,17 @@ func Dial(ctx context.Context, cfg ConnConfig) (*ssh.Client, error) {
 		return nil, fmt.Errorf("host key verification: %w", err)
 	}
 
-	sshCfg := &ssh.ClientConfig{
+	return &ssh.ClientConfig{
 		User:            cfg.User,
 		Auth:            methods,
 		HostKeyCallback: hostKeyCallback,
 		Timeout:         cfg.Timeout,
-	}
+	}, nil
+}
 
-	addr := net.JoinHostPort(cfg.Host, cfg.Port)
-
-	dialer := net.Dialer{Timeout: cfg.Timeout}
-	conn, err := dialer.DialContext(ctx, "tcp", addr)
-	if err != nil {
-		return nil, fmt.Errorf("connect to %s: %w", addr, err)
-	}
-
-	deadline, ok := ctx.Deadline()
-	if ok {
+func handshake(ctx context.Context, conn net.Conn, addr string, sshCfg *ssh.ClientConfig, cfg ConnConfig) (*ssh.Client, error) {
+	deadline, hasDeadline := ctx.Deadline()
+	if hasDeadline {
 		conn.SetDeadline(deadline)
 	}
 
@@ -62,7 +148,7 @@ func Dial(ctx context.Context, cfg ConnConfig) (*ssh.Client, error) {
 		return nil, categorizeError(err, cfg)
 	}
 
-	if ok {
+	if hasDeadline {
 		conn.SetDeadline(time.Time{})
 	}
 

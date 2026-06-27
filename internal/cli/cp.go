@@ -211,13 +211,8 @@ func cpTransferDirect(ctx context.Context, w *output.Writer, store *config.Store
 		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
 	}
 
-	cfg := sshclient.ConnConfig{
-		Host:         host.HostName,
-		Port:         host.Port,
-		User:         host.User,
-		IdentityFile: host.IdentityFile,
-		Timeout:      30 * time.Second,
-	}
+	cfg := hostToConnConfigWithStore(host, store)
+	cfg.Timeout = 30 * time.Second
 
 	w.Info("connecting to " + alias + "...")
 	client, err := sshclient.Dial(ctx, cfg)
@@ -273,16 +268,10 @@ func cpRelayDirect(ctx context.Context, w *output.Writer, store *config.Store, p
 		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
 	}
 
-	srcCfg := sshclient.ConnConfig{
-		Host: srcHost.HostName, Port: srcHost.Port,
-		User: srcHost.User, IdentityFile: srcHost.IdentityFile,
-		Timeout: 30 * time.Second,
-	}
-	dstCfg := sshclient.ConnConfig{
-		Host: dstHost.HostName, Port: dstHost.Port,
-		User: dstHost.User, IdentityFile: dstHost.IdentityFile,
-		Timeout: 30 * time.Second,
-	}
+	srcCfg := hostToConnConfigWithStore(srcHost, store)
+	srcCfg.Timeout = 30 * time.Second
+	dstCfg := hostToConnConfigWithStore(dstHost, store)
+	dstCfg.Timeout = 30 * time.Second
 
 	w.Info("connecting to " + parsed.Src.Alias + "...")
 	srcClient, err := sshclient.Dial(ctx, srcCfg)

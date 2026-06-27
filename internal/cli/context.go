@@ -49,6 +49,42 @@ func profileCacheFrom(ctx context.Context) *remote.Cache {
 	return nil
 }
 
+func hostToConnConfig(host config.Host) sshclient.ConnConfig {
+	cfg := sshclient.ConnConfig{
+		Host:         host.HostName,
+		Port:         host.Port,
+		User:         host.User,
+		IdentityFile: host.IdentityFile,
+		ProxyJump:    host.ProxyJump,
+	}
+	return cfg
+}
+
+func hostToConnConfigWithStore(host config.Host, store *config.Store) sshclient.ConnConfig {
+	cfg := hostToConnConfig(host)
+	if cfg.ProxyJump != "" && store != nil {
+		cfg.ProxyConfig = resolveProxyChain(store, cfg.ProxyJump)
+	}
+	return cfg
+}
+
+// resolveProxyChain recursively resolves a ProxyJump alias into a full
+// ConnConfig chain. Handles multi-level jumps (A → B → C).
+func resolveProxyChain(store *config.Store, proxyJump string) *sshclient.ConnConfig {
+	if proxyJump == "" {
+		return nil
+	}
+	proxy, err := store.Get(proxyJump)
+	if err != nil {
+		return nil
+	}
+	cfg := hostToConnConfig(proxy)
+	if proxy.ProxyJump != "" {
+		cfg.ProxyConfig = resolveProxyChain(store, proxy.ProxyJump)
+	}
+	return &cfg
+}
+
 func connErrorToOutput(err error, alias string) *output.CmdError {
 	var ce *sshclient.ConnError
 	if !errors.As(err, &ce) {

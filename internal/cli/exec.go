@@ -103,11 +103,8 @@ func execScriptDirect(cmd *cobra.Command, w *output.Writer, alias string, script
 	}
 
 	timeout, _ := cmd.Flags().GetDuration("timeout")
-	cfg := sshclient.ConnConfig{
-		Host: host.HostName, Port: host.Port,
-		User: host.User, IdentityFile: host.IdentityFile,
-		Timeout: timeout,
-	}
+	cfg := hostToConnConfigWithStore(host, store)
+	cfg.Timeout = timeout
 
 	w.Info("connecting to " + alias + "...")
 	ctx := cmd.Context()
@@ -217,13 +214,8 @@ func execDirect(cmd *cobra.Command, w *output.Writer, alias, command string) err
 	}
 
 	timeout, _ := cmd.Flags().GetDuration("timeout")
-	cfg := sshclient.ConnConfig{
-		Host:         host.HostName,
-		Port:         host.Port,
-		User:         host.User,
-		IdentityFile: host.IdentityFile,
-		Timeout:      timeout,
-	}
+	cfg := hostToConnConfigWithStore(host, store)
+	cfg.Timeout = timeout
 
 	w.Info("connecting to " + alias + "...")
 

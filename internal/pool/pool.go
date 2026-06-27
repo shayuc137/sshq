@@ -39,7 +39,11 @@ func New(ttl time.Duration) *Pool {
 }
 
 func Key(cfg sshclient.ConnConfig) string {
-	return fmt.Sprintf("%s:%s:%s:%s", cfg.Host, cfg.Port, cfg.User, cfg.IdentityFile)
+	key := fmt.Sprintf("%s:%s:%s:%s", cfg.Host, cfg.Port, cfg.User, cfg.IdentityFile)
+	if cfg.ProxyJump != "" {
+		key += ":proxy=" + cfg.ProxyJump
+	}
+	return key
 }
 
 func (p *Pool) Get(ctx context.Context, alias string, cfg sshclient.ConnConfig) (*ssh.Client, error) {

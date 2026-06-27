@@ -156,11 +156,9 @@ func refreshProfileViaDaemon(w *output.Writer, host config.Host) *remote.Profile
 
 func refreshProfileDirect(cmd *cobra.Command, w *output.Writer, host config.Host) *remote.Profile {
 	timeout, _ := cmd.Flags().GetDuration("timeout")
-	cfg := sshclient.ConnConfig{
-		Host: host.HostName, Port: host.Port,
-		User: host.User, IdentityFile: host.IdentityFile,
-		Timeout: timeout,
-	}
+	store := configFrom(cmd.Context())
+	cfg := hostToConnConfigWithStore(host, store)
+	cfg.Timeout = timeout
 	ctx := cmd.Context()
 	client, err := sshclient.Dial(ctx, cfg)
 	if err != nil {

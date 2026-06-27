@@ -18,7 +18,6 @@ import (
 	"github.com/shayuc137/sshq/internal/output"
 	"github.com/shayuc137/sshq/internal/pool"
 	"github.com/shayuc137/sshq/internal/remote"
-	"github.com/shayuc137/sshq/internal/sshclient"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
 )
@@ -315,13 +314,8 @@ func (dc *daemonContext) handleExec(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 
-	cfg := sshclient.ConnConfig{
-		Host:         host.HostName,
-		Port:         host.Port,
-		User:         host.User,
-		IdentityFile: host.IdentityFile,
-		Timeout:      time.Duration(payload.Timeout) * time.Second,
-	}
+	cfg := hostToConnConfigWithStore(host, dc.store)
+	cfg.Timeout = time.Duration(payload.Timeout) * time.Second
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 30 * time.Second
 	}
