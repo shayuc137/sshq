@@ -16,7 +16,7 @@ Agent-native SSH multiplexing CLI
 ### SEE ALSO
 
 * [sshq completion](sshq_completion.md)	 - Generate the autocompletion script for the specified shell
-* [sshq config](sshq_config.md)	 - Manage sshq configuration
+* [sshq config](sshq_config.md)	 - Manage SSH host configuration
 * [sshq cp](sshq_cp.md)	 - Copy files between local and remote hosts
 * [sshq daemon](sshq_daemon.md)	 - Manage the connection pool daemon
 * [sshq exec](sshq_exec.md)	 - Execute a command on a remote host

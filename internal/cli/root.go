@@ -58,7 +58,7 @@ func NewRootCommand() *cobra.Command {
 		newProbeCommand(),
 		newDaemonCommand(),
 		newTrustCommand(),
-		newStubCommand("config", "Manage sshq configuration", 1),
+		newConfigCommand(),
 		newDocsCommand(),
 	)
 

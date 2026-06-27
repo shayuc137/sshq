@@ -23,6 +23,7 @@ type Host struct {
 type Store struct {
 	cfg   *ssh_config.Config
 	raw   []byte
+	path  string
 	hosts []Host
 }
 
@@ -43,7 +44,7 @@ func Load(path string) (*Store, error) {
 		return nil, fmt.Errorf("read ssh config: %w", err)
 	}
 
-	s := &Store{cfg: cfg, raw: raw}
+	s := &Store{cfg: cfg, raw: raw, path: path}
 	s.hosts = s.extractHosts()
 	return s, nil
 }
