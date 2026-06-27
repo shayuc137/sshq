@@ -236,7 +236,7 @@ func hostKeyCallback() (ssh.HostKeyCallback, error) {
 type ConnErrorKind int
 
 const (
-	ErrNetwork         ConnErrorKind = iota
+	ErrNetwork ConnErrorKind = iota
 	ErrAuth
 	ErrHostKeyMismatch
 	ErrHostKeyUnknown

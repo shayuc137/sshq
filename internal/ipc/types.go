@@ -86,11 +86,11 @@ type ClusterExecPayload struct {
 }
 
 type ClusterFrame struct {
-	Alias    string `json:"alias"`
-	Type     string `json:"type"`
-	Data     string `json:"data,omitempty"`
-	Code     int    `json:"code,omitempty"`
-	Hint     string `json:"hint,omitempty"`
+	Alias string `json:"alias"`
+	Type  string `json:"type"`
+	Data  string `json:"data,omitempty"`
+	Code  int    `json:"code,omitempty"`
+	Hint  string `json:"hint,omitempty"`
 }
 
 type ClusterSummary struct {
@@ -111,9 +111,9 @@ type TunnelStopPayload struct {
 }
 
 type TunnelStartResult struct {
-	ID        string `json:"id"`
-	Direction string `json:"direction"`
-	LocalAddr string `json:"local_addr"`
+	ID         string `json:"id"`
+	Direction  string `json:"direction"`
+	LocalAddr  string `json:"local_addr"`
 	RemoteAddr string `json:"remote_addr"`
 }
 

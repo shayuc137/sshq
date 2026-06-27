@@ -80,6 +80,11 @@ func (s *Store) Save() error {
 		os.Remove(tmpPath)
 		return fmt.Errorf("write temp file: %w", err)
 	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("sync temp file: %w", err)
+	}
 	tmp.Close()
 
 	if err := os.Chmod(tmpPath, 0600); err != nil {

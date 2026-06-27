@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"time"
 
 	"github.com/shayuc137/sshq/internal/ipc"
 	"github.com/shayuc137/sshq/internal/tunnel"
@@ -20,7 +21,7 @@ func (dc *daemonContext) handleTunnelStart(conn net.Conn, raw json.RawMessage) {
 	if !ok {
 		return
 	}
-	cfg.Timeout = 30e9
+	cfg.Timeout = 30 * time.Second
 
 	client, ok := dc.getClient(conn, payload.Alias, cfg)
 	if !ok {

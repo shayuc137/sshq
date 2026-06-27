@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/shayuc137/sshq/internal/ipc"
 	"github.com/shayuc137/sshq/internal/output"
@@ -151,7 +152,7 @@ func tunnelStartForeground(cmd *cobra.Command, w *output.Writer, alias, directio
 	}
 
 	cfg := hostToConnConfigWithStore(host, store)
-	cfg.Timeout = 30e9
+	cfg.Timeout = 30 * time.Second
 
 	w.Info("connecting to " + alias + "...")
 	client, err := sshclient.Dial(cmd.Context(), cfg)
@@ -172,17 +173,15 @@ func tunnelStartForeground(cmd *cobra.Command, w *output.Writer, alias, directio
 
 	infoFn := func(msg string) { w.Info(msg) }
 
-	var t *tunnel.Tunnel
 	switch tunnelCfg.Direction {
 	case tunnel.Local:
-		t, err = tunnel.StartLocal(ctx, client, tunnelCfg, infoFn)
+		_, err = tunnel.StartLocal(ctx, client, tunnelCfg, infoFn)
 	case tunnel.Remote:
-		t, err = tunnel.StartRemote(ctx, client, tunnelCfg, infoFn)
+		_, err = tunnel.StartRemote(ctx, client, tunnelCfg, infoFn)
 	}
 	if err != nil {
 		return output.Errorf(err.Error(), "")
 	}
-	_ = t
 
 	w.Info("tunnel running, press Ctrl+C to stop")
 

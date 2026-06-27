@@ -138,14 +138,14 @@ func renderDaemonStatus(resp ipc.StatusResponse) string {
 // --- daemon server ---
 
 type daemonContext struct {
-	store      *config.Store
-	pool       *pool.Pool
-	cache      *remote.Cache
-	tunnels    *tunnel.Registry
-	startTime  time.Time
-	stopCh     chan struct{}
-	stopped    *bool
-	stoppedMu  sync.Mutex
+	store     *config.Store
+	pool      *pool.Pool
+	cache     *remote.Cache
+	tunnels   *tunnel.Registry
+	startTime time.Time
+	stopCh    chan struct{}
+	stopped   *bool
+	stoppedMu sync.Mutex
 }
 
 func runDaemon(w *output.Writer, store *config.Store) error {

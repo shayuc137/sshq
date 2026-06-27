@@ -63,7 +63,7 @@ func newClusterExecCommand() *cobra.Command {
 			command := args[0]
 
 			if !noDaemon && ipc.IsRunning() {
-				return clusterExecViaDaemon(w, aliases, command, timeout, concurrency)
+				return clusterExecViaDaemon(cmd, w, store, aliases, command, timeout, concurrency)
 			}
 
 			return clusterExecDirectCLI(cmd, w, store, aliases, command, timeout, concurrency)
@@ -79,11 +79,11 @@ func newClusterExecCommand() *cobra.Command {
 	return cmd
 }
 
-func clusterExecViaDaemon(w *output.Writer, aliases []string, command string, timeout time.Duration, concurrency int) error {
+func clusterExecViaDaemon(cmd *cobra.Command, w *output.Writer, store *config.Store, aliases []string, command string, timeout time.Duration, concurrency int) error {
 	conn, err := ipc.Connect()
 	if err != nil {
 		w.Info("daemon unreachable, falling back to direct connection")
-		return nil
+		return clusterExecDirectCLI(cmd, w, store, aliases, command, timeout, concurrency)
 	}
 	defer conn.Close()
 
@@ -94,7 +94,8 @@ func clusterExecViaDaemon(w *output.Writer, aliases []string, command string, ti
 		Concurrency: concurrency,
 	})
 	if err := ipc.Send(conn, env); err != nil {
-		return output.Errorf("daemon send failed", "")
+		w.Info("daemon send failed, falling back to direct connection")
+		return clusterExecDirectCLI(cmd, w, store, aliases, command, timeout, concurrency)
 	}
 
 	return recvClusterFrames(w, conn)

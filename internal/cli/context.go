@@ -69,18 +69,26 @@ func hostToConnConfigWithStore(host config.Host, store *config.Store) sshclient.
 }
 
 // resolveProxyChain recursively resolves a ProxyJump alias into a full
-// ConnConfig chain. Handles multi-level jumps (A → B → C).
+// ConnConfig chain. Handles multi-level jumps (A → B → C). A visited set
+// guards against cyclic ProxyJump config (A → B → A), which would otherwise
+// recurse until the stack overflows; on a cycle the chain is cut at the
+// repeated host rather than panicking.
 func resolveProxyChain(store *config.Store, proxyJump string) *sshclient.ConnConfig {
-	if proxyJump == "" {
+	return resolveProxyChainGuarded(store, proxyJump, make(map[string]bool))
+}
+
+func resolveProxyChainGuarded(store *config.Store, proxyJump string, visited map[string]bool) *sshclient.ConnConfig {
+	if proxyJump == "" || visited[proxyJump] {
 		return nil
 	}
+	visited[proxyJump] = true
 	proxy, err := store.Get(proxyJump)
 	if err != nil {
 		return nil
 	}
 	cfg := hostToConnConfig(proxy)
 	if proxy.ProxyJump != "" {
-		cfg.ProxyConfig = resolveProxyChain(store, proxy.ProxyJump)
+		cfg.ProxyConfig = resolveProxyChainGuarded(store, proxy.ProxyJump, visited)
 	}
 	return &cfg
 }

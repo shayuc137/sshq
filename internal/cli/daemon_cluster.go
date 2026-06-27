@@ -125,4 +125,3 @@ func trimTrailingNewline(s string) string {
 	}
 	return s
 }
-
