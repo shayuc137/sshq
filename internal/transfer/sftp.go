@@ -70,7 +70,7 @@ func (e *sftpEngine) Upload(ctx context.Context, localPath, remotePath string, p
 		return nil, err
 	}
 
-	if err := e.client.PosixRename(tmpPath, remotePath); err != nil {
+	if err := e.atomicRename(tmpPath, remotePath); err != nil {
 		e.client.Remove(tmpPath)
 		return nil, fmt.Errorf("rename temp file: %w", err)
 	}
@@ -255,7 +255,7 @@ func (e *sftpEngine) OpenWrite(_ context.Context, remotePath string) (io.WriteCl
 	}
 
 	commit := func() error {
-		return e.client.PosixRename(tmpPath, remotePath)
+		return e.atomicRename(tmpPath, remotePath)
 	}
 	rollback := func() {
 		e.client.Remove(tmpPath)
@@ -293,6 +293,14 @@ func copyWithProgress(ctx context.Context, dst io.Writer, src io.Reader, tracker
 			return written, err
 		}
 	}
+}
+
+func (e *sftpEngine) atomicRename(src, dst string) error {
+	if err := e.client.PosixRename(src, dst); err == nil {
+		return nil
+	}
+	e.client.Remove(dst)
+	return e.client.Rename(src, dst)
 }
 
 func resolveRemoteDir(e *sftpEngine, remotePath, basename string) string {

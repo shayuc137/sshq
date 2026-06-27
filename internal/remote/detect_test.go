@@ -47,6 +47,11 @@ func TestParsePosixOutput(t *testing.T) {
 			wantSh: Sh,
 		},
 		{
+			name:    "unknown OS should fallback",
+			input:   "OS=\nSHELL=sh\nHOME=C:\\Users\\szdos\n",
+			wantErr: true,
+		},
+		{
 			name:    "empty output",
 			input:   "",
 			wantErr: true,
@@ -138,6 +143,7 @@ func TestParseCodePage(t *testing.T) {
 		{"Active code page: 932", "shift-jis"},
 		{"Active code page: 949", "euc-kr"},
 		{"活动代码页: 936", "gbk"},
+		{"\xbb\xee\xb6\xaf\xb4\xfa\xc2\xeb\xd2\xb3: 936", "gbk"},
 		{"random text", ""},
 		{"", ""},
 	}

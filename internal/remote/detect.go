@@ -84,8 +84,8 @@ func parsePosixOutput(out string) (*Profile, error) {
 			p.HomeDir = v
 		}
 	}
-	if p.OS == "" {
-		return nil, fmt.Errorf("failed to parse OS from output")
+	if p.OS == "" || p.OS == Unknown {
+		return nil, fmt.Errorf("failed to detect OS via POSIX probe")
 	}
 	if p.Shell == "" {
 		p.Shell = Sh
@@ -116,17 +116,22 @@ func parseWindowsOutput(out string) (*Profile, error) {
 
 func parseCodePage(line string) string {
 	line = strings.TrimSpace(line)
-	// chcp output: "Active code page: 936" or just "936"
-	// PowerShell chcp may output different formats
-	for _, prefix := range []string{"Active code page: ", "活动代码页: "} {
-		if after, ok := strings.CutPrefix(line, prefix); ok {
-			return codePageToEncoding(strings.TrimSpace(after))
+	// chcp output varies by locale and encoding:
+	//   English: "Active code page: 936"
+	//   Chinese UTF-8: "活动代码页: 936"
+	//   Chinese GBK bytes: garbled prefix + ": 936"
+	// Use separator-based extraction to handle all cases.
+	for _, sep := range []string{": ", "：", ":"} {
+		idx := strings.LastIndex(line, sep)
+		if idx >= 0 {
+			after := strings.TrimSpace(line[idx+len(sep):])
+			if len(after) >= 2 && len(after) <= 5 && isDigits(after) {
+				return codePageToEncoding(after)
+			}
 		}
 	}
-	// bare number on a line by itself
-	trimmed := strings.TrimSpace(line)
-	if len(trimmed) >= 2 && len(trimmed) <= 5 && isDigits(trimmed) {
-		return codePageToEncoding(trimmed)
+	if len(line) >= 2 && len(line) <= 5 && isDigits(line) {
+		return codePageToEncoding(line)
 	}
 	return ""
 }
