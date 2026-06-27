@@ -8,7 +8,7 @@ import (
 type Direction int
 
 const (
-	Upload   Direction = iota
+	Upload Direction = iota
 	Download
 	Relay
 )

@@ -4,13 +4,13 @@ import "testing"
 
 func TestParseArgs(t *testing.T) {
 	tests := []struct {
-		src, dst  string
-		wantDir   Direction
-		wantSrcA  string
-		wantSrcP  string
-		wantDstA  string
-		wantDstP  string
-		wantErr   bool
+		src, dst string
+		wantDir  Direction
+		wantSrcA string
+		wantSrcP string
+		wantDstA string
+		wantDstP string
+		wantErr  bool
 	}{
 		{"local.txt", "ali:/tmp/", Upload, "", "local.txt", "ali", "/tmp/", false},
 		{"ali:/var/log/app.log", "./", Download, "ali", "/var/log/app.log", "", "./", false},

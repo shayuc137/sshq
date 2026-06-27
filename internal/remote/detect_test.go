@@ -158,7 +158,10 @@ func TestParseCodePage(t *testing.T) {
 }
 
 func TestNormOS(t *testing.T) {
-	tests := []struct{ in string; want OS }{
+	tests := []struct {
+		in   string
+		want OS
+	}{
 		{"Linux", Linux},
 		{"linux", Linux},
 		{"Darwin", Darwin},
@@ -177,7 +180,10 @@ func TestNormOS(t *testing.T) {
 }
 
 func TestNormShell(t *testing.T) {
-	tests := []struct{ in string; want Shell }{
+	tests := []struct {
+		in   string
+		want Shell
+	}{
 		{"bash", Bash},
 		{"ash", Ash},
 		{"zsh", Zsh},
