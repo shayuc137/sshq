@@ -9,8 +9,10 @@ sshq exec <alias> <command...> [flags]
 ### Options
 
 ```
-  -h, --help        help for exec
-      --no-daemon   skip daemon, connect directly
+  -h, --help                 help for exec
+      --no-daemon            skip daemon, connect directly
+      --script-file string   execute a local script file on the remote host via stdin
+      --shell string         override detected remote shell type (bash/ash/zsh/sh/powershell)
 ```
 
 ### Options inherited from parent commands

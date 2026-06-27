@@ -9,9 +9,10 @@ sshq probe <alias> [flags]
 ### Options
 
 ```
-      --all           probe all configured hosts
-  -h, --help          help for probe
-      --port string   override port to probe
+      --all               probe all configured hosts
+  -h, --help              help for probe
+      --port string       override port to probe
+      --refresh-profile   detect and cache remote OS/shell profile
 ```
 
 ### Options inherited from parent commands
