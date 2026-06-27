@@ -7,13 +7,14 @@ import (
 	"path"
 	"time"
 
+	"github.com/shayuc137/sshq/internal/remote"
 	"golang.org/x/crypto/ssh"
 )
 
-func RunRelay(ctx context.Context, srcClient, dstClient *ssh.Client, srcPath, dstPath string, info func(string), progress ProgressFunc) (*Result, error) {
+func RunRelay(ctx context.Context, srcClient, dstClient *ssh.Client, srcPath, dstPath string, srcProfile, dstProfile *remote.Profile, info func(string), progress ProgressFunc) (*Result, error) {
 	start := time.Now()
 
-	srcEngine, err := NewEngine(srcClient, func(msg string) {
+	srcEngine, err := NewEngine(srcClient, srcProfile, func(msg string) {
 		if info != nil {
 			info("source: " + msg)
 		}
@@ -23,7 +24,7 @@ func RunRelay(ctx context.Context, srcClient, dstClient *ssh.Client, srcPath, ds
 	}
 	defer srcEngine.Close()
 
-	dstEngine, err := NewEngine(dstClient, func(msg string) {
+	dstEngine, err := NewEngine(dstClient, dstProfile, func(msg string) {
 		if info != nil {
 			info("destination: " + msg)
 		}
@@ -77,10 +78,10 @@ func RunRelay(ctx context.Context, srcClient, dstClient *ssh.Client, srcPath, ds
 	}, nil
 }
 
-func RunRelayRecursive(ctx context.Context, srcClient, dstClient *ssh.Client, srcDir, dstDir string, info func(string), progress ProgressFunc) (*Result, error) {
+func RunRelayRecursive(ctx context.Context, srcClient, dstClient *ssh.Client, srcDir, dstDir string, srcProfile, dstProfile *remote.Profile, info func(string), progress ProgressFunc) (*Result, error) {
 	start := time.Now()
 
-	srcEngine, err := NewEngine(srcClient, func(msg string) {
+	srcEngine, err := NewEngine(srcClient, srcProfile, func(msg string) {
 		if info != nil {
 			info("source: " + msg)
 		}
@@ -90,7 +91,7 @@ func RunRelayRecursive(ctx context.Context, srcClient, dstClient *ssh.Client, sr
 	}
 	defer srcEngine.Close()
 
-	dstEngine, err := NewEngine(dstClient, func(msg string) {
+	dstEngine, err := NewEngine(dstClient, dstProfile, func(msg string) {
 		if info != nil {
 			info("destination: " + msg)
 		}

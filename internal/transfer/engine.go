@@ -6,6 +6,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/shayuc137/sshq/internal/remote"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -29,10 +30,13 @@ type Engine interface {
 	Name() string
 }
 
-func NewEngine(client *ssh.Client, info func(string)) (Engine, error) {
+func NewEngine(client *ssh.Client, profile *remote.Profile, info func(string)) (Engine, error) {
 	eng, err := newSFTPEngine(client)
 	if err == nil {
 		return eng, nil
+	}
+	if profile != nil && profile.IsWindows() {
+		return nil, fmt.Errorf("SFTP required on Windows — raw stream fallback not available; enable sftp-server on the remote host")
 	}
 	if info != nil {
 		info("sftp unavailable, using raw stream")

@@ -203,6 +203,16 @@ func execDirect(cmd *cobra.Command, w *output.Writer, alias, command string) err
 	}
 	defer client.Close()
 
+	cache := profileCacheFrom(ctx)
+	profile, _ := remote.GetProfile(ctx, client, cache, host.HostName, host.Port)
+
+	stdout := cmd.OutOrStdout()
+	stderr := cmd.ErrOrStderr()
+	if remote.NeedsTranscoding(profile) {
+		stdout = remote.NewDecodingWriter(stdout, profile.Encoding)
+		stderr = remote.NewDecodingWriter(stderr, profile.Encoding)
+	}
+
 	if w.IsJSONMode() {
 		result, err := exec.RunBuffered(ctx, client, command)
 		if err != nil {
@@ -215,7 +225,7 @@ func execDirect(cmd *cobra.Command, w *output.Writer, alias, command string) err
 		return nil
 	}
 
-	code, err := exec.Run(ctx, client, command, cmd.OutOrStdout(), cmd.ErrOrStderr())
+	code, err := exec.Run(ctx, client, command, stdout, stderr)
 	if err != nil {
 		return output.Errorf(err.Error(), "")
 	}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/shayuc137/sshq/internal/config"
 	"github.com/shayuc137/sshq/internal/output"
+	"github.com/shayuc137/sshq/internal/remote"
 	"github.com/shayuc137/sshq/internal/sshclient"
 	"github.com/shayuc137/sshq/internal/transfer"
 	"github.com/spf13/cobra"
@@ -93,7 +94,10 @@ func cpTransfer(ctx context.Context, w *output.Writer, store *config.Store, pars
 	}
 	defer client.Close()
 
-	engine, err := transfer.NewEngine(client, func(msg string) { w.Info(msg) })
+	cache := profileCacheFrom(ctx)
+	profile, _ := remote.GetProfile(ctx, client, cache, host.HostName, host.Port)
+
+	engine, err := transfer.NewEngine(client, profile, func(msg string) { w.Info(msg) })
 	if err != nil {
 		return output.Errorf("transfer engine: "+err.Error(), "")
 	}
@@ -162,13 +166,17 @@ func cpRelay(ctx context.Context, w *output.Writer, store *config.Store, parsed 
 	}
 	defer dstClient.Close()
 
+	cache := profileCacheFrom(ctx)
+	srcProfile, _ := remote.GetProfile(ctx, srcClient, cache, srcHost.HostName, srcHost.Port)
+	dstProfile, _ := remote.GetProfile(ctx, dstClient, cache, dstHost.HostName, dstHost.Port)
+
 	infoFn := func(msg string) { w.Info(msg) }
 
 	var result *transfer.Result
 	if recursive {
-		result, err = transfer.RunRelayRecursive(ctx, srcClient, dstClient, parsed.Src.Path, parsed.Dst.Path, infoFn, progress)
+		result, err = transfer.RunRelayRecursive(ctx, srcClient, dstClient, parsed.Src.Path, parsed.Dst.Path, srcProfile, dstProfile, infoFn, progress)
 	} else {
-		result, err = transfer.RunRelay(ctx, srcClient, dstClient, parsed.Src.Path, parsed.Dst.Path, infoFn, progress)
+		result, err = transfer.RunRelay(ctx, srcClient, dstClient, parsed.Src.Path, parsed.Dst.Path, srcProfile, dstProfile, infoFn, progress)
 	}
 
 	if err != nil {
