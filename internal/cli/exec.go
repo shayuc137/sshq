@@ -3,12 +3,14 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/shayuc137/sshq/internal/exec"
 	"github.com/shayuc137/sshq/internal/ipc"
 	"github.com/shayuc137/sshq/internal/output"
+	"github.com/shayuc137/sshq/internal/remote"
 	"github.com/shayuc137/sshq/internal/sshclient"
 	"github.com/spf13/cobra"
 )
@@ -17,19 +19,28 @@ func newExecCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "exec <alias> <command...>",
 		Short: "Execute a command on a remote host",
-		Args:  cobra.MinimumNArgs(2),
+		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			alias := args[0]
-			command := strings.Join(args[1:], " ")
 
 			store := configFrom(cmd.Context())
 			if store == nil {
 				return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists")
 			}
 
-			noDaemon, _ := cmd.Flags().GetBool("no-daemon")
 			w := writerFrom(cmd.Context())
 
+			scriptFile, _ := cmd.Flags().GetString("script-file")
+			if scriptFile != "" {
+				return execScript(cmd, w, alias, scriptFile)
+			}
+
+			if len(args) < 2 {
+				return output.Errorf("command required", "usage: sshq exec <alias> <command...> or sshq exec --script-file <path> <alias>")
+			}
+			command := strings.Join(args[1:], " ")
+
+			noDaemon, _ := cmd.Flags().GetBool("no-daemon")
 			if !noDaemon && ipc.IsRunning() {
 				return execViaDaemon(cmd, w, alias, command)
 			}
@@ -39,7 +50,74 @@ func newExecCommand() *cobra.Command {
 	}
 
 	cmd.Flags().Bool("no-daemon", false, "skip daemon, connect directly")
+	cmd.Flags().String("script-file", "", "execute a local script file on the remote host via stdin")
+	cmd.Flags().String("shell", "", "override detected remote shell type (bash/ash/zsh/sh/powershell)")
 	return cmd
+}
+
+func execScript(cmd *cobra.Command, w *output.Writer, alias, scriptFile string) error {
+	script, err := os.ReadFile(scriptFile)
+	if err != nil {
+		return output.Errorf("read script file: "+err.Error(), "check file path")
+	}
+
+	store := configFrom(cmd.Context())
+	host, err := store.Get(alias)
+	if err != nil {
+		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
+	}
+
+	timeout, _ := cmd.Flags().GetDuration("timeout")
+	cfg := sshclient.ConnConfig{
+		Host: host.HostName, Port: host.Port,
+		User: host.User, IdentityFile: host.IdentityFile,
+		Timeout: timeout,
+	}
+
+	w.Info("connecting to " + alias + "...")
+	ctx := cmd.Context()
+	if timeout > 0 {
+		var cancel func()
+		ctx, cancel = timeoutContext(ctx, timeout)
+		defer cancel()
+	}
+
+	client, err := sshclient.Dial(ctx, cfg)
+	if err != nil {
+		return connErrorToOutput(err, alias)
+	}
+	defer client.Close()
+
+	shellOverride, _ := cmd.Flags().GetString("shell")
+	shell := shellOverride
+	if shell == "" {
+		cache := profileCacheFrom(ctx)
+		p, _ := remote.GetProfile(ctx, client, cache, host.HostName, host.Port)
+		shell = string(p.Shell)
+	}
+
+	w.Info("executing script via " + shell + "...")
+
+	if w.IsJSONMode() {
+		result, err := exec.RunScriptBuffered(ctx, client, script, shell)
+		if err != nil {
+			return output.Errorf(err.Error(), "")
+		}
+		w.JSONOut(result)
+		if result.ExitCode != 0 {
+			return &exec.ExitError{Code: result.ExitCode}
+		}
+		return nil
+	}
+
+	code, err := exec.RunScript(ctx, client, script, shell, cmd.OutOrStdout(), cmd.ErrOrStderr())
+	if err != nil {
+		return output.Errorf(err.Error(), "")
+	}
+	if code != 0 {
+		return &exec.ExitError{Code: code}
+	}
+	return nil
 }
 
 func execViaDaemon(cmd *cobra.Command, w *output.Writer, alias, command string) error {
