@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"net"
@@ -127,56 +126,3 @@ func trimTrailingNewline(s string) string {
 	return s
 }
 
-// clusterExecDirect runs cluster exec without daemon (CLI goroutine pool).
-func clusterExecDirect(aliases []string, command string, timeout time.Duration, concurrency int, results chan<- ipc.ClusterFrame, done chan<- ipc.ClusterSummary) {
-	sem := make(chan struct{}, concurrency)
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	success, failed := 0, 0
-
-	for _, alias := range aliases {
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(alias string) {
-			defer wg.Done()
-			defer func() { <-sem }()
-
-			// In direct mode we need to resolve from config store.
-			// This function is called from CLI context which has store access.
-			// The caller handles store lookup and passes pre-resolved aliases.
-			// We just signal error for unresolvable ones.
-			cf := execForClusterDirect(alias, command, timeout)
-			for _, f := range cf {
-				results <- f
-				if f.Type == "exit" {
-					mu.Lock()
-					if f.Code == 0 {
-						success++
-					} else {
-						failed++
-					}
-					mu.Unlock()
-				}
-				if f.Type == "error" {
-					mu.Lock()
-					failed++
-					mu.Unlock()
-				}
-			}
-		}(alias)
-	}
-
-	wg.Wait()
-	close(results)
-	done <- ipc.ClusterSummary{Total: len(aliases), Success: success, Failed: failed}
-}
-
-func execForClusterDirect(alias, command string, timeout time.Duration) []ipc.ClusterFrame {
-	// This needs config store access. It will be called from CLI with store in scope.
-	// Stub: the actual implementation is in cluster.go's directExecOne.
-	return nil
-}
-
-// directExecOne is the real per-host execution for direct mode.
-// It's defined in cluster.go since it needs cobra context.
-var _ = bytes.Compare // keep bytes import
