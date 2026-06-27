@@ -12,20 +12,21 @@ Or download from [GitHub Releases](https://github.com/shayuc137/sshq/releases).
 
 ## Commands
 
-| Command | Description | Status |
-|---------|-------------|--------|
-| `sshq version` | Print version information | Available |
-| `sshq exec <alias> <cmd>` | Execute a command on a remote host | Available |
-| `sshq ls` | List configured SSH hosts | Available |
-| `sshq search <pattern>` | Search SSH hosts by pattern | Available |
-| `sshq info <alias>` | Show detailed host information | Available |
-| `sshq probe <alias>` | Check TCP connectivity to a host | Available |
-| `sshq probe --all` | Probe all configured hosts | Available |
-| `sshq daemon start` | Start the connection pool daemon | Available |
-| `sshq daemon stop` | Stop the daemon | Available |
-| `sshq daemon status` | Show daemon status | Available |
-| `sshq cp` | Copy files between local and remote hosts | Phase 2 |
-| `sshq config` | Manage sshq configuration | Phase 1 |
+| Command | Description |
+|---------|-------------|
+| `sshq exec <alias> <cmd>` | Execute a command on a remote host |
+| `sshq exec --script-file <path> <alias>` | Execute a local script on the remote host |
+| `sshq cp <src> <dst>` | Copy files (upload/download/relay) |
+| `sshq ls` | List configured SSH hosts |
+| `sshq search <pattern>` | Search SSH hosts by pattern |
+| `sshq info <alias>` | Show detailed host information |
+| `sshq probe <alias>` | Check TCP connectivity to a host |
+| `sshq config add/set/remove` | Manage SSH host configuration |
+| `sshq cluster exec` | Execute on multiple hosts concurrently |
+| `sshq tunnel start/list/stop` | SSH port forwarding (local/remote) |
+| `sshq daemon start/stop/status` | Connection pool daemon |
+| `sshq trust <alias>` | Fetch and trust a host's SSH key |
+| `sshq version` | Print version information |
 
 Full command reference: [docs/commands/](docs/commands/)
 
