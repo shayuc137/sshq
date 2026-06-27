@@ -59,6 +59,7 @@ func NewRootCommand() *cobra.Command {
 		newDaemonCommand(),
 		newTrustCommand(),
 		newConfigCommand(),
+		newClusterCommand(),
 		newDocsCommand(),
 	)
 

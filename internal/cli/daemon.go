@@ -292,6 +292,8 @@ func (dc *daemonContext) route(conn net.Conn, env ipc.Envelope) {
 		dc.handleRelay(conn, env.Payload)
 	case "profile":
 		dc.handleProfile(conn, env.Payload)
+	case "cluster-exec":
+		dc.handleClusterExec(conn, env.Payload)
 	case "status":
 		dc.handleStatus(conn)
 	case "shutdown":

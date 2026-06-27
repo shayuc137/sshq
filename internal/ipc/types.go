@@ -78,6 +78,27 @@ type TransferResult struct {
 	Files     int    `json:"files"`
 }
 
+type ClusterExecPayload struct {
+	Aliases     []string `json:"aliases"`
+	Command     string   `json:"command"`
+	Timeout     int      `json:"timeout,omitempty"`
+	Concurrency int      `json:"concurrency,omitempty"`
+}
+
+type ClusterFrame struct {
+	Alias    string `json:"alias"`
+	Type     string `json:"type"`
+	Data     string `json:"data,omitempty"`
+	Code     int    `json:"code,omitempty"`
+	Hint     string `json:"hint,omitempty"`
+}
+
+type ClusterSummary struct {
+	Total   int `json:"total"`
+	Success int `json:"success"`
+	Failed  int `json:"failed"`
+}
+
 // StatusResponse is returned by the "status" action.
 type StatusResponse struct {
 	Running     bool       `json:"running"`
