@@ -8,11 +8,13 @@ import (
 
 	"github.com/shayuc137/sshq/internal/config"
 	"github.com/shayuc137/sshq/internal/output"
+	"github.com/shayuc137/sshq/internal/remote"
 	"github.com/shayuc137/sshq/internal/sshclient"
 )
 
 type writerKey struct{}
 type configKey struct{}
+type profileCacheKey struct{}
 
 func withWriter(ctx context.Context, w *output.Writer) context.Context {
 	return context.WithValue(ctx, writerKey{}, w)
@@ -32,6 +34,17 @@ func withConfig(ctx context.Context, s *config.Store) context.Context {
 func configFrom(ctx context.Context) *config.Store {
 	if s, ok := ctx.Value(configKey{}).(*config.Store); ok {
 		return s
+	}
+	return nil
+}
+
+func withProfileCache(ctx context.Context, c *remote.Cache) context.Context {
+	return context.WithValue(ctx, profileCacheKey{}, c)
+}
+
+func profileCacheFrom(ctx context.Context) *remote.Cache {
+	if c, ok := ctx.Value(profileCacheKey{}).(*remote.Cache); ok {
+		return c
 	}
 	return nil
 }

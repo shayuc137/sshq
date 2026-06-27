@@ -5,6 +5,7 @@ import (
 
 	"github.com/shayuc137/sshq/internal/config"
 	"github.com/shayuc137/sshq/internal/output"
+	"github.com/shayuc137/sshq/internal/remote"
 	"github.com/spf13/cobra"
 )
 
@@ -29,6 +30,11 @@ func NewRootCommand() *cobra.Command {
 			}
 			if store != nil {
 				ctx = withConfig(ctx, store)
+			}
+
+			cache, _ := remote.NewCache(remote.DefaultTTL)
+			if cache != nil {
+				ctx = withProfileCache(ctx, cache)
 			}
 
 			cmd.SetContext(ctx)

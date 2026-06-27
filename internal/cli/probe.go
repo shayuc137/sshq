@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -8,6 +9,8 @@ import (
 	"github.com/shayuc137/sshq/internal/config"
 	"github.com/shayuc137/sshq/internal/output"
 	"github.com/shayuc137/sshq/internal/probe"
+	"github.com/shayuc137/sshq/internal/remote"
+	"github.com/shayuc137/sshq/internal/sshclient"
 	"github.com/spf13/cobra"
 )
 
@@ -27,6 +30,8 @@ func newProbeCommand() *cobra.Command {
 			portOverride, _ := cmd.Flags().GetString("port")
 			all, _ := cmd.Flags().GetBool("all")
 			pretty, _ := cmd.Flags().GetBool("pretty")
+
+			refreshProfile, _ := cmd.Flags().GetBool("refresh-profile")
 
 			if all {
 				return runProbeAll(cmd, store, w, timeout, portOverride, pretty)
@@ -50,14 +55,37 @@ func newProbeCommand() *cobra.Command {
 			r := probe.Check(cmd.Context(), host.HostName, port, timeout)
 			r.Alias = alias
 
+			var profile *remote.Profile
+			if refreshProfile && r.Reachable {
+				profile = refreshRemoteProfile(cmd, w, host)
+			}
+
 			if w.IsJSONMode() {
-				w.JSONOut(r)
+				out := map[string]interface{}{
+					"alias": r.Alias, "host": r.Host, "port": r.Port,
+					"reachable": r.Reachable, "latency_ms": r.LatencyMs,
+				}
+				if r.Error != "" {
+					out["error"] = r.Error
+				}
+				if profile != nil {
+					out["profile"] = profile
+				}
+				w.JSONOut(out)
 				return nil
 			}
+
+			var profileSuffix string
+			if profile != nil {
+				profileSuffix = fmt.Sprintf(" os=%s shell=%s", profile.OS, profile.Shell)
+				if profile.Encoding != "" {
+					profileSuffix += " encoding=" + profile.Encoding
+				}
+			}
 			if pretty {
-				w.Value(probe.RenderPretty(r))
+				w.Value(probe.RenderPretty(r) + profileSuffix)
 			} else {
-				w.Value(probe.RenderCompact(r))
+				w.Value(probe.RenderCompact(r) + profileSuffix)
 			}
 			return nil
 		},
@@ -65,8 +93,35 @@ func newProbeCommand() *cobra.Command {
 
 	cmd.Flags().String("port", "", "override port to probe")
 	cmd.Flags().Bool("all", false, "probe all configured hosts")
+	cmd.Flags().Bool("refresh-profile", false, "detect and cache remote OS/shell profile")
 
 	return cmd
+}
+
+func refreshRemoteProfile(cmd *cobra.Command, w *output.Writer, host config.Host) *remote.Profile {
+	timeout, _ := cmd.Flags().GetDuration("timeout")
+	cfg := sshclient.ConnConfig{
+		Host: host.HostName, Port: host.Port,
+		User: host.User, IdentityFile: host.IdentityFile,
+		Timeout: timeout,
+	}
+	ctx := cmd.Context()
+	client, err := sshclient.Dial(ctx, cfg)
+	if err != nil {
+		w.Info("profile detect: SSH connect failed")
+		return nil
+	}
+	defer client.Close()
+
+	cache := profileCacheFrom(ctx)
+	if cache != nil {
+		cache.Invalidate(host.HostName, host.Port)
+	}
+	p, err := remote.GetProfile(ctx, client, cache, host.HostName, host.Port)
+	if err != nil {
+		w.Info("profile detect: " + err.Error())
+	}
+	return p
 }
 
 func runProbeAll(cmd *cobra.Command, store *config.Store, w *output.Writer, timeout time.Duration, portOverride string, pretty bool) error {

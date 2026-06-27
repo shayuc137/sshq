@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"fmt"
+
 	"github.com/shayuc137/sshq/internal/config"
 	"github.com/shayuc137/sshq/internal/output"
+	"github.com/shayuc137/sshq/internal/remote"
 	"github.com/spf13/cobra"
 )
 
@@ -23,20 +26,59 @@ func newInfoCommand() *cobra.Command {
 			}
 
 			w := writerFrom(cmd.Context())
+			cache := profileCacheFrom(cmd.Context())
+			var profile *remote.Profile
+			if cache != nil {
+				profile, _ = cache.Get(host.HostName, host.Port)
+			}
 
 			if w.IsJSONMode() {
 				m := hostsToMaps([]config.Host{host})
-				w.JSONOut(m[0])
+				data := m[0]
+				if profile != nil {
+					data["profile"] = profile
+				}
+				w.JSONOut(data)
 				return nil
 			}
 
 			pretty, _ := cmd.Flags().GetBool("pretty")
 			if pretty {
-				w.Value(config.RenderInfoPretty(host))
+				s := config.RenderInfoPretty(host)
+				if profile != nil {
+					s += renderProfilePretty(profile)
+				}
+				w.Value(s)
 			} else {
-				w.Value(config.RenderInfoCompact(host))
+				s := config.RenderInfoCompact(host)
+				if profile != nil {
+					s = appendProfileCompact(s, profile)
+				}
+				w.Value(s)
 			}
 			return nil
 		},
 	}
+}
+
+func renderProfilePretty(p *remote.Profile) string {
+	s := "---\n"
+	s += fmt.Sprintf("OS:           %s\n", p.OS)
+	s += fmt.Sprintf("Shell:        %s\n", p.Shell)
+	if p.Encoding != "" {
+		s += fmt.Sprintf("Encoding:     %s\n", p.Encoding)
+	}
+	if p.HomeDir != "" {
+		s += fmt.Sprintf("RemoteHome:   %s\n", p.HomeDir)
+	}
+	return s
+}
+
+func appendProfileCompact(s string, p *remote.Profile) string {
+	s = s[:len(s)-1] // strip trailing \n
+	s += fmt.Sprintf(" os=%s shell=%s", p.OS, p.Shell)
+	if p.Encoding != "" {
+		s += " encoding=" + p.Encoding
+	}
+	return s + "\n"
 }
