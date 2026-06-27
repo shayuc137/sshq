@@ -9,6 +9,7 @@
 reference/
 
 # Sensitive project context
+CLAUDE.md
 CONTEXT.md
 AGENTS.md
 
@@ -23,3 +24,4 @@ AGENTS.md
 # OS
 .DS_Store
 Thumbs.db
+.ace-tool/
