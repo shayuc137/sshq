@@ -213,6 +213,29 @@ func execDirect(cmd *cobra.Command, w *output.Writer, alias, command string) err
 		stderr = remote.NewDecodingWriter(stderr, profile.Encoding)
 	}
 
+	if profile != nil && profile.NeedsStdinInjection() {
+		shell := string(profile.Shell)
+		if w.IsJSONMode() {
+			result, err := exec.RunScriptBuffered(ctx, client, []byte(command), shell)
+			if err != nil {
+				return output.Errorf(err.Error(), "")
+			}
+			w.JSONOut(result)
+			if result.ExitCode != 0 {
+				return &exec.ExitError{Code: result.ExitCode}
+			}
+			return nil
+		}
+		code, err := exec.RunScript(ctx, client, []byte(command), shell, stdout, stderr)
+		if err != nil {
+			return output.Errorf(err.Error(), "")
+		}
+		if code != 0 {
+			return &exec.ExitError{Code: code}
+		}
+		return nil
+	}
+
 	if w.IsJSONMode() {
 		result, err := exec.RunBuffered(ctx, client, command)
 		if err != nil {

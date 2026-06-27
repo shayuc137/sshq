@@ -180,10 +180,16 @@ func TestNormShell(t *testing.T) {
 		{"zsh", Zsh},
 		{"sh", Sh},
 		{"dash", Sh},
+		{"fish", Fish},
+		{"ksh", Ksh},
+		{"ksh93", Ksh},
+		{"mksh", Ksh},
+		{"tcsh", Tcsh},
+		{"csh", Csh},
 		{"powershell.exe", PowerShell},
 		{"pwsh", PowerShell},
 		{"cmd.exe", Cmd},
-		{"fish", "fish"},
+		{"nushell", "nushell"},
 	}
 	for _, tt := range tests {
 		if got := normShell(tt.in); got != tt.want {
@@ -203,6 +209,9 @@ func TestProfileMethods(t *testing.T) {
 	if posix.InterpreterCmd() != "bash -s" {
 		t.Errorf("InterpreterCmd = %q, want 'bash -s'", posix.InterpreterCmd())
 	}
+	if posix.NeedsStdinInjection() {
+		t.Error("bash should not need stdin injection")
+	}
 
 	win := &Profile{OS: Windows, Shell: PowerShell}
 	if win.IsPOSIX() {
@@ -213,5 +222,18 @@ func TestProfileMethods(t *testing.T) {
 	}
 	if win.InterpreterCmd() != "powershell -NoProfile -NonInteractive -Command -" {
 		t.Errorf("InterpreterCmd = %q", win.InterpreterCmd())
+	}
+	if !win.NeedsStdinInjection() {
+		t.Error("powershell should need stdin injection")
+	}
+
+	cmd := &Profile{OS: Windows, Shell: Cmd}
+	if !cmd.NeedsStdinInjection() {
+		t.Error("cmd should need stdin injection")
+	}
+
+	fish := &Profile{OS: Linux, Shell: Fish}
+	if fish.NeedsStdinInjection() {
+		t.Error("fish should not need stdin injection")
 	}
 }

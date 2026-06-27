@@ -178,6 +178,14 @@ func normShell(s string) Shell {
 		return Zsh
 	case "sh", "dash":
 		return Sh
+	case "fish":
+		return Fish
+	case "ksh", "ksh93", "mksh", "pdksh":
+		return Ksh
+	case "tcsh":
+		return Tcsh
+	case "csh":
+		return Csh
 	case "powershell", "powershell.exe", "pwsh", "pwsh.exe":
 		return PowerShell
 	case "cmd", "cmd.exe":

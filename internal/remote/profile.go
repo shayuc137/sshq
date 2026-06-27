@@ -19,6 +19,10 @@ const (
 	Ash        Shell = "ash"
 	Zsh        Shell = "zsh"
 	Sh         Shell = "sh"
+	Fish       Shell = "fish"
+	Ksh        Shell = "ksh"
+	Tcsh       Shell = "tcsh"
+	Csh        Shell = "csh"
 	PowerShell Shell = "powershell"
 	Cmd        Shell = "cmd"
 )
@@ -39,6 +43,15 @@ func (p *Profile) IsWindows() bool {
 	return p.OS == Windows
 }
 
+func (p *Profile) NeedsStdinInjection() bool {
+	switch p.Shell {
+	case PowerShell, Cmd:
+		return true
+	default:
+		return false
+	}
+}
+
 func (p *Profile) InterpreterCmd() string {
 	switch p.Shell {
 	case Bash:
@@ -47,6 +60,14 @@ func (p *Profile) InterpreterCmd() string {
 		return "ash -s"
 	case Zsh:
 		return "zsh -s"
+	case Fish:
+		return "fish"
+	case Ksh:
+		return "ksh -s"
+	case Tcsh:
+		return "tcsh"
+	case Csh:
+		return "csh"
 	case Sh:
 		return "sh -s"
 	case PowerShell:
