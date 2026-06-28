@@ -18,7 +18,7 @@ Single binary. Cross-platform. Zero-config structured output for AI agents.
 
 ## What is this?
 
-sshq is an SSH CLI built for AI agents. When an agent calls sshq through a subprocess, it automatically gets structured JSON output — no `--json` flag needed. When a human runs it in a terminal, it shows pretty-formatted tables. This is decided by [TTY detection](docs/guide/agent-integration.md), not flags.
+sshq is an SSH CLI built for AI agents. When an agent calls sshq through a subprocess, it automatically gets structured JSON output — no `--json` flag needed. When a human runs it in a terminal, it shows pretty-formatted tables. This is decided by [TTY detection](docs/en/guide/agent-integration.md), not flags.
 
 Under the hood: a daemon connection pool reuses SSH sessions across calls, SFTP falls back to raw byte streams on minimal hosts, and remote shell type is auto-detected (bash, ash, powershell, cmd) so commands are wrapped correctly without the caller knowing.
 
@@ -107,7 +107,7 @@ sshq myhost "df -h"
 claude skill add --from github.com/shayuc137/sshq/skills/sshq
 ```
 
-See [Agent Integration Guide](docs/guide/agent-integration.md) for details on output contracts, error handling, and the stdout purity guarantee.
+See [Agent Integration Guide](docs/en/guide/agent-integration.md) for details on output contracts, error handling, and the stdout purity guarantee.
 
 ## Output Modes
 
@@ -124,14 +124,13 @@ Environment variable: `SSHQ_OUTPUT=json` forces JSON globally.
 
 | Resource | Description |
 |----------|-------------|
-| [Getting Started](docs/guide/getting-started.md) | Install, configure your first host, run your first command |
-| [Remote Execution](docs/guide/remote-execution.md) | exec, script-file, shell override, timeout, encoding |
-| [File Transfer](docs/guide/file-transfer.md) | Upload, download, relay, recursive, engine fallback |
-| [Cluster Operations](docs/guide/cluster-operations.md) | Multi-host exec, tag/env/hosts filtering |
-| [Tunnels](docs/guide/tunnels.md) | Local/remote forwarding, multi-tunnel management |
-| [Host Management](docs/guide/host-management.md) | Config CRUD, metadata, ProxyJump, trust |
-| [Agent Integration](docs/guide/agent-integration.md) | TTY detection, JSON contracts, stdout purity, skill install |
-| [Command Reference](docs/commands/reference.md) | All commands, flags, and defaults |
+| [Getting Started](docs/en/guide/getting-started.md) | Install, configure your first host, run your first command |
+| [Remote Execution](docs/en/guide/remote-execution.md) | exec, script-file, shell override, timeout, encoding |
+| [File Transfer](docs/en/guide/file-transfer.md) | Upload, download, relay, recursive, engine fallback |
+| [Cluster Operations](docs/en/guide/cluster-operations.md) | Multi-host exec, tag/env/hosts filtering |
+| [Tunnels](docs/en/guide/tunnels.md) | Local/remote forwarding, multi-tunnel management |
+| [Host Management](docs/en/guide/host-management.md) | Config CRUD, metadata, ProxyJump, trust |
+| [Agent Integration](docs/en/guide/agent-integration.md) | TTY detection, JSON contracts, stdout purity, skill install |
 
 ## Project Structure
 

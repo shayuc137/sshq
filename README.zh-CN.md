@@ -18,7 +18,7 @@
 
 ## 这是什么？
 
-sshq 是一个专为 AI Agent 设计的 SSH 命令行工具。当 Agent 通过子进程调用 sshq 时，自动输出结构化 JSON——不需要加 `--json`。当人类在终端中使用时，自动显示格式化表格。这由 [TTY 检测](docs/guide/agent-integration.md)决定，无需任何配置。
+sshq 是一个专为 AI Agent 设计的 SSH 命令行工具。当 Agent 通过子进程调用 sshq 时，自动输出结构化 JSON——不需要加 `--json`。当人类在终端中使用时，自动显示格式化表格。这由 [TTY 检测](docs/zh-CN/guide/agent-integration.md)决定，无需任何配置。
 
 底层实现：daemon 连接池跨调用复用 SSH 会话；SFTP 不可用时自动降级为原始字节流传输；远程 shell 类型自动探测（bash、ash、powershell、cmd），命令包装无需调用方关心。
 
@@ -107,7 +107,7 @@ sshq myhost "df -h"
 claude skill add --from github.com/shayuc137/sshq/skills/sshq
 ```
 
-详见 [Agent 集成指南](docs/guide/agent-integration.md)，了解输出协议、错误处理和 stdout 纯净性保证。
+详见 [Agent 集成指南](docs/zh-CN/guide/agent-integration.md)，了解输出协议、错误处理和 stdout 纯净性保证。
 
 ## 输出模式
 
@@ -124,13 +124,13 @@ sshq 的所有信息性消息（连接状态、传输进度、耗时统计）只
 
 | 资源 | 说明 |
 |------|------|
-| [快速开始](docs/guide/getting-started.md) | 安装、配置第一台主机、执行第一条命令 |
-| [远程执行](docs/guide/remote-execution.md) | exec、脚本文件、shell 覆盖、超时、编码处理 |
-| [文件传输](docs/guide/file-transfer.md) | 上传、下载、中转、递归、引擎降级 |
-| [集群操作](docs/guide/cluster-operations.md) | 多主机并发、tag/env/hosts 过滤 |
-| [SSH 隧道](docs/guide/tunnels.md) | 本地/远程转发、多隧道管理 |
-| [主机管理](docs/guide/host-management.md) | 配置增删改、元数据、ProxyJump、信任 |
-| [Agent 集成](docs/guide/agent-integration.md) | TTY 检测、JSON 协议、stdout 纯净性、Skill 安装 |
+| [快速开始](docs/zh-CN/guide/getting-started.md) | 安装、配置第一台主机、执行第一条命令 |
+| [远程执行](docs/zh-CN/guide/remote-execution.md) | exec、脚本文件、shell 覆盖、超时、编码处理 |
+| [文件传输](docs/zh-CN/guide/file-transfer.md) | 上传、下载、中转、递归、引擎降级 |
+| [集群操作](docs/zh-CN/guide/cluster-operations.md) | 多主机并发、tag/env/hosts 过滤 |
+| [SSH 隧道](docs/zh-CN/guide/tunnels.md) | 本地/远程转发、多隧道管理 |
+| [主机管理](docs/zh-CN/guide/host-management.md) | 配置增删改、元数据、ProxyJump、信任 |
+| [Agent 集成](docs/zh-CN/guide/agent-integration.md) | TTY 检测、JSON 协议、stdout 纯净性、Skill 安装 |
 | [命令参考](docs/commands/reference.md) | 所有命令、flag 和默认值 |
 
 ## 项目结构
