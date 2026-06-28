@@ -86,9 +86,23 @@ func dialViaProxy(ctx context.Context, cfg ConnConfig) (*ssh.Client, error) {
 		return nil, err
 	}
 
-	// Keep proxy alive: when the target client closes, the proxy conn is released
-	// but the proxy client stays in the pool (if pooled) or gets GC'd (if direct).
+	// Bind the proxy hop's lifecycle to the target client. An ssh.Client owns a
+	// live TCP connection that the GC will not reclaim on its own, so the proxy
+	// must be closed explicitly; otherwise every proxied dial leaks the jump
+	// connection (and, for nested ProxyJump chains, the whole chain).
+	bindProxyLifecycle(client, proxyClient)
 	return client, nil
+}
+
+// bindProxyLifecycle closes proxyClient once target's connection ends.
+// target.Wait returns when the target client is closed or its transport dies,
+// at which point the proxy hop is no longer needed. The goroutine always has an
+// exit path: it unblocks as soon as the target client is closed.
+func bindProxyLifecycle(target, proxyClient *ssh.Client) {
+	go func() {
+		target.Wait()
+		proxyClient.Close()
+	}()
 }
 
 func resolveProxyConfig(proxyJump string) (ConnConfig, error) {

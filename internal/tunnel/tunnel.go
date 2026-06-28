@@ -2,11 +2,14 @@ package tunnel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -133,30 +136,19 @@ func StartLocal(ctx context.Context, client *ssh.Client, cfg Config, infoFn func
 		ln.Close()
 	}()
 
-	go func() {
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				return
+	handle := func(conn net.Conn) {
+		remote, err := client.Dial("tcp", cfg.RemoteAddr)
+		if err != nil {
+			if infoFn != nil {
+				infoFn(fmt.Sprintf("tunnel %s → %s: dial remote failed: %s", cfg.LocalAddr, cfg.RemoteAddr, err))
 			}
-			atomic.AddInt64(&t.activeConn, 1)
-			go func() {
-				defer atomic.AddInt64(&t.activeConn, -1)
-				defer conn.Close()
-
-				remote, err := client.Dial("tcp", cfg.RemoteAddr)
-				if err != nil {
-					if infoFn != nil {
-						infoFn(fmt.Sprintf("tunnel %s → %s: dial remote failed: %s", cfg.LocalAddr, cfg.RemoteAddr, err))
-					}
-					return
-				}
-				defer remote.Close()
-
-				relay(conn, remote)
-			}()
+			return
 		}
-	}()
+		defer remote.Close()
+		relay(conn, remote)
+	}
+
+	go t.acceptLoop(ctx, ln, defaultBackoff, infoFn, handle)
 
 	if infoFn != nil {
 		infoFn(fmt.Sprintf("local forward %s → %s via %s", cfg.LocalAddr, cfg.RemoteAddr, cfg.Alias))
@@ -178,35 +170,101 @@ func StartRemote(ctx context.Context, client *ssh.Client, cfg Config, infoFn fun
 		ln.Close()
 	}()
 
-	go func() {
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				return
+	handle := func(conn net.Conn) {
+		local, err := net.Dial("tcp", cfg.LocalAddr)
+		if err != nil {
+			if infoFn != nil {
+				infoFn(fmt.Sprintf("tunnel %s → %s: dial local failed: %s", cfg.RemoteAddr, cfg.LocalAddr, err))
 			}
-			atomic.AddInt64(&t.activeConn, 1)
-			go func() {
-				defer atomic.AddInt64(&t.activeConn, -1)
-				defer conn.Close()
-
-				local, err := net.Dial("tcp", cfg.LocalAddr)
-				if err != nil {
-					if infoFn != nil {
-						infoFn(fmt.Sprintf("tunnel %s → %s: dial local failed: %s", cfg.RemoteAddr, cfg.LocalAddr, err))
-					}
-					return
-				}
-				defer local.Close()
-
-				relay(conn, local)
-			}()
+			return
 		}
-	}()
+		defer local.Close()
+		relay(conn, local)
+	}
+
+	go t.acceptLoop(ctx, ln, defaultBackoff, infoFn, handle)
 
 	if infoFn != nil {
 		infoFn(fmt.Sprintf("remote forward %s → %s via %s", cfg.RemoteAddr, cfg.LocalAddr, cfg.Alias))
 	}
 	return t, nil
+}
+
+// backoffPolicy controls how acceptLoop reacts to transient Accept failures.
+type backoffPolicy struct {
+	base     time.Duration
+	max      time.Duration
+	maxFails int
+}
+
+var defaultBackoff = backoffPolicy{
+	base:     100 * time.Millisecond,
+	max:      5 * time.Second,
+	maxFails: 10,
+}
+
+// acceptLoop services a tunnel listener until the context is cancelled or the
+// listener is closed. A transient Accept error no longer kills the tunnel
+// silently: it is retried with jittered exponential backoff for up to
+// policy.maxFails consecutive failures, after which the tunnel is cancelled and
+// the failure reported via infoFn (e.g. when an SSH connection drops and a
+// remote listener disappears). A successful Accept resets the backoff window.
+func (t *Tunnel) acceptLoop(ctx context.Context, ln net.Listener, policy backoffPolicy, infoFn func(string), handle func(net.Conn)) {
+	delay := policy.base
+	fails := 0
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			// Cancellation or an explicitly closed listener is a normal shutdown.
+			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
+				return
+			}
+
+			fails++
+			if fails >= policy.maxFails {
+				if infoFn != nil {
+					infoFn(fmt.Sprintf("tunnel %s: giving up after %d accept failures: %s", t.Config.Alias, fails, err))
+				}
+				t.cancel()
+				return
+			}
+			if infoFn != nil {
+				infoFn(fmt.Sprintf("tunnel %s: accept failed (retry %d/%d): %s", t.Config.Alias, fails, policy.maxFails, err))
+			}
+
+			select {
+			case <-time.After(jitter(delay)):
+			case <-ctx.Done():
+				return
+			}
+			delay *= 2
+			if delay > policy.max {
+				delay = policy.max
+			}
+			continue
+		}
+
+		// Success resets the backoff window before relaying the connection.
+		delay = policy.base
+		fails = 0
+		atomic.AddInt64(&t.activeConn, 1)
+		go func() {
+			defer atomic.AddInt64(&t.activeConn, -1)
+			defer conn.Close()
+			handle(conn)
+		}()
+	}
+}
+
+// jitter spreads retries by ±25% so that many tunnels failing at once do not
+// reconnect in lockstep.
+func jitter(d time.Duration) time.Duration {
+	if d <= 0 {
+		return 0
+	}
+	half := int64(d) / 2
+	delta := rand.Int63n(half+1) - half/2
+	return d + time.Duration(delta)
 }
 
 func relay(a, b net.Conn) {

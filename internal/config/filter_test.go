@@ -48,9 +48,9 @@ Host dev1
 	}
 
 	tests := []struct {
-		name   string
-		filter Filter
-		want   int
+		name    string
+		filter  Filter
+		want    int
 		aliases []string
 	}{
 		{"all", Filter{All: true}, 3, nil},
