@@ -169,16 +169,6 @@ func recvTransferFrames(w *output.Writer, conn net.Conn) error {
 
 // --- direct paths (fallback) ---
 
-func cpTransferDirectFromCmd(cmd *cobra.Command, w *output.Writer, parsed transfer.ParsedArgs, recursive bool) error {
-	store := configFrom(cmd.Context())
-	return cpTransferDirect(cmd.Context(), w, store, parsed, recursive, transferProgress(w))
-}
-
-func cpRelayDirectFromCmd(cmd *cobra.Command, w *output.Writer, parsed transfer.ParsedArgs, recursive bool) error {
-	store := configFrom(cmd.Context())
-	return cpRelayDirect(cmd.Context(), w, store, parsed, recursive, transferProgress(w))
-}
-
 func cpTransferDirect(ctx context.Context, w *output.Writer, store *config.Store, parsed transfer.ParsedArgs, recursive bool, progress transfer.ProgressFunc) error {
 	alias := parsed.Src.Alias
 	if alias == "" {

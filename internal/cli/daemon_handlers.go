@@ -25,15 +25,6 @@ func (dc *daemonContext) resolveHost(conn net.Conn, alias string) (*sshclient.Co
 	return cfg, true
 }
 
-func (dc *daemonContext) getClient(conn net.Conn, alias string, cfg *sshclient.ConnConfig) (*sshclient.Client, bool) {
-	return dc.getClientWithContext(context.Background(), conn, alias, cfg)
-}
-
-func (dc *daemonContext) getClientWithContext(ctx context.Context, conn net.Conn, alias string, cfg *sshclient.ConnConfig) (*sshclient.Client, bool) {
-	client, _, ok := dc.getClientWithStatus(ctx, conn, alias, cfg)
-	return client, ok
-}
-
 func (dc *daemonContext) getClientWithStatus(ctx context.Context, conn net.Conn, alias string, cfg *sshclient.ConnConfig) (*sshclient.Client, bool, bool) {
 	client, reused, err := dc.pool.GetWithStatus(ctx, alias, *cfg)
 	if err != nil {
