@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -52,6 +53,34 @@ func TestRootCommandPrefersExistingSubcommand(t *testing.T) {
 	}
 }
 
+func TestVersionJSONEnvelope(t *testing.T) {
+	cmd, out, _ := rootCommandForTest(t)
+	cmd.SetArgs([]string{"--json", "version"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("version command failed: %v", err)
+	}
+
+	var env struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			Version string `json:"version"`
+			Commit  string `json:"commit"`
+			Date    string `json:"date"`
+		} `json:"data"`
+		SchemaVersion int `json:"schema_version"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out.String())
+	}
+	if !env.OK || env.SchemaVersion != output.SchemaVersion {
+		t.Fatalf("envelope = %+v", env)
+	}
+	if env.Data.Version == "" || env.Data.Commit == "" || env.Data.Date == "" {
+		t.Fatalf("version data = %+v", env.Data)
+	}
+}
+
 func rootCommandForTest(t *testing.T, aliases ...string) (*cobra.Command, *bytes.Buffer, *bytes.Buffer) {
 	t.Helper()
 
@@ -67,6 +96,7 @@ func rootCommandForTest(t *testing.T, aliases ...string) (*cobra.Command, *bytes
 		t.Fatal(err)
 	}
 	t.Setenv("SSHQ_CONFIG", cfgPath)
+	t.Setenv(remote.CachePathEnv, filepath.Join(dir, "profiles.json"))
 
 	out := &bytes.Buffer{}
 	errOut := &bytes.Buffer{}

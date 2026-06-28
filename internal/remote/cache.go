@@ -14,27 +14,54 @@ import (
 )
 
 const DefaultTTL = 24 * time.Hour
+const CachePathEnv = "SSHQ_PROFILE_CACHE"
+
+type CacheOption func(*cacheOptions)
+
+type cacheOptions struct {
+	path string
+	info func(string)
+}
 
 type Cache struct {
 	path string
 	ttl  time.Duration
+	info func(string)
 	mu   sync.RWMutex
 	data map[string]*Profile
 }
 
-func NewCache(ttl time.Duration) (*Cache, error) {
+func WithCachePath(path string) CacheOption {
+	return func(opts *cacheOptions) { opts.path = path }
+}
+
+func WithCacheInfo(info func(string)) CacheOption {
+	return func(opts *cacheOptions) { opts.info = info }
+}
+
+func NewCache(ttl time.Duration, opts ...CacheOption) (*Cache, error) {
+	cfg := cacheOptions{path: os.Getenv(CachePathEnv)}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	path := cfg.path
 	home, err := os.UserHomeDir()
-	if err != nil {
+	if err != nil && path == "" {
 		return nil, err
 	}
-	dir := filepath.Join(home, ".config", "sshq", "cache")
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, err
+	if path == "" {
+		path = filepath.Join(home, ".config", "sshq", "cache", "profiles.json")
 	}
+
 	c := &Cache{
-		path: filepath.Join(dir, "profiles.json"),
+		path: path,
 		ttl:  ttl,
+		info: cfg.info,
 		data: make(map[string]*Profile),
+	}
+	if err := os.MkdirAll(filepath.Dir(c.path), 0755); err != nil {
+		c.warn("profile cache directory unavailable: " + err.Error())
 	}
 	c.Load()
 	return c, nil
@@ -74,11 +101,28 @@ func (c *Cache) Invalidate(host, port string) {
 func (c *Cache) Load() {
 	data, err := os.ReadFile(c.path)
 	if err != nil {
+		if !os.IsNotExist(err) {
+			c.warn("profile cache load failed: " + err.Error())
+		}
 		return
 	}
+
+	loaded := make(map[string]*Profile)
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		c.warn("profile cache is corrupt, rebuilding: " + err.Error())
+		c.mu.Lock()
+		c.data = make(map[string]*Profile)
+		c.mu.Unlock()
+		c.Save()
+		return
+	}
+	if loaded == nil {
+		loaded = make(map[string]*Profile)
+	}
+
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	json.Unmarshal(data, &c.data)
+	c.data = loaded
+	c.mu.Unlock()
 }
 
 func (c *Cache) Save() {
@@ -86,9 +130,22 @@ func (c *Cache) Save() {
 	data, err := json.MarshalIndent(c.data, "", "  ")
 	c.mu.RUnlock()
 	if err != nil {
+		c.warn("profile cache encode failed: " + err.Error())
 		return
 	}
-	os.WriteFile(c.path, data, 0644)
+	if err := os.MkdirAll(filepath.Dir(c.path), 0755); err != nil {
+		c.warn("profile cache directory unavailable: " + err.Error())
+		return
+	}
+	if err := os.WriteFile(c.path, data, 0644); err != nil {
+		c.warn("profile cache save failed: " + err.Error())
+	}
+}
+
+func (c *Cache) warn(msg string) {
+	if c.info != nil {
+		c.info(msg)
+	}
 }
 
 func GetProfile(ctx context.Context, client *sshclient.Client, cache *Cache, host, port string) (*Profile, error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
 	"strings"
@@ -76,7 +77,22 @@ Examples:
 			}
 
 			if ipc.IsRunning() {
-				return tunnelStartViaDaemon(w, alias, direction, localAddr, remoteAddr)
+				env, _ := ipc.MakeEnvelope("tunnel-start", ipc.TunnelStartPayload{
+					Direction:  direction,
+					Alias:      alias,
+					LocalAddr:  localAddr,
+					RemoteAddr: remoteAddr,
+					Verbose:    w.IsVerbose(),
+				})
+				return daemonDispatch(env,
+					func(conn net.Conn) error {
+						return recvTunnelStartResult(w, conn, alias, direction)
+					},
+					func(reason string) error {
+						w.Info(reason + ", starting tunnel in foreground")
+						return tunnelStartForeground(cmd, w, alias, direction, localAddr, remoteAddr)
+					},
+				)
 			}
 
 			return tunnelStartForeground(cmd, w, alias, direction, localAddr, remoteAddr)
@@ -99,40 +115,30 @@ func parseFwdSpec(spec string) (string, string, error) {
 	return "", "", fmt.Errorf("invalid forward spec %q", spec)
 }
 
-func tunnelStartViaDaemon(w *output.Writer, alias, direction, localAddr, remoteAddr string) error {
-	conn, err := ipc.Connect()
-	if err != nil {
-		return output.Errorf("daemon not running", "start with 'sshq daemon start' or run tunnel in foreground without daemon")
+func recvTunnelStartResult(w *output.Writer, conn net.Conn, alias, direction string) error {
+	for {
+		msg, err := ipc.Recv(conn)
+		if err != nil {
+			return output.Errorf("daemon recv failed", "")
+		}
+
+		var frame ipc.Frame
+		if err := json.Unmarshal(msg, &frame); err != nil {
+			return output.Errorf("invalid daemon response", "")
+		}
+
+		switch frame.Type {
+		case daemonVerboseFrame:
+			recvVerboseFrame(w, frame)
+		case "error":
+			return output.Errorf(frame.Hint, frame.Action)
+		case "result":
+			var result ipc.TunnelStartResult
+			json.Unmarshal(frame.Payload, &result)
+			w.Render(tunnelStartView{result: result, alias: alias, direction: direction})
+			return nil
+		}
 	}
-	defer conn.Close()
-
-	env, _ := ipc.MakeEnvelope("tunnel-start", ipc.TunnelStartPayload{
-		Direction:  direction,
-		Alias:      alias,
-		LocalAddr:  localAddr,
-		RemoteAddr: remoteAddr,
-	})
-	if err := ipc.Send(conn, env); err != nil {
-		return output.Errorf("daemon send failed", "")
-	}
-
-	msg, err := ipc.Recv(conn)
-	if err != nil {
-		return output.Errorf("daemon recv failed", "")
-	}
-
-	var frame ipc.Frame
-	json.Unmarshal(msg, &frame)
-
-	if frame.Type == "error" {
-		return output.Errorf(frame.Hint, frame.Action)
-	}
-
-	var result ipc.TunnelStartResult
-	json.Unmarshal(frame.Payload, &result)
-
-	w.Render(tunnelStartView{result: result, alias: alias, direction: direction})
-	return nil
 }
 
 func tunnelStartForeground(cmd *cobra.Command, w *output.Writer, alias, direction, localAddr, remoteAddr string) error {

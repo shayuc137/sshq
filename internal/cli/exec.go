@@ -54,7 +54,23 @@ func runExecCommand(cmd *cobra.Command, args []string) error {
 
 	noDaemon, _ := cmd.Flags().GetBool("no-daemon")
 	if !noDaemon && ipc.IsRunning() {
-		return execViaDaemon(cmd, w, alias, command)
+		timeout, _ := cmd.Flags().GetDuration("timeout")
+		env, _ := ipc.MakeEnvelope("exec", ipc.ExecPayload{
+			Alias:   alias,
+			Command: command,
+			Shell:   execShellOverride(cmd),
+			Timeout: int(timeout.Seconds()),
+			Verbose: w.IsVerbose(),
+		})
+		return daemonDispatch(env,
+			func(conn net.Conn) error {
+				return recvExecFrames(w, conn, alias)
+			},
+			func(reason string) error {
+				w.Info(reason + ", falling back to direct connection")
+				return execDirect(cmd, w, alias, command)
+			},
+		)
 	}
 
 	return execDirect(cmd, w, alias, command)
@@ -68,35 +84,26 @@ func execScript(cmd *cobra.Command, w *output.Writer, alias, scriptFile string) 
 
 	noDaemon, _ := cmd.Flags().GetBool("no-daemon")
 	if !noDaemon && ipc.IsRunning() {
-		return execScriptViaDaemon(cmd, w, alias, script)
+		timeout, _ := cmd.Flags().GetDuration("timeout")
+		env, _ := ipc.MakeEnvelope("script", ipc.ScriptPayload{
+			Alias:   alias,
+			Script:  script,
+			Shell:   execShellOverride(cmd),
+			Timeout: int(timeout.Seconds()),
+			Verbose: w.IsVerbose(),
+		})
+		return daemonDispatch(env,
+			func(conn net.Conn) error {
+				return recvExecFrames(w, conn, alias)
+			},
+			func(reason string) error {
+				w.Info(reason + ", falling back to direct connection")
+				return execScriptDirect(cmd, w, alias, script)
+			},
+		)
 	}
 
 	return execScriptDirect(cmd, w, alias, script)
-}
-
-func execScriptViaDaemon(cmd *cobra.Command, w *output.Writer, alias string, script []byte) error {
-	timeout, _ := cmd.Flags().GetDuration("timeout")
-	shellOverride := execShellOverride(cmd)
-
-	conn, err := ipc.Connect()
-	if err != nil {
-		w.Info("daemon unreachable, falling back to direct connection")
-		return execScriptDirect(cmd, w, alias, script)
-	}
-	defer conn.Close()
-
-	env, _ := ipc.MakeEnvelope("script", ipc.ScriptPayload{
-		Alias:   alias,
-		Script:  script,
-		Shell:   shellOverride,
-		Timeout: int(timeout.Seconds()),
-	})
-	if err := ipc.Send(conn, env); err != nil {
-		w.Info("daemon send failed, falling back to direct connection")
-		return execScriptDirect(cmd, w, alias, script)
-	}
-
-	return recvExecFrames(w, conn, alias)
 }
 
 func execScriptDirect(cmd *cobra.Command, w *output.Writer, alias string, script []byte) error {
@@ -118,15 +125,26 @@ func execScriptDirect(cmd *cobra.Command, w *output.Writer, alias string, script
 		defer cancel()
 	}
 
+	connectStart := time.Now()
 	client, err := sshclient.Dial(ctx, cfg)
 	if err != nil {
 		return connErrorToOutput(err, alias)
 	}
 	defer client.Close()
+	w.Verbose("connection: alias=" + alias + " duration=" + verboseDuration(time.Since(connectStart)) + " direct")
 
 	cache := profileCacheFrom(ctx)
-	profile, _ := remote.GetProfile(ctx, client, cache, host.HostName, host.Port)
+	profile, profileErr := remote.GetProfile(ctx, client, cache, host.HostName, host.Port)
+	if profileErr != nil {
+		w.Verbose("shell detection warning: " + profileErr.Error())
+	}
+	w.Verbose(verboseProfile(profile))
 	shell := shellForExec(profile, execShellOverride(cmd))
+	if shell == "" {
+		w.Verbose("shell selected: default")
+	} else {
+		w.Verbose("shell selected: " + shell)
+	}
 
 	w.Info("executing script via " + shell + "...")
 
@@ -152,31 +170,6 @@ func execScriptDirect(cmd *cobra.Command, w *output.Writer, alias string, script
 	return nil
 }
 
-func execViaDaemon(cmd *cobra.Command, w *output.Writer, alias, command string) error {
-	timeout, _ := cmd.Flags().GetDuration("timeout")
-	shellOverride := execShellOverride(cmd)
-
-	conn, err := ipc.Connect()
-	if err != nil {
-		w.Info("daemon unreachable, falling back to direct connection")
-		return execDirect(cmd, w, alias, command)
-	}
-	defer conn.Close()
-
-	env, _ := ipc.MakeEnvelope("exec", ipc.ExecPayload{
-		Alias:   alias,
-		Command: command,
-		Shell:   shellOverride,
-		Timeout: int(timeout.Seconds()),
-	})
-	if err := ipc.Send(conn, env); err != nil {
-		w.Info("daemon send failed, falling back to direct connection")
-		return execDirect(cmd, w, alias, command)
-	}
-
-	return recvExecFrames(w, conn, alias)
-}
-
 func recvExecFrames(w *output.Writer, conn net.Conn, alias string) error {
 	var stdoutBuf, stderrBuf strings.Builder
 	start := time.Now()
@@ -193,6 +186,8 @@ func recvExecFrames(w *output.Writer, conn net.Conn, alias string) error {
 		}
 
 		switch frame.Type {
+		case daemonVerboseFrame:
+			recvVerboseFrame(w, frame)
 		case "stdout":
 			stdoutBuf.WriteString(frame.Data)
 		case "stderr":
@@ -235,15 +230,26 @@ func execDirect(cmd *cobra.Command, w *output.Writer, alias, command string) err
 		defer cancel()
 	}
 
+	connectStart := time.Now()
 	client, err := sshclient.Dial(ctx, cfg)
 	if err != nil {
 		return connErrorToOutput(err, alias)
 	}
 	defer client.Close()
+	w.Verbose("connection: alias=" + alias + " duration=" + verboseDuration(time.Since(connectStart)) + " direct")
 
 	cache := profileCacheFrom(ctx)
-	profile, _ := remote.GetProfile(ctx, client, cache, host.HostName, host.Port)
+	profile, profileErr := remote.GetProfile(ctx, client, cache, host.HostName, host.Port)
+	if profileErr != nil {
+		w.Verbose("shell detection warning: " + profileErr.Error())
+	}
+	w.Verbose(verboseProfile(profile))
 	shell := shellForExec(profile, execShellOverride(cmd))
+	if shell == "" {
+		w.Verbose("shell selected: default")
+	} else {
+		w.Verbose("shell selected: " + shell)
+	}
 
 	start := time.Now()
 	result, err := exec.RunBufferedWithShell(ctx, client, command, shell)

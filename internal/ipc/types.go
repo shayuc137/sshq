@@ -36,6 +36,7 @@ type ExecPayload struct {
 	Command string `json:"command"`
 	Shell   string `json:"shell,omitempty"`
 	Timeout int    `json:"timeout,omitempty"`
+	Verbose bool   `json:"verbose,omitempty"`
 }
 
 type ScriptPayload struct {
@@ -43,6 +44,7 @@ type ScriptPayload struct {
 	Script  []byte `json:"script"`
 	Shell   string `json:"shell,omitempty"`
 	Timeout int    `json:"timeout,omitempty"`
+	Verbose bool   `json:"verbose,omitempty"`
 }
 
 type TransferPayload struct {
@@ -51,6 +53,7 @@ type TransferPayload struct {
 	LocalPath  string `json:"local_path"`
 	RemotePath string `json:"remote_path"`
 	Recursive  bool   `json:"recursive,omitempty"`
+	Verbose    bool   `json:"verbose,omitempty"`
 }
 
 type RelayPayload struct {
@@ -59,11 +62,13 @@ type RelayPayload struct {
 	DstAlias  string `json:"dst_alias"`
 	DstPath   string `json:"dst_path"`
 	Recursive bool   `json:"recursive,omitempty"`
+	Verbose   bool   `json:"verbose,omitempty"`
 }
 
 type ProfilePayload struct {
 	Alias   string `json:"alias"`
 	Refresh bool   `json:"refresh,omitempty"`
+	Verbose bool   `json:"verbose,omitempty"`
 }
 
 // Result payloads — returned inside Frame{Type:"result"}.
@@ -89,6 +94,7 @@ type ClusterExecPayload struct {
 	Command     string   `json:"command"`
 	Timeout     int      `json:"timeout,omitempty"`
 	Concurrency int      `json:"concurrency,omitempty"`
+	Verbose     bool     `json:"verbose,omitempty"`
 }
 
 type ClusterFrame struct {
@@ -110,6 +116,7 @@ type TunnelStartPayload struct {
 	Alias      string `json:"alias"`
 	LocalAddr  string `json:"local_addr"`
 	RemoteAddr string `json:"remote_addr"`
+	Verbose    bool   `json:"verbose,omitempty"`
 }
 
 type TunnelStopPayload struct {

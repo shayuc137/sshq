@@ -31,6 +31,8 @@ type Result struct {
 
 var errKeyCapture = errors.New("host key captured")
 
+const KnownHostsPathEnv = "SSHQ_KNOWN_HOSTS"
+
 func Fetch(addr string, timeout time.Duration) (ssh.PublicKey, error) {
 	var hostKey ssh.PublicKey
 	cfg := &ssh.ClientConfig{
@@ -195,9 +197,30 @@ func KeyType(key ssh.PublicKey) string {
 }
 
 func Path() (string, error) {
+	if path := os.Getenv(KnownHostsPathEnv); path != "" {
+		return expandHome(path)
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("home directory: %w", err)
 	}
 	return filepath.Join(home, ".ssh", "known_hosts"), nil
+}
+
+func expandHome(path string) (string, error) {
+	if path == "~" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("home directory: %w", err)
+		}
+		return home, nil
+	}
+	if strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("home directory: %w", err)
+		}
+		return filepath.Join(home, path[2:]), nil
+	}
+	return path, nil
 }

@@ -1,6 +1,10 @@
 package remote
 
-import "time"
+import (
+	"fmt"
+	"strings"
+	"time"
+)
 
 type OS string
 
@@ -79,4 +83,31 @@ func (p *Profile) InterpreterCmd() string {
 
 func (p *Profile) Age() time.Duration {
 	return time.Since(time.Unix(p.DetectedAt, 0))
+}
+
+func RenderProfileCompact(p *Profile) string {
+	if p == nil {
+		return ""
+	}
+	parts := []string{fmt.Sprintf("os=%s", p.OS), fmt.Sprintf("shell=%s", p.Shell)}
+	if p.Encoding != "" {
+		parts = append(parts, "encoding="+p.Encoding)
+	}
+	return strings.Join(parts, " ")
+}
+
+func RenderProfilePretty(p *Profile) string {
+	if p == nil {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "OS:           %s\n", p.OS)
+	fmt.Fprintf(&b, "Shell:        %s\n", p.Shell)
+	if p.Encoding != "" {
+		fmt.Fprintf(&b, "Encoding:     %s\n", p.Encoding)
+	}
+	if p.HomeDir != "" {
+		fmt.Fprintf(&b, "RemoteHome:   %s\n", p.HomeDir)
+	}
+	return b.String()
 }

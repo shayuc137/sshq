@@ -149,7 +149,12 @@ func runDaemon(w *output.Writer, store *config.Store) error {
 	defer removePID()
 	defer os.Remove(sockPath)
 
-	cache, _ := remote.NewCache(remote.DefaultTTL)
+	cache, err := remote.NewCache(remote.DefaultTTL, remote.WithCacheInfo(func(msg string) {
+		w.Info("warning: " + msg)
+	}))
+	if err != nil {
+		w.Info("warning: profile cache unavailable: " + err.Error())
+	}
 
 	stopped := false
 	dc := &daemonContext{
@@ -319,15 +324,25 @@ func (dc *daemonContext) handleExec(conn net.Conn, raw json.RawMessage) {
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
 	defer cancel()
 
-	client, err := dc.pool.Get(ctx, payload.Alias, cfg)
+	connectStart := time.Now()
+	client, reused, err := dc.pool.GetWithStatus(ctx, payload.Alias, cfg)
 	if err != nil {
 		ce := connErrorToOutput(err, payload.Alias)
 		ipc.SendError(conn, ce.Hint, ce.Action)
 		return
 	}
+	sendDaemonVerbose(conn, payload.Verbose,
+		"connection: alias=%s duration=%s daemon reused=%t",
+		payload.Alias, verboseDuration(time.Since(connectStart)), reused)
 
 	profile := dc.getProfile(ctx, client, host.HostName, host.Port)
+	sendDaemonVerbose(conn, payload.Verbose, "%s", verboseProfile(profile))
 	shell := shellForExec(profile, payload.Shell)
+	if shell == "" {
+		sendDaemonVerbose(conn, payload.Verbose, "shell selected: default")
+	} else {
+		sendDaemonVerbose(conn, payload.Verbose, "shell selected: %s", shell)
+	}
 
 	result, err := exec.RunBufferedWithShell(ctx, client, payload.Command, shell)
 	if err != nil {

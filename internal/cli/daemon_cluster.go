@@ -57,7 +57,8 @@ func (dc *daemonContext) handleClusterExec(conn net.Conn, raw json.RawMessage) {
 			cfg := hostToConnConfigWithStore(host, dc.store)
 			cfg.Timeout = timeout
 
-			client, cerr := dc.pool.Get(context.Background(), alias, cfg)
+			connectStart := time.Now()
+			client, reused, cerr := dc.pool.GetWithStatus(context.Background(), alias, cfg)
 			if cerr != nil {
 				mu.Lock()
 				failed++
@@ -65,6 +66,9 @@ func (dc *daemonContext) handleClusterExec(conn net.Conn, raw json.RawMessage) {
 				sendClusterFrame(conn, &mu, ipc.ClusterFrame{Alias: alias, Type: "error", Hint: cerr.Error()})
 				return
 			}
+			sendDaemonVerboseLocked(conn, &mu, payload.Verbose,
+				"connection: alias=%s duration=%s daemon reused=%t",
+				alias, verboseDuration(time.Since(connectStart)), reused)
 
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()

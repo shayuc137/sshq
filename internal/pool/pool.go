@@ -56,6 +56,11 @@ func Key(cfg sshclient.ConnConfig) string {
 }
 
 func (p *Pool) Get(ctx context.Context, alias string, cfg sshclient.ConnConfig) (*sshclient.Client, error) {
+	client, _, err := p.GetWithStatus(ctx, alias, cfg)
+	return client, err
+}
+
+func (p *Pool) GetWithStatus(ctx context.Context, alias string, cfg sshclient.ConnConfig) (*sshclient.Client, bool, error) {
 	key := Key(cfg)
 
 	// Phase 1: look up the cached entry under the lock, then release it. The
@@ -78,7 +83,7 @@ func (p *Pool) Get(ctx context.Context, alias string, cfg sshclient.ConnConfig) 
 				cur.lastUsed = time.Now()
 				cur.client.Alias = alias
 				p.mu.Unlock()
-				return cur.client, nil
+				return cur.client, true, nil
 			}
 			p.mu.Unlock()
 		} else {
@@ -100,7 +105,7 @@ func (p *Pool) Get(ctx context.Context, alias string, cfg sshclient.ConnConfig) 
 
 	client, err := p.DialFunc(ctx, cfg)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	client.Alias = alias
 
@@ -113,7 +118,7 @@ func (p *Pool) Get(ctx context.Context, alias string, cfg sshclient.ConnConfig) 
 		cur.client.Alias = alias
 		p.mu.Unlock()
 		client.Close()
-		return cur.client, nil
+		return cur.client, true, nil
 	}
 	p.conns[key] = &entry{
 		client:   client,
@@ -121,7 +126,7 @@ func (p *Pool) Get(ctx context.Context, alias string, cfg sshclient.ConnConfig) 
 	}
 	p.mu.Unlock()
 
-	return client, nil
+	return client, false, nil
 }
 
 func (p *Pool) Close(key string) error {

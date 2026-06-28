@@ -52,9 +52,34 @@ func newCpCommand() *cobra.Command {
 			if !noDaemon && ipc.IsRunning() {
 				switch parsed.Direction {
 				case transfer.Upload, transfer.Download:
-					return cpTransferViaDaemon(cmd, w, parsed, recursive)
+					env, _ := ipc.MakeEnvelope("transfer", transferPayload(parsed, recursive, w.IsVerbose()))
+					return daemonDispatch(env,
+						func(conn net.Conn) error {
+							return recvTransferFrames(w, conn)
+						},
+						func(reason string) error {
+							w.Info(reason + ", falling back to direct connection")
+							return cpTransferDirect(ctx, w, store, parsed, recursive, progressFn)
+						},
+					)
 				case transfer.Relay:
-					return cpRelayViaDaemon(cmd, w, parsed, recursive)
+					env, _ := ipc.MakeEnvelope("relay", ipc.RelayPayload{
+						SrcAlias:  parsed.Src.Alias,
+						SrcPath:   parsed.Src.Path,
+						DstAlias:  parsed.Dst.Alias,
+						DstPath:   parsed.Dst.Path,
+						Recursive: recursive,
+						Verbose:   w.IsVerbose(),
+					})
+					return daemonDispatch(env,
+						func(conn net.Conn) error {
+							return recvTransferFrames(w, conn)
+						},
+						func(reason string) error {
+							w.Info(reason + ", falling back to direct connection")
+							return cpRelayDirect(ctx, w, store, parsed, recursive, progressFn)
+						},
+					)
 				}
 			}
 
@@ -75,14 +100,7 @@ func newCpCommand() *cobra.Command {
 
 // --- daemon paths ---
 
-func cpTransferViaDaemon(cmd *cobra.Command, w *output.Writer, parsed transfer.ParsedArgs, recursive bool) error {
-	conn, err := ipc.Connect()
-	if err != nil {
-		w.Info("daemon unreachable, falling back to direct connection")
-		return cpTransferDirectFromCmd(cmd, w, parsed, recursive)
-	}
-	defer conn.Close()
-
+func transferPayload(parsed transfer.ParsedArgs, recursive, verbose bool) ipc.TransferPayload {
 	alias := parsed.Src.Alias
 	localPath := parsed.Src.Path
 	remotePath := parsed.Dst.Path
@@ -100,42 +118,14 @@ func cpTransferViaDaemon(cmd *cobra.Command, w *output.Writer, parsed transfer.P
 		direction = "download"
 	}
 
-	env, _ := ipc.MakeEnvelope("transfer", ipc.TransferPayload{
+	return ipc.TransferPayload{
 		Direction:  direction,
 		Alias:      alias,
 		LocalPath:  localPath,
 		RemotePath: remotePath,
 		Recursive:  recursive,
-	})
-	if err := ipc.Send(conn, env); err != nil {
-		w.Info("daemon send failed, falling back to direct connection")
-		return cpTransferDirectFromCmd(cmd, w, parsed, recursive)
+		Verbose:    verbose,
 	}
-
-	return recvTransferFrames(w, conn)
-}
-
-func cpRelayViaDaemon(cmd *cobra.Command, w *output.Writer, parsed transfer.ParsedArgs, recursive bool) error {
-	conn, err := ipc.Connect()
-	if err != nil {
-		w.Info("daemon unreachable, falling back to direct connection")
-		return cpRelayDirectFromCmd(cmd, w, parsed, recursive)
-	}
-	defer conn.Close()
-
-	env, _ := ipc.MakeEnvelope("relay", ipc.RelayPayload{
-		SrcAlias:  parsed.Src.Alias,
-		SrcPath:   parsed.Src.Path,
-		DstAlias:  parsed.Dst.Alias,
-		DstPath:   parsed.Dst.Path,
-		Recursive: recursive,
-	})
-	if err := ipc.Send(conn, env); err != nil {
-		w.Info("daemon send failed, falling back to direct connection")
-		return cpRelayDirectFromCmd(cmd, w, parsed, recursive)
-	}
-
-	return recvTransferFrames(w, conn)
 }
 
 func recvTransferFrames(w *output.Writer, conn net.Conn) error {
@@ -151,6 +141,8 @@ func recvTransferFrames(w *output.Writer, conn net.Conn) error {
 		}
 
 		switch frame.Type {
+		case daemonVerboseFrame:
+			recvVerboseFrame(w, frame)
 		case "stderr":
 			w.Info(frame.Data)
 		case "progress":
@@ -166,6 +158,7 @@ func recvTransferFrames(w *output.Writer, conn net.Conn) error {
 		case "result":
 			var result transfer.Result
 			json.Unmarshal(frame.Payload, &result)
+			w.Verbose("transfer engine: " + result.Engine)
 			w.Render(&result)
 			return nil
 		case "error":
@@ -201,20 +194,27 @@ func cpTransferDirect(ctx context.Context, w *output.Writer, store *config.Store
 	cfg.Timeout = 30 * time.Second
 
 	w.Info("connecting to " + alias + "...")
+	connectStart := time.Now()
 	client, err := sshclient.Dial(ctx, cfg)
 	if err != nil {
 		return connErrorToOutput(err, alias)
 	}
 	defer client.Close()
+	w.Verbose("connection: alias=" + alias + " duration=" + verboseDuration(time.Since(connectStart)) + " direct")
 
 	cache := profileCacheFrom(ctx)
-	profile, _ := remote.GetProfile(ctx, client, cache, host.HostName, host.Port)
+	profile, profileErr := remote.GetProfile(ctx, client, cache, host.HostName, host.Port)
+	if profileErr != nil {
+		w.Verbose("shell detection warning: " + profileErr.Error())
+	}
+	w.Verbose(verboseProfile(profile))
 
 	engine, err := transfer.NewEngine(client, profile, func(msg string) { w.Info(msg) })
 	if err != nil {
 		return output.Errorf("transfer engine: "+err.Error(), "")
 	}
 	defer engine.Close()
+	w.Verbose("transfer engine: " + engine.Name())
 
 	var result *transfer.Result
 
@@ -260,22 +260,34 @@ func cpRelayDirect(ctx context.Context, w *output.Writer, store *config.Store, p
 	dstCfg.Timeout = 30 * time.Second
 
 	w.Info("connecting to " + parsed.Src.Alias + "...")
+	srcConnectStart := time.Now()
 	srcClient, err := sshclient.Dial(ctx, srcCfg)
 	if err != nil {
 		return connErrorToOutput(err, parsed.Src.Alias)
 	}
 	defer srcClient.Close()
+	w.Verbose("connection: alias=" + parsed.Src.Alias + " duration=" + verboseDuration(time.Since(srcConnectStart)) + " direct")
 
 	w.Info("connecting to " + parsed.Dst.Alias + "...")
+	dstConnectStart := time.Now()
 	dstClient, err := sshclient.Dial(ctx, dstCfg)
 	if err != nil {
 		return connErrorToOutput(err, parsed.Dst.Alias)
 	}
 	defer dstClient.Close()
+	w.Verbose("connection: alias=" + parsed.Dst.Alias + " duration=" + verboseDuration(time.Since(dstConnectStart)) + " direct")
 
 	cache := profileCacheFrom(ctx)
-	srcProfile, _ := remote.GetProfile(ctx, srcClient, cache, srcHost.HostName, srcHost.Port)
-	dstProfile, _ := remote.GetProfile(ctx, dstClient, cache, dstHost.HostName, dstHost.Port)
+	srcProfile, srcProfileErr := remote.GetProfile(ctx, srcClient, cache, srcHost.HostName, srcHost.Port)
+	if srcProfileErr != nil {
+		w.Verbose("source shell detection warning: " + srcProfileErr.Error())
+	}
+	w.Verbose("source " + verboseProfile(srcProfile))
+	dstProfile, dstProfileErr := remote.GetProfile(ctx, dstClient, cache, dstHost.HostName, dstHost.Port)
+	if dstProfileErr != nil {
+		w.Verbose("destination shell detection warning: " + dstProfileErr.Error())
+	}
+	w.Verbose("destination " + verboseProfile(dstProfile))
 
 	infoFn := func(msg string) { w.Info(msg) }
 
@@ -294,6 +306,7 @@ func cpRelayDirect(ctx context.Context, w *output.Writer, store *config.Store, p
 	}
 
 	w.Render(result)
+	w.Verbose("transfer engine: " + result.Engine)
 	return nil
 }
 

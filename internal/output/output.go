@@ -113,6 +113,8 @@ func (w *Writer) resolveMode() Mode {
 
 func (w *Writer) isJSON() bool { return w.mode == ModeJSON }
 
+func (w *Writer) IsVerbose() bool { return w.verbose }
+
 // Render writes structured data: a JSON envelope in JSON mode, otherwise
 // Renderable.Pretty(); non-Renderable values fall back to fmt formatting.
 func (w *Writer) Render(data any) {

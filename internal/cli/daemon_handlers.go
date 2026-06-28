@@ -30,13 +30,18 @@ func (dc *daemonContext) getClient(conn net.Conn, alias string, cfg *sshclient.C
 }
 
 func (dc *daemonContext) getClientWithContext(ctx context.Context, conn net.Conn, alias string, cfg *sshclient.ConnConfig) (*sshclient.Client, bool) {
-	client, err := dc.pool.Get(ctx, alias, *cfg)
+	client, _, ok := dc.getClientWithStatus(ctx, conn, alias, cfg)
+	return client, ok
+}
+
+func (dc *daemonContext) getClientWithStatus(ctx context.Context, conn net.Conn, alias string, cfg *sshclient.ConnConfig) (*sshclient.Client, bool, bool) {
+	client, reused, err := dc.pool.GetWithStatus(ctx, alias, *cfg)
 	if err != nil {
 		ce := connErrorToOutput(err, alias)
 		ipc.SendError(conn, ce.Hint, ce.Action)
-		return nil, false
+		return nil, false, false
 	}
-	return client, true
+	return client, reused, true
 }
 
 func (dc *daemonContext) getProfile(ctx context.Context, client *sshclient.Client, hostName, port string) *remote.Profile {
@@ -66,16 +71,22 @@ func (dc *daemonContext) handleScript(conn net.Conn, raw json.RawMessage) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	client, ok := dc.getClientWithContext(ctx, conn, payload.Alias, cfg)
+	connectStart := time.Now()
+	client, reused, ok := dc.getClientWithStatus(ctx, conn, payload.Alias, cfg)
 	if !ok {
 		return
 	}
+	sendDaemonVerbose(conn, payload.Verbose,
+		"connection: alias=%s duration=%s daemon reused=%t",
+		payload.Alias, verboseDuration(time.Since(connectStart)), reused)
 
 	profile := dc.getProfile(ctx, client, cfg.Host, cfg.Port)
+	sendDaemonVerbose(conn, payload.Verbose, "%s", verboseProfile(profile))
 	shell := shellForExec(profile, payload.Shell)
 	if shell == "" {
 		shell = "sh"
 	}
+	sendDaemonVerbose(conn, payload.Verbose, "shell selected: %s", shell)
 
 	result, err := exec.RunScriptBuffered(ctx, client, payload.Script, shell)
 	if err != nil {
@@ -105,12 +116,17 @@ func (dc *daemonContext) handleTransfer(conn net.Conn, raw json.RawMessage) {
 	}
 	cfg.Timeout = 30 * time.Second
 
-	client, ok := dc.getClient(conn, payload.Alias, cfg)
+	connectStart := time.Now()
+	client, reused, ok := dc.getClientWithStatus(context.Background(), conn, payload.Alias, cfg)
 	if !ok {
 		return
 	}
+	sendDaemonVerbose(conn, payload.Verbose,
+		"connection: alias=%s duration=%s daemon reused=%t",
+		payload.Alias, verboseDuration(time.Since(connectStart)), reused)
 
 	profile := dc.getProfile(context.Background(), client, cfg.Host, cfg.Port)
+	sendDaemonVerbose(conn, payload.Verbose, "%s", verboseProfile(profile))
 	infoFn := func(msg string) {
 		ipc.Send(conn, ipc.Frame{Type: "stderr", Data: msg + "\n"})
 	}
@@ -121,6 +137,7 @@ func (dc *daemonContext) handleTransfer(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	defer engine.Close()
+	sendDaemonVerbose(conn, payload.Verbose, "transfer engine: %s", engine.Name())
 
 	progressFn := func(info transfer.ProgressInfo) {
 		b, _ := json.Marshal(info)
@@ -178,17 +195,27 @@ func (dc *daemonContext) handleRelay(conn net.Conn, raw json.RawMessage) {
 	}
 	dstCfg.Timeout = 30 * time.Second
 
-	srcClient, ok := dc.getClient(conn, payload.SrcAlias, srcCfg)
+	srcConnectStart := time.Now()
+	srcClient, srcReused, ok := dc.getClientWithStatus(context.Background(), conn, payload.SrcAlias, srcCfg)
 	if !ok {
 		return
 	}
-	dstClient, ok := dc.getClient(conn, payload.DstAlias, dstCfg)
+	sendDaemonVerbose(conn, payload.Verbose,
+		"connection: alias=%s duration=%s daemon reused=%t",
+		payload.SrcAlias, verboseDuration(time.Since(srcConnectStart)), srcReused)
+	dstConnectStart := time.Now()
+	dstClient, dstReused, ok := dc.getClientWithStatus(context.Background(), conn, payload.DstAlias, dstCfg)
 	if !ok {
 		return
 	}
+	sendDaemonVerbose(conn, payload.Verbose,
+		"connection: alias=%s duration=%s daemon reused=%t",
+		payload.DstAlias, verboseDuration(time.Since(dstConnectStart)), dstReused)
 
 	srcProfile := dc.getProfile(context.Background(), srcClient, srcCfg.Host, srcCfg.Port)
+	sendDaemonVerbose(conn, payload.Verbose, "source %s", verboseProfile(srcProfile))
 	dstProfile := dc.getProfile(context.Background(), dstClient, dstCfg.Host, dstCfg.Port)
+	sendDaemonVerbose(conn, payload.Verbose, "destination %s", verboseProfile(dstProfile))
 
 	infoFn := func(msg string) {
 		ipc.Send(conn, ipc.Frame{Type: "stderr", Data: msg + "\n"})
@@ -212,6 +239,7 @@ func (dc *daemonContext) handleRelay(conn net.Conn, raw json.RawMessage) {
 		ipc.SendError(conn, err.Error(), "")
 		return
 	}
+	sendDaemonVerbose(conn, payload.Verbose, "transfer engine: %s", result.Engine)
 
 	frame, _ := ipc.MakeResultFrame(result)
 	ipc.Send(conn, frame)
@@ -238,6 +266,7 @@ func (dc *daemonContext) handleProfile(conn net.Conn, raw json.RawMessage) {
 
 	if !payload.Refresh && dc.cache != nil {
 		if cached, _ := dc.cache.Get(host.HostName, host.Port); cached != nil {
+			sendDaemonVerbose(conn, payload.Verbose, "%s", verboseProfile(cached))
 			result := ipc.ProfileResult{
 				OS:       string(cached.OS),
 				Shell:    string(cached.Shell),
@@ -253,16 +282,21 @@ func (dc *daemonContext) handleProfile(conn net.Conn, raw json.RawMessage) {
 	cfg := hostToConnConfigWithStore(host, dc.store)
 	cfg.Timeout = 30 * time.Second
 
-	client, ok := dc.getClient(conn, payload.Alias, &cfg)
+	connectStart := time.Now()
+	client, reused, ok := dc.getClientWithStatus(context.Background(), conn, payload.Alias, &cfg)
 	if !ok {
 		return
 	}
+	sendDaemonVerbose(conn, payload.Verbose,
+		"connection: alias=%s duration=%s daemon reused=%t",
+		payload.Alias, verboseDuration(time.Since(connectStart)), reused)
 
 	p, err := remote.GetProfile(context.Background(), client, dc.cache, host.HostName, host.Port)
 	if err != nil {
 		ipc.SendError(conn, fmt.Sprintf("profile detect failed: %s", err), "")
 		return
 	}
+	sendDaemonVerbose(conn, payload.Verbose, "%s", verboseProfile(p))
 
 	result := ipc.ProfileResult{
 		OS:       string(p.OS),

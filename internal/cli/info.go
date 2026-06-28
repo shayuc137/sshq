@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/shayuc137/sshq/internal/config"
@@ -51,14 +50,7 @@ func (hi hostInfo) Pretty() string {
 	b.WriteString(config.HostDetail(hi.Host).Pretty())
 	if hi.Profile != nil {
 		b.WriteString("---\n")
-		fmt.Fprintf(&b, "OS:           %s\n", hi.Profile.OS)
-		fmt.Fprintf(&b, "Shell:        %s\n", hi.Profile.Shell)
-		if hi.Profile.Encoding != "" {
-			fmt.Fprintf(&b, "Encoding:     %s\n", hi.Profile.Encoding)
-		}
-		if hi.Profile.HomeDir != "" {
-			fmt.Fprintf(&b, "RemoteHome:   %s\n", hi.Profile.HomeDir)
-		}
+		b.WriteString(remote.RenderProfilePretty(hi.Profile))
 	}
 	return b.String()
 }

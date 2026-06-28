@@ -2,6 +2,10 @@
 
 Agent-native SSH multiplexing CLI
 
+```
+sshq [flags]
+```
+
 ### Options
 
 ```

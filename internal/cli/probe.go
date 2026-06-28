@@ -2,7 +2,6 @@ package cli
 
 import (
 	"encoding/json"
-	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -55,6 +54,7 @@ func newProbeCommand() *cobra.Command {
 
 			r := probe.Check(cmd.Context(), host.HostName, port, timeout)
 			r.Alias = alias
+			w.Verbose(fmtProbeConnection(r))
 
 			var profile *remote.Profile
 			if refreshProfile && r.Reachable {
@@ -75,12 +75,12 @@ func newProbeCommand() *cobra.Command {
 
 func refreshRemoteProfile(cmd *cobra.Command, w *output.Writer, host config.Host) *remote.Profile {
 	if ipc.IsRunning() {
-		return refreshProfileViaDaemon(w, host)
+		return refreshProfileThroughDaemon(w, host)
 	}
 	return refreshProfileDirect(cmd, w, host)
 }
 
-func refreshProfileViaDaemon(w *output.Writer, host config.Host) *remote.Profile {
+func refreshProfileThroughDaemon(w *output.Writer, host config.Host) *remote.Profile {
 	conn, err := ipc.Connect()
 	if err != nil {
 		w.Info("daemon unreachable for profile detect")
@@ -91,40 +91,42 @@ func refreshProfileViaDaemon(w *output.Writer, host config.Host) *remote.Profile
 	env, _ := ipc.MakeEnvelope("profile", ipc.ProfilePayload{
 		Alias:   host.Alias,
 		Refresh: true,
+		Verbose: w.IsVerbose(),
 	})
 	if err := ipc.Send(conn, env); err != nil {
 		w.Info("daemon send failed for profile detect")
 		return nil
 	}
 
-	msg, err := ipc.Recv(conn)
-	if err != nil {
-		w.Info("daemon recv failed for profile detect")
-		return nil
-	}
+	for {
+		msg, err := ipc.Recv(conn)
+		if err != nil {
+			w.Info("daemon recv failed for profile detect")
+			return nil
+		}
 
-	var frame ipc.Frame
-	if err := json.Unmarshal(msg, &frame); err != nil {
-		return nil
-	}
+		var frame ipc.Frame
+		if err := json.Unmarshal(msg, &frame); err != nil {
+			return nil
+		}
 
-	if frame.Type == "error" {
-		w.Info("profile detect: " + frame.Hint)
-		return nil
-	}
-
-	if frame.Type == "result" {
-		var pr ipc.ProfileResult
-		json.Unmarshal(frame.Payload, &pr)
-		return &remote.Profile{
-			OS:       remote.OS(pr.OS),
-			Shell:    remote.Shell(pr.Shell),
-			Encoding: pr.Encoding,
-			HomeDir:  pr.HomeDir,
+		switch frame.Type {
+		case daemonVerboseFrame:
+			recvVerboseFrame(w, frame)
+		case "error":
+			w.Info("profile detect: " + frame.Hint)
+			return nil
+		case "result":
+			var pr ipc.ProfileResult
+			json.Unmarshal(frame.Payload, &pr)
+			return &remote.Profile{
+				OS:       remote.OS(pr.OS),
+				Shell:    remote.Shell(pr.Shell),
+				Encoding: pr.Encoding,
+				HomeDir:  pr.HomeDir,
+			}
 		}
 	}
-
-	return nil
 }
 
 func refreshProfileDirect(cmd *cobra.Command, w *output.Writer, host config.Host) *remote.Profile {
@@ -133,12 +135,14 @@ func refreshProfileDirect(cmd *cobra.Command, w *output.Writer, host config.Host
 	cfg := hostToConnConfigWithStore(host, store)
 	cfg.Timeout = timeout
 	ctx := cmd.Context()
+	start := time.Now()
 	client, err := sshclient.Dial(ctx, cfg)
 	if err != nil {
 		w.Info("profile detect: SSH connect failed")
 		return nil
 	}
 	defer client.Close()
+	w.Verbose("connection: alias=" + host.Alias + " duration=" + verboseDuration(time.Since(start)) + " direct")
 
 	cache := profileCacheFrom(ctx)
 	if cache != nil {
@@ -148,6 +152,7 @@ func refreshProfileDirect(cmd *cobra.Command, w *output.Writer, host config.Host
 	if err != nil {
 		w.Info("profile detect: " + err.Error())
 	}
+	w.Verbose(verboseProfile(p))
 	return p
 }
 
@@ -166,6 +171,9 @@ func runProbeAll(cmd *cobra.Command, store *config.Store, w *output.Writer, time
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Alias < results[j].Alias
 	})
+	for _, result := range results {
+		w.Verbose(fmtProbeConnection(result))
+	}
 	w.Render(probeList(results))
 	return nil
 }
@@ -177,11 +185,8 @@ type probeView struct {
 
 func (v probeView) Pretty() string {
 	s := probe.RenderCompact(v.Result)
-	if v.Profile != nil {
-		s += fmt.Sprintf(" os=%s shell=%s", v.Profile.OS, v.Profile.Shell)
-		if v.Profile.Encoding != "" {
-			s += " encoding=" + v.Profile.Encoding
-		}
+	if suffix := remote.RenderProfileCompact(v.Profile); suffix != "" {
+		s += " " + suffix
 	}
 	return s
 }
@@ -195,4 +200,11 @@ func (pl probeList) Pretty() string {
 	}
 	b.WriteString(probe.RenderBatchSummary(pl))
 	return b.String()
+}
+
+func fmtProbeConnection(r probe.Result) string {
+	if r.Reachable {
+		return "connection: alias=" + r.Alias + " tcp_probe=" + verboseDuration(time.Duration(r.LatencyMs)*time.Millisecond)
+	}
+	return "connection: alias=" + r.Alias + " tcp_probe=failed reason=" + r.Error
 }

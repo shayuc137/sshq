@@ -23,10 +23,14 @@ func (dc *daemonContext) handleTunnelStart(conn net.Conn, raw json.RawMessage) {
 	}
 	cfg.Timeout = 30 * time.Second
 
-	client, ok := dc.getClient(conn, payload.Alias, cfg)
+	connectStart := time.Now()
+	client, reused, ok := dc.getClientWithStatus(context.Background(), conn, payload.Alias, cfg)
 	if !ok {
 		return
 	}
+	sendDaemonVerbose(conn, payload.Verbose,
+		"connection: alias=%s duration=%s daemon reused=%t",
+		payload.Alias, verboseDuration(time.Since(connectStart)), reused)
 
 	tunnelCfg := tunnel.Config{
 		Direction:  tunnel.Direction(payload.Direction),

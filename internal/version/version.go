@@ -1,21 +1,28 @@
 package version
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 var (
-	Version = "dev"
+	Version = "0.1.0"
 	Commit  = "unknown"
 	Date    = "unknown"
 )
 
 func String() string {
-	return fmt.Sprintf("sshq %s (%s, %s)", Version, Commit, Date)
+	return fmt.Sprintf("sshq v%s (%s, %s)", normalizedVersion(), Commit, Date)
 }
 
 func Map() map[string]string {
 	return map[string]string{
-		"version": Version,
+		"version": normalizedVersion(),
 		"commit":  Commit,
 		"date":    Date,
 	}
+}
+
+func normalizedVersion() string {
+	return strings.TrimPrefix(Version, "v")
 }

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shayuc137/sshq/internal/hostkey"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/crypto/ssh/knownhosts"
@@ -263,11 +264,10 @@ func keyAuth(path string) (ssh.AuthMethod, error) {
 }
 
 func hostKeyCallback() (ssh.HostKeyCallback, error) {
-	home, err := os.UserHomeDir()
+	path, err := hostkey.Path()
 	if err != nil {
 		return nil, err
 	}
-	path := filepath.Join(home, ".ssh", "known_hosts")
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil, fmt.Errorf("known_hosts not found at %s — sshq requires strict host key verification", path)
 	}

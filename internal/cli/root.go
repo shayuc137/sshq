@@ -50,7 +50,12 @@ func NewRootCommand() *cobra.Command {
 				ctx = withConfig(ctx, store)
 			}
 
-			cache, _ := remote.NewCache(remote.DefaultTTL)
+			cache, err := remote.NewCache(remote.DefaultTTL, remote.WithCacheInfo(func(msg string) {
+				w.Info("warning: " + msg)
+			}))
+			if err != nil {
+				w.Info("warning: profile cache unavailable: " + err.Error())
+			}
 			if cache != nil {
 				ctx = withProfileCache(ctx, cache)
 			}

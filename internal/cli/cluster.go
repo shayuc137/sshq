@@ -90,7 +90,22 @@ func newClusterExecCommand() *cobra.Command {
 			command := args[0]
 
 			if !noDaemon && ipc.IsRunning() {
-				return clusterExecViaDaemon(cmd, w, store, aliases, command, timeout, concurrency)
+				env, _ := ipc.MakeEnvelope("cluster-exec", ipc.ClusterExecPayload{
+					Aliases:     aliases,
+					Command:     command,
+					Timeout:     int(timeout.Seconds()),
+					Concurrency: concurrency,
+					Verbose:     w.IsVerbose(),
+				})
+				return daemonDispatch(env,
+					func(conn net.Conn) error {
+						return recvClusterFrames(w, conn)
+					},
+					func(reason string) error {
+						w.Info(reason + ", falling back to direct connection")
+						return clusterExecDirectCLI(cmd, w, store, aliases, command, timeout, concurrency)
+					},
+				)
 			}
 
 			return clusterExecDirectCLI(cmd, w, store, aliases, command, timeout, concurrency)
@@ -165,28 +180,6 @@ func aliasesFromHostsFlag(store *config.Store, hostsFlag string) ([]string, erro
 	return aliases, nil
 }
 
-func clusterExecViaDaemon(cmd *cobra.Command, w *output.Writer, store *config.Store, aliases []string, command string, timeout time.Duration, concurrency int) error {
-	conn, err := ipc.Connect()
-	if err != nil {
-		w.Info("daemon unreachable, falling back to direct connection")
-		return clusterExecDirectCLI(cmd, w, store, aliases, command, timeout, concurrency)
-	}
-	defer conn.Close()
-
-	env, _ := ipc.MakeEnvelope("cluster-exec", ipc.ClusterExecPayload{
-		Aliases:     aliases,
-		Command:     command,
-		Timeout:     int(timeout.Seconds()),
-		Concurrency: concurrency,
-	})
-	if err := ipc.Send(conn, env); err != nil {
-		w.Info("daemon send failed, falling back to direct connection")
-		return clusterExecDirectCLI(cmd, w, store, aliases, command, timeout, concurrency)
-	}
-
-	return recvClusterFrames(w, conn)
-}
-
 func recvClusterFrames(w *output.Writer, conn net.Conn) error {
 	hostData := make(map[string]*clusterHostResult)
 	var order []string
@@ -204,6 +197,8 @@ func recvClusterFrames(w *output.Writer, conn net.Conn) error {
 		}
 
 		switch frame.Type {
+		case daemonVerboseFrame:
+			recvVerboseFrame(w, frame)
 		case "cluster":
 			var cf ipc.ClusterFrame
 			json.Unmarshal(frame.Payload, &cf)
