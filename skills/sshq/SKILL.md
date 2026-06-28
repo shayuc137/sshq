@@ -8,7 +8,7 @@ keywords: SSH,sshq,remote,server,connect,upload,download,deploy,execute,transfer
 
 All SSH operations route through `sshq`. Never shell out to `ssh` or `scp` directly.
 
-`sshq` outputs compact, agent-friendly text by default. Add `--json` for structured data only when you need to parse fields programmatically.
+`sshq` auto-detects the output mode: **pipe** (agent calling via subprocess) → JSON; **terminal** (human interactive) → pretty. No flags needed — agents get structured JSON automatically, humans get readable tables.
 
 **References** — read on demand, not every run. Auto-generated via `sshq docs --skill <dir>`.
 - [`references/exec-transfer.md`](references/exec-transfer.md) — when running commands or transferring files: full flag reference for exec, cp, script-file
@@ -119,11 +119,16 @@ sshq daemon stop      # shutdown
 
 ## output modes
 
+sshq auto-detects: pipe → JSON, terminal → pretty. Override with flags:
+
 | Flag | Format | Use case |
 |------|--------|----------|
-| _(default)_ | compact one-liners | agent consumption, low token |
-| `--json` | structured JSON | programmatic field access |
-| `--pretty` | aligned table | human reading |
+| _(pipe default)_ | structured JSON `{ok, data, schema_version}` | agent — zero flags needed |
+| _(terminal default)_ | aligned pretty tables | human interactive use |
+| `--json` | force JSON | override terminal to JSON |
+| `--pretty` | force pretty | override pipe to pretty |
+| `--verbose` | extra debug info to stderr | connection timing, shell detection, engine choice |
+| `--no-progress` | suppress transfer progress | cleaner agent output during cp |
 
 ## error handling
 
