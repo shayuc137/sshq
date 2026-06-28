@@ -6,6 +6,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/shayuc137/sshq/internal/humanize"
 	"github.com/shayuc137/sshq/internal/remote"
 	"github.com/shayuc137/sshq/internal/sshclient"
 )
@@ -17,6 +18,16 @@ type Result struct {
 	Duration  string `json:"duration"`
 	Engine    string `json:"engine"`
 	Files     int    `json:"files"`
+}
+
+// Pretty renders a transfer result summary for output.Writer.Render in non-JSON mode.
+func (r *Result) Pretty() string {
+	if r.Files > 1 {
+		return fmt.Sprintf("%s %d files %s %s %s",
+			r.Remote, r.Files, humanize.Bytes(r.Size), r.Duration, r.Engine)
+	}
+	return fmt.Sprintf("%s %s %s %s",
+		r.Remote, humanize.Bytes(r.Size), r.Duration, r.Engine)
 }
 
 type Engine interface {

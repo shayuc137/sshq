@@ -16,10 +16,9 @@ sshq cp <src> <dst> [flags]
 ### Options
 
 ```
-  -h, --help          help for cp
-      --no-daemon     skip daemon, connect directly
-      --no-progress   disable progress output
-  -r, --recursive     copy directories recursively
+  -h, --help        help for cp
+      --no-daemon   skip daemon, connect directly
+  -r, --recursive   copy directories recursively
 ```
 
 ### Options inherited from parent commands
@@ -27,6 +26,7 @@ sshq cp <src> <dst> [flags]
 ```
       --config string      SSH config file path
       --json               output in JSON format
+      --no-progress        disable progress output
       --pretty             human-readable output
       --timeout duration   operation timeout (default 30s)
   -v, --verbose            verbose output

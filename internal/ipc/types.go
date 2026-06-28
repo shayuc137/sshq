@@ -1,6 +1,11 @@
 package ipc
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
+)
 
 const (
 	ProtocolVersion   = 2
@@ -157,4 +162,18 @@ func MakeResultFrame(result any) (Frame, error) {
 		return Frame{}, err
 	}
 	return Frame{Type: "result", Payload: json.RawMessage(b)}, nil
+}
+
+// Pretty renders daemon status for human-readable output.
+func (s StatusResponse) Pretty() string {
+	if !s.Running {
+		return "daemon not running"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "daemon running uptime=%ds connections=%d\n", s.Uptime, len(s.Connections))
+	for _, c := range s.Connections {
+		idle := time.Since(time.Unix(c.IdleSince, 0)).Truncate(time.Second)
+		fmt.Fprintf(&b, "  %s %s:%s idle=%s\n", c.Alias, c.Host, c.Port, idle)
+	}
+	return b.String()
 }

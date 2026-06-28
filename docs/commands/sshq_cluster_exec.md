@@ -22,6 +22,7 @@ sshq cluster exec <command> [flags]
 ```
       --config string      SSH config file path
       --json               output in JSON format
+      --no-progress        disable progress output
       --pretty             human-readable output
       --timeout duration   operation timeout (default 30s)
   -v, --verbose            verbose output

@@ -1,8 +1,9 @@
 package transfer
 
 import (
-	"fmt"
 	"time"
+
+	"github.com/shayuc137/sshq/internal/humanize"
 )
 
 type ProgressInfo struct {
@@ -23,6 +24,7 @@ type ProgressTracker struct {
 	lastPercent int
 	startTime   time.Time
 	callback    ProgressFunc
+	finished    bool
 }
 
 func NewProgressTracker(file string, total int64, callback ProgressFunc) *ProgressTracker {
@@ -51,20 +53,25 @@ func (t *ProgressTracker) Update(n int) {
 		if elapsed > 0 {
 			speed = float64(t.transferred) / elapsed
 		}
+		// Mark finished here so Finish() won't emit a duplicate 100% report.
+		if percent >= 100 {
+			t.finished = true
+		}
 		t.callback(ProgressInfo{
 			File:        t.file,
 			Percent:     percent,
 			Transferred: t.transferred,
 			Total:       t.total,
-			Speed:       humanSize(int64(speed)) + "/s",
+			Speed:       humanize.Bytes(int64(speed)) + "/s",
 		})
 	}
 }
 
 func (t *ProgressTracker) Finish() {
-	if t.callback == nil || t.total <= 0 {
+	if t.callback == nil || t.total <= 0 || t.finished {
 		return
 	}
+	t.finished = true
 	elapsed := time.Since(t.startTime).Seconds()
 	speed := float64(0)
 	if elapsed > 0 {
@@ -75,21 +82,6 @@ func (t *ProgressTracker) Finish() {
 		Percent:     100,
 		Transferred: t.transferred,
 		Total:       t.total,
-		Speed:       humanSize(int64(speed)) + "/s",
+		Speed:       humanize.Bytes(int64(speed)) + "/s",
 	})
 }
-
-func humanSize(b int64) string {
-	switch {
-	case b >= 1<<30:
-		return fmt.Sprintf("%.1fGB", float64(b)/(1<<30))
-	case b >= 1<<20:
-		return fmt.Sprintf("%.1fMB", float64(b)/(1<<20))
-	case b >= 1<<10:
-		return fmt.Sprintf("%.1fKB", float64(b)/(1<<10))
-	default:
-		return fmt.Sprintf("%dB", b)
-	}
-}
-
-func HumanSize(b int64) string { return humanSize(b) }

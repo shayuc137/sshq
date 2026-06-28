@@ -92,7 +92,7 @@ func execScriptViaDaemon(cmd *cobra.Command, w *output.Writer, alias string, scr
 		return execScriptDirect(cmd, w, alias, script)
 	}
 
-	return recvExecFrames(cmd, conn)
+	return recvExecFrames(w, conn, alias)
 }
 
 func execScriptDirect(cmd *cobra.Command, w *output.Writer, alias string, script []byte) error {
@@ -120,34 +120,34 @@ func execScriptDirect(cmd *cobra.Command, w *output.Writer, alias string, script
 	}
 	defer client.Close()
 
+	cache := profileCacheFrom(ctx)
+	profile, _ := remote.GetProfile(ctx, client, cache, host.HostName, host.Port)
 	shellOverride, _ := cmd.Flags().GetString("shell")
 	shell := shellOverride
-	if shell == "" {
-		cache := profileCacheFrom(ctx)
-		p, _ := remote.GetProfile(ctx, client, cache, host.HostName, host.Port)
-		shell = string(p.Shell)
+	if shell == "" && profile != nil {
+		shell = string(profile.Shell)
 	}
 
 	w.Info("executing script via " + shell + "...")
 
-	if w.IsJSONMode() {
-		result, err := exec.RunScriptBuffered(ctx, client, script, shell)
-		if err != nil {
-			return output.Errorf(err.Error(), "")
-		}
-		w.JSONOut(result)
-		if result.ExitCode != 0 {
-			return &exec.ExitError{Code: result.ExitCode}
-		}
-		return nil
-	}
-
-	code, err := exec.RunScript(ctx, client, script, shell, cmd.OutOrStdout(), cmd.ErrOrStderr())
+	start := time.Now()
+	result, err := exec.RunScriptBuffered(ctx, client, script, shell)
 	if err != nil {
 		return output.Errorf(err.Error(), "")
 	}
-	if code != 0 {
-		return &exec.ExitError{Code: code}
+	if remote.NeedsTranscoding(profile) {
+		result.Stdout = remote.DecodeString(result.Stdout, profile.Encoding)
+		result.Stderr = remote.DecodeString(result.Stderr, profile.Encoding)
+	}
+	w.Exec(&output.ExecResult{
+		ExitCode:   result.ExitCode,
+		Stdout:     result.Stdout,
+		Stderr:     result.Stderr,
+		Host:       alias,
+		DurationMs: time.Since(start).Milliseconds(),
+	})
+	if result.ExitCode != 0 {
+		return &exec.ExitError{Code: result.ExitCode}
 	}
 	return nil
 }
@@ -172,12 +172,12 @@ func execViaDaemon(cmd *cobra.Command, w *output.Writer, alias, command string) 
 		return execDirect(cmd, w, alias, command)
 	}
 
-	return recvExecFrames(cmd, conn)
+	return recvExecFrames(w, conn, alias)
 }
 
-func recvExecFrames(cmd *cobra.Command, conn net.Conn) error {
-	stdout := cmd.OutOrStdout()
-	stderr := cmd.ErrOrStderr()
+func recvExecFrames(w *output.Writer, conn net.Conn, alias string) error {
+	var stdoutBuf, stderrBuf strings.Builder
+	start := time.Now()
 
 	for {
 		msg, err := ipc.Recv(conn)
@@ -192,10 +192,17 @@ func recvExecFrames(cmd *cobra.Command, conn net.Conn) error {
 
 		switch frame.Type {
 		case "stdout":
-			stdout.Write([]byte(frame.Data))
+			stdoutBuf.WriteString(frame.Data)
 		case "stderr":
-			stderr.Write([]byte(frame.Data))
+			stderrBuf.WriteString(frame.Data)
 		case "exit":
+			w.Exec(&output.ExecResult{
+				ExitCode:   frame.Code,
+				Stdout:     stdoutBuf.String(),
+				Stderr:     stderrBuf.String(),
+				Host:       alias,
+				DurationMs: time.Since(start).Milliseconds(),
+			})
 			if frame.Code != 0 {
 				return &exec.ExitError{Code: frame.Code}
 			}
@@ -235,54 +242,29 @@ func execDirect(cmd *cobra.Command, w *output.Writer, alias, command string) err
 	cache := profileCacheFrom(ctx)
 	profile, _ := remote.GetProfile(ctx, client, cache, host.HostName, host.Port)
 
-	stdout := cmd.OutOrStdout()
-	stderr := cmd.ErrOrStderr()
-	if remote.NeedsTranscoding(profile) {
-		stdout = remote.NewDecodingWriter(stdout, profile.Encoding)
-		stderr = remote.NewDecodingWriter(stderr, profile.Encoding)
-	}
-
+	start := time.Now()
+	var result *exec.Result
 	if profile != nil && profile.NeedsStdinInjection() {
-		shell := string(profile.Shell)
-		if w.IsJSONMode() {
-			result, err := exec.RunScriptBuffered(ctx, client, []byte(command), shell)
-			if err != nil {
-				return output.Errorf(err.Error(), "")
-			}
-			w.JSONOut(result)
-			if result.ExitCode != 0 {
-				return &exec.ExitError{Code: result.ExitCode}
-			}
-			return nil
-		}
-		code, err := exec.RunScript(ctx, client, []byte(command), shell, stdout, stderr)
-		if err != nil {
-			return output.Errorf(err.Error(), "")
-		}
-		if code != 0 {
-			return &exec.ExitError{Code: code}
-		}
-		return nil
+		result, err = exec.RunScriptBuffered(ctx, client, []byte(command), string(profile.Shell))
+	} else {
+		result, err = exec.RunBuffered(ctx, client, command)
 	}
-
-	if w.IsJSONMode() {
-		result, err := exec.RunBuffered(ctx, client, command)
-		if err != nil {
-			return output.Errorf(err.Error(), "")
-		}
-		w.JSONOut(result)
-		if result.ExitCode != 0 {
-			return &exec.ExitError{Code: result.ExitCode}
-		}
-		return nil
-	}
-
-	code, err := exec.Run(ctx, client, command, stdout, stderr)
 	if err != nil {
 		return output.Errorf(err.Error(), "")
 	}
-	if code != 0 {
-		return &exec.ExitError{Code: code}
+	if remote.NeedsTranscoding(profile) {
+		result.Stdout = remote.DecodeString(result.Stdout, profile.Encoding)
+		result.Stderr = remote.DecodeString(result.Stderr, profile.Encoding)
+	}
+	w.Exec(&output.ExecResult{
+		ExitCode:   result.ExitCode,
+		Stdout:     result.Stdout,
+		Stderr:     result.Stderr,
+		Host:       alias,
+		DurationMs: time.Since(start).Milliseconds(),
+	})
+	if result.ExitCode != 0 {
+		return &exec.ExitError{Code: result.ExitCode}
 	}
 	return nil
 }

@@ -131,16 +131,7 @@ func tunnelStartViaDaemon(w *output.Writer, alias, direction, localAddr, remoteA
 	var result ipc.TunnelStartResult
 	json.Unmarshal(frame.Payload, &result)
 
-	if w.IsJSONMode() {
-		w.JSONOut(result)
-	} else {
-		arrow := "→"
-		if direction == "local" {
-			w.Success(fmt.Sprintf("%s %s %s %s via %s", result.ID, result.LocalAddr, arrow, result.RemoteAddr, alias))
-		} else {
-			w.Success(fmt.Sprintf("%s %s %s %s via %s", result.ID, result.RemoteAddr, arrow, result.LocalAddr, alias))
-		}
-	}
+	w.Render(tunnelStartView{result: result, alias: alias, direction: direction})
 	return nil
 }
 
@@ -203,7 +194,7 @@ func newTunnelListCommand() *cobra.Command {
 			conn, err := ipc.Connect()
 			if err != nil {
 				w := writerFrom(cmd.Context())
-				w.Value("daemon not running (no active tunnels)")
+				w.Render(tunnelList(nil))
 				return nil
 			}
 			defer conn.Close()
@@ -228,21 +219,7 @@ func newTunnelListCommand() *cobra.Command {
 			json.Unmarshal(frame.Payload, &list)
 
 			w := writerFrom(cmd.Context())
-			if w.IsJSONMode() {
-				w.JSONOut(list)
-				return nil
-			}
-
-			if len(list) == 0 {
-				w.Value("no active tunnels")
-				return nil
-			}
-
-			for _, t := range list {
-				arrow := "→"
-				w.Value(fmt.Sprintf("%s %s %s %s %s via %s conns=%d",
-					t.ID, t.Direction, t.LocalAddr, arrow, t.RemoteAddr, t.Alias, t.ActiveConn))
-			}
+			w.Render(tunnelList(list))
 			return nil
 		},
 	}
@@ -281,4 +258,40 @@ func newTunnelStopCommand() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+type tunnelStartView struct {
+	result    ipc.TunnelStartResult
+	alias     string
+	direction string
+}
+
+func (v tunnelStartView) MarshalJSON() ([]byte, error) {
+	return json.Marshal(v.result)
+}
+
+func (v tunnelStartView) Pretty() string {
+	arrow := "→"
+	if v.direction == "local" {
+		return fmt.Sprintf("%s %s %s %s via %s", v.result.ID, v.result.LocalAddr, arrow, v.result.RemoteAddr, v.alias)
+	}
+	return fmt.Sprintf("%s %s %s %s via %s", v.result.ID, v.result.RemoteAddr, arrow, v.result.LocalAddr, v.alias)
+}
+
+type tunnelList []tunnel.TunnelInfo
+
+func (tl tunnelList) Pretty() string {
+	if len(tl) == 0 {
+		return "no active tunnels"
+	}
+	var b strings.Builder
+	arrow := "→"
+	for i, t := range tl {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		fmt.Fprintf(&b, "%s %s %s %s %s via %s conns=%d",
+			t.ID, t.Direction, t.LocalAddr, arrow, t.RemoteAddr, t.Alias, t.ActiveConn)
+	}
+	return b.String()
 }

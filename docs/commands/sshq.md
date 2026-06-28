@@ -8,6 +8,7 @@ Agent-native SSH multiplexing CLI
       --config string      SSH config file path
   -h, --help               help for sshq
       --json               output in JSON format
+      --no-progress        disable progress output
       --pretty             human-readable output
       --timeout duration   operation timeout (default 30s)
   -v, --verbose            verbose output

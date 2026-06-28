@@ -16,11 +16,26 @@ func NewRootCommand() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			w := output.New(cmd.OutOrStdout(), cmd.ErrOrStderr())
 			jsonFlag, _ := cmd.Flags().GetBool("json")
-			if jsonFlag || output.DetectEnvJSONMode() {
-				w.SetJSONMode(true)
+			prettyFlag, _ := cmd.Flags().GetBool("pretty")
+			noProgress, _ := cmd.Flags().GetBool("no-progress")
+			verbose, _ := cmd.Flags().GetBool("verbose")
+
+			var opts []output.Option
+			if jsonFlag {
+				opts = append(opts, output.WithJSON())
 			}
+			if prettyFlag {
+				opts = append(opts, output.WithPretty())
+			}
+			if noProgress {
+				opts = append(opts, output.WithNoProgress())
+			}
+			if verbose {
+				opts = append(opts, output.WithVerbose())
+			}
+
+			w := output.New(cmd.OutOrStdout(), cmd.ErrOrStderr(), opts...)
 			ctx := withWriter(cmd.Context(), w)
 
 			cfgPath, _ := cmd.Flags().GetString("config")
@@ -44,6 +59,7 @@ func NewRootCommand() *cobra.Command {
 
 	cmd.PersistentFlags().Bool("json", false, "output in JSON format")
 	cmd.PersistentFlags().Bool("pretty", false, "human-readable output")
+	cmd.PersistentFlags().Bool("no-progress", false, "disable progress output")
 	cmd.PersistentFlags().String("config", "", "SSH config file path")
 	cmd.PersistentFlags().BoolP("verbose", "v", false, "verbose output")
 	cmd.PersistentFlags().Duration("timeout", 30*time.Second, "operation timeout")

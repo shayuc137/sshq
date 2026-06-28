@@ -18,6 +18,41 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// clusterHostResult is one host's outcome in a cluster exec.
+type clusterHostResult struct {
+	Alias    string `json:"alias"`
+	Stdout   string `json:"stdout,omitempty"`
+	Stderr   string `json:"stderr,omitempty"`
+	ExitCode int    `json:"exit_code"`
+	Error    string `json:"error,omitempty"`
+}
+
+// clusterResult aggregates all host outcomes plus a summary; it is Renderable.
+type clusterResult struct {
+	Results []clusterHostResult `json:"results"`
+	Summary ipc.ClusterSummary  `json:"summary"`
+}
+
+func (cr clusterResult) Pretty() string {
+	var b strings.Builder
+	for _, r := range cr.Results {
+		if r.Error != "" {
+			fmt.Fprintf(&b, "[%s] error: %s\n", r.Alias, r.Error)
+			continue
+		}
+		for _, line := range strings.Split(r.Stdout, "\n") {
+			if line != "" {
+				fmt.Fprintf(&b, "[%s] %s\n", r.Alias, line)
+			}
+		}
+		if r.ExitCode != 0 {
+			fmt.Fprintf(&b, "[%s] exit=%d\n", r.Alias, r.ExitCode)
+		}
+	}
+	fmt.Fprintf(&b, "total=%d success=%d failed=%d", cr.Summary.Total, cr.Summary.Success, cr.Summary.Failed)
+	return b.String()
+}
+
 func newClusterCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "cluster",
@@ -102,16 +137,8 @@ func clusterExecViaDaemon(cmd *cobra.Command, w *output.Writer, store *config.St
 }
 
 func recvClusterFrames(w *output.Writer, conn net.Conn) error {
-	type jsonResult struct {
-		Alias    string `json:"alias"`
-		Stdout   string `json:"stdout,omitempty"`
-		Stderr   string `json:"stderr,omitempty"`
-		ExitCode int    `json:"exit_code"`
-		Error    string `json:"error,omitempty"`
-	}
-
-	var jsonResults []jsonResult
-	hostData := make(map[string]*jsonResult)
+	hostData := make(map[string]*clusterHostResult)
+	var order []string
 	hasError := false
 
 	for {
@@ -129,65 +156,41 @@ func recvClusterFrames(w *output.Writer, conn net.Conn) error {
 		case "cluster":
 			var cf ipc.ClusterFrame
 			json.Unmarshal(frame.Payload, &cf)
-
-			if w.IsJSONMode() {
-				if _, ok := hostData[cf.Alias]; !ok {
-					r := &jsonResult{Alias: cf.Alias}
-					hostData[cf.Alias] = r
-					jsonResults = append(jsonResults, *r)
-				}
-				r := hostData[cf.Alias]
-				switch cf.Type {
-				case "stdout":
-					r.Stdout = cf.Data
-				case "stderr":
-					r.Stderr = cf.Data
-				case "exit":
-					r.ExitCode = cf.Code
-				case "error":
-					r.Error = cf.Hint
-					hasError = true
-				}
-			} else {
-				switch cf.Type {
-				case "stdout":
-					for _, line := range strings.Split(cf.Data, "\n") {
-						if line != "" {
-							w.Value(fmt.Sprintf("[%s] %s", cf.Alias, line))
-						}
-					}
-				case "stderr":
-					w.Info(fmt.Sprintf("[%s] %s", cf.Alias, cf.Data))
-				case "exit":
-					if cf.Code != 0 {
-						w.Info(fmt.Sprintf("[%s] exit=%d", cf.Alias, cf.Code))
-						hasError = true
-					}
-				case "error":
-					w.Info(fmt.Sprintf("[%s] error: %s", cf.Alias, cf.Hint))
-					hasError = true
-				}
+			r, ok := hostData[cf.Alias]
+			if !ok {
+				r = &clusterHostResult{Alias: cf.Alias}
+				hostData[cf.Alias] = r
+				order = append(order, cf.Alias)
+			}
+			switch cf.Type {
+			case "stdout":
+				r.Stdout += cf.Data
+			case "stderr":
+				r.Stderr += cf.Data
+			case "exit":
+				r.ExitCode = cf.Code
+			case "error":
+				r.Error = cf.Hint
+				hasError = true
 			}
 
 		case "result":
 			var summary ipc.ClusterSummary
 			json.Unmarshal(frame.Payload, &summary)
 
-			if w.IsJSONMode() {
-				finalResults := make([]jsonResult, 0, len(jsonResults))
-				for _, r := range jsonResults {
-					if updated, ok := hostData[r.Alias]; ok {
-						finalResults = append(finalResults, *updated)
-					}
+			results := make([]clusterHostResult, 0, len(order))
+			for _, a := range order {
+				hr := hostData[a]
+				hr.Stdout = trimTrailingNewline(hr.Stdout)
+				hr.Stderr = trimTrailingNewline(hr.Stderr)
+				if hr.ExitCode != 0 {
+					hasError = true
 				}
-				w.JSONOut(map[string]any{
-					"results": finalResults,
-					"summary": summary,
-				})
-			} else {
-				w.Value(fmt.Sprintf("total=%d success=%d failed=%d", summary.Total, summary.Success, summary.Failed))
+				results = append(results, *hr)
 			}
+			sort.Slice(results, func(i, j int) bool { return results[i].Alias < results[j].Alias })
 
+			w.Render(clusterResult{Results: results, Summary: summary})
 			if hasError {
 				return &exec.ExitError{Code: 1}
 			}
@@ -207,18 +210,10 @@ func clusterExecDirectCLI(cmd *cobra.Command, w *output.Writer, store *config.St
 		timeout = 30 * time.Second
 	}
 
-	type hostResult struct {
-		Alias    string
-		Stdout   string
-		Stderr   string
-		ExitCode int
-		Error    string
-	}
-
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	var results []hostResult
+	var results []clusterHostResult
 
 	for _, alias := range aliases {
 		wg.Add(1)
@@ -230,7 +225,7 @@ func clusterExecDirectCLI(cmd *cobra.Command, w *output.Writer, store *config.St
 			host, err := store.Get(alias)
 			if err != nil {
 				mu.Lock()
-				results = append(results, hostResult{Alias: alias, Error: "host not found"})
+				results = append(results, clusterHostResult{Alias: alias, Error: "host not found"})
 				mu.Unlock()
 				return
 			}
@@ -244,7 +239,7 @@ func clusterExecDirectCLI(cmd *cobra.Command, w *output.Writer, store *config.St
 			client, err := sshclient.Dial(ctx, cfg)
 			if err != nil {
 				mu.Lock()
-				results = append(results, hostResult{Alias: alias, Error: err.Error()})
+				results = append(results, clusterHostResult{Alias: alias, Error: err.Error()})
 				mu.Unlock()
 				return
 			}
@@ -253,13 +248,13 @@ func clusterExecDirectCLI(cmd *cobra.Command, w *output.Writer, store *config.St
 			result, err := exec.RunBuffered(ctx, client, command)
 			if err != nil {
 				mu.Lock()
-				results = append(results, hostResult{Alias: alias, Error: err.Error()})
+				results = append(results, clusterHostResult{Alias: alias, Error: err.Error()})
 				mu.Unlock()
 				return
 			}
 
 			mu.Lock()
-			results = append(results, hostResult{
+			results = append(results, clusterHostResult{
 				Alias:    alias,
 				Stdout:   trimTrailingNewline(result.Stdout),
 				Stderr:   trimTrailingNewline(result.Stderr),
@@ -273,42 +268,20 @@ func clusterExecDirectCLI(cmd *cobra.Command, w *output.Writer, store *config.St
 
 	sort.Slice(results, func(i, j int) bool { return results[i].Alias < results[j].Alias })
 
-	hasError := false
 	success := 0
-
-	if w.IsJSONMode() {
-		for i := range results {
-			if results[i].Error != "" || results[i].ExitCode != 0 {
-				hasError = true
-			} else {
-				success++
-			}
+	hasError := false
+	for _, r := range results {
+		if r.Error != "" || r.ExitCode != 0 {
+			hasError = true
+		} else {
+			success++
 		}
-		w.JSONOut(map[string]any{
-			"results": results,
-			"summary": ipc.ClusterSummary{Total: len(results), Success: success, Failed: len(results) - success},
-		})
-	} else {
-		for _, r := range results {
-			if r.Error != "" {
-				w.Info(fmt.Sprintf("[%s] error: %s", r.Alias, r.Error))
-				hasError = true
-				continue
-			}
-			for _, line := range strings.Split(r.Stdout, "\n") {
-				if line != "" {
-					w.Value(fmt.Sprintf("[%s] %s", r.Alias, line))
-				}
-			}
-			if r.ExitCode != 0 {
-				w.Info(fmt.Sprintf("[%s] exit=%d", r.Alias, r.ExitCode))
-				hasError = true
-			} else {
-				success++
-			}
-		}
-		w.Value(fmt.Sprintf("total=%d success=%d failed=%d", len(results), success, len(results)-success))
 	}
+
+	w.Render(clusterResult{
+		Results: results,
+		Summary: ipc.ClusterSummary{Total: len(results), Success: success, Failed: len(results) - success},
+	})
 
 	if hasError {
 		return &exec.ExitError{Code: 1}

@@ -31,12 +31,11 @@ func newProbeCommand() *cobra.Command {
 			timeout, _ := cmd.Flags().GetDuration("timeout")
 			portOverride, _ := cmd.Flags().GetString("port")
 			all, _ := cmd.Flags().GetBool("all")
-			pretty, _ := cmd.Flags().GetBool("pretty")
 
 			refreshProfile, _ := cmd.Flags().GetBool("refresh-profile")
 
 			if all {
-				return runProbeAll(cmd, store, w, timeout, portOverride, pretty)
+				return runProbeAll(cmd, store, w, timeout, portOverride)
 			}
 
 			if len(args) == 0 {
@@ -62,33 +61,7 @@ func newProbeCommand() *cobra.Command {
 				profile = refreshRemoteProfile(cmd, w, host)
 			}
 
-			if w.IsJSONMode() {
-				out := map[string]interface{}{
-					"alias": r.Alias, "host": r.Host, "port": r.Port,
-					"reachable": r.Reachable, "latency_ms": r.LatencyMs,
-				}
-				if r.Error != "" {
-					out["error"] = r.Error
-				}
-				if profile != nil {
-					out["profile"] = profile
-				}
-				w.JSONOut(out)
-				return nil
-			}
-
-			var profileSuffix string
-			if profile != nil {
-				profileSuffix = fmt.Sprintf(" os=%s shell=%s", profile.OS, profile.Shell)
-				if profile.Encoding != "" {
-					profileSuffix += " encoding=" + profile.Encoding
-				}
-			}
-			if pretty {
-				w.Value(probe.RenderPretty(r) + profileSuffix)
-			} else {
-				w.Value(probe.RenderCompact(r) + profileSuffix)
-			}
+			w.Render(probeView{Result: r, Profile: profile})
 			return nil
 		},
 	}
@@ -178,7 +151,7 @@ func refreshProfileDirect(cmd *cobra.Command, w *output.Writer, host config.Host
 	return p
 }
 
-func runProbeAll(cmd *cobra.Command, store *config.Store, w *output.Writer, timeout time.Duration, portOverride string, pretty bool) error {
+func runProbeAll(cmd *cobra.Command, store *config.Store, w *output.Writer, timeout time.Duration, portOverride string) error {
 	hosts := store.List()
 	targets := make([]probe.Target, len(hosts))
 	for i, h := range hosts {
@@ -190,25 +163,36 @@ func runProbeAll(cmd *cobra.Command, store *config.Store, w *output.Writer, time
 	}
 
 	results := probe.CheckAll(cmd.Context(), targets, timeout, 10)
-
-	if w.IsJSONMode() {
-		w.JSONOut(results)
-		return nil
-	}
-
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Alias < results[j].Alias
 	})
+	w.Render(probeList(results))
+	return nil
+}
 
-	var b strings.Builder
-	for _, r := range results {
-		if pretty {
-			b.WriteString(probe.RenderPretty(r) + "\n")
-		} else {
-			b.WriteString(probe.RenderCompact(r) + "\n")
+type probeView struct {
+	probe.Result
+	Profile *remote.Profile `json:"profile,omitempty"`
+}
+
+func (v probeView) Pretty() string {
+	s := probe.RenderCompact(v.Result)
+	if v.Profile != nil {
+		s += fmt.Sprintf(" os=%s shell=%s", v.Profile.OS, v.Profile.Shell)
+		if v.Profile.Encoding != "" {
+			s += " encoding=" + v.Profile.Encoding
 		}
 	}
-	b.WriteString(probe.RenderBatchSummary(results) + "\n")
-	w.Value(b.String())
-	return nil
+	return s
+}
+
+type probeList []probe.Result
+
+func (pl probeList) Pretty() string {
+	var b strings.Builder
+	for _, r := range pl {
+		b.WriteString(probe.RenderCompact(r) + "\n")
+	}
+	b.WriteString(probe.RenderBatchSummary(pl))
+	return b.String()
 }

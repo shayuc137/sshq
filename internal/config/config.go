@@ -11,13 +11,13 @@ import (
 )
 
 type Host struct {
-	Alias        string
-	HostName     string
-	User         string
-	Port         string
-	IdentityFile string
-	ProxyJump    string
-	Metadata     map[string]string
+	Alias        string            `json:"alias"`
+	HostName     string            `json:"hostname"`
+	User         string            `json:"user"`
+	Port         string            `json:"port"`
+	IdentityFile string            `json:"identity_file,omitempty"`
+	ProxyJump    string            `json:"proxy_jump,omitempty"`
+	Metadata     map[string]string `json:"metadata,omitempty"`
 }
 
 type Store struct {

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/shayuc137/sshq/internal/config"
 	"github.com/shayuc137/sshq/internal/output"
@@ -32,53 +33,32 @@ func newInfoCommand() *cobra.Command {
 				profile, _ = cache.Get(host.HostName, host.Port)
 			}
 
-			if w.IsJSONMode() {
-				m := hostsToMaps([]config.Host{host})
-				data := m[0]
-				if profile != nil {
-					data["profile"] = profile
-				}
-				w.JSONOut(data)
-				return nil
-			}
-
-			pretty, _ := cmd.Flags().GetBool("pretty")
-			if pretty {
-				s := config.RenderInfoPretty(host)
-				if profile != nil {
-					s += renderProfilePretty(profile)
-				}
-				w.Value(s)
-			} else {
-				s := config.RenderInfoCompact(host)
-				if profile != nil {
-					s = appendProfileCompact(s, profile)
-				}
-				w.Value(s)
-			}
+			w.Render(hostInfo{Host: host, Profile: profile})
 			return nil
 		},
 	}
 }
 
-func renderProfilePretty(p *remote.Profile) string {
-	s := "---\n"
-	s += fmt.Sprintf("OS:           %s\n", p.OS)
-	s += fmt.Sprintf("Shell:        %s\n", p.Shell)
-	if p.Encoding != "" {
-		s += fmt.Sprintf("Encoding:     %s\n", p.Encoding)
-	}
-	if p.HomeDir != "" {
-		s += fmt.Sprintf("RemoteHome:   %s\n", p.HomeDir)
-	}
-	return s
+// hostInfo bundles a host with its cached profile for the info command.
+// The embedded Host's json fields are promoted, matching the prior output.
+type hostInfo struct {
+	config.Host
+	Profile *remote.Profile `json:"profile,omitempty"`
 }
 
-func appendProfileCompact(s string, p *remote.Profile) string {
-	s = s[:len(s)-1] // strip trailing \n
-	s += fmt.Sprintf(" os=%s shell=%s", p.OS, p.Shell)
-	if p.Encoding != "" {
-		s += " encoding=" + p.Encoding
+func (hi hostInfo) Pretty() string {
+	var b strings.Builder
+	b.WriteString(config.HostDetail(hi.Host).Pretty())
+	if hi.Profile != nil {
+		b.WriteString("---\n")
+		fmt.Fprintf(&b, "OS:           %s\n", hi.Profile.OS)
+		fmt.Fprintf(&b, "Shell:        %s\n", hi.Profile.Shell)
+		if hi.Profile.Encoding != "" {
+			fmt.Fprintf(&b, "Encoding:     %s\n", hi.Profile.Encoding)
+		}
+		if hi.Profile.HomeDir != "" {
+			fmt.Fprintf(&b, "RemoteHome:   %s\n", hi.Profile.HomeDir)
+		}
 	}
-	return s + "\n"
+	return b.String()
 }

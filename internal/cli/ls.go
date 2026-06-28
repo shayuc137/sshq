@@ -18,43 +18,8 @@ func newLsCommand() *cobra.Command {
 			}
 
 			w := writerFrom(cmd.Context())
-			hosts := store.List()
-
-			if w.IsJSONMode() {
-				w.JSONOut(hostsToMaps(hosts))
-				return nil
-			}
-
-			pretty, _ := cmd.Flags().GetBool("pretty")
-			if pretty {
-				w.Value(config.RenderListPretty(hosts))
-			} else {
-				w.Value(config.RenderListCompact(hosts))
-			}
+			w.Render(config.HostList(store.List()))
 			return nil
 		},
 	}
-}
-
-func hostsToMaps(hosts []config.Host) []map[string]any {
-	result := make([]map[string]any, len(hosts))
-	for i, h := range hosts {
-		m := map[string]any{
-			"alias":    h.Alias,
-			"hostname": h.HostName,
-			"user":     h.User,
-			"port":     h.Port,
-		}
-		if h.IdentityFile != "" {
-			m["identity_file"] = h.IdentityFile
-		}
-		if h.ProxyJump != "" {
-			m["proxy_jump"] = h.ProxyJump
-		}
-		if len(h.Metadata) > 0 {
-			m["metadata"] = h.Metadata
-		}
-		result[i] = m
-	}
-	return result
 }

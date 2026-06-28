@@ -39,3 +39,18 @@ func NewDecodingWriter(w io.Writer, enc string) io.Writer {
 func NeedsTranscoding(p *Profile) bool {
 	return p != nil && p.Encoding != ""
 }
+
+// DecodeString decodes a buffered string from the given encoding to UTF-8.
+// Used for buffered command output where a streaming DecodingWriter is not
+// available; on decode failure it returns the original string unchanged.
+func DecodeString(s, enc string) string {
+	e := EncodingByName(enc)
+	if e == nil {
+		return s
+	}
+	res, _, err := transform.String(e.NewDecoder(), s)
+	if err != nil {
+		return s
+	}
+	return res
+}

@@ -77,10 +77,10 @@ func newDaemonStatusCommand() *cobra.Command {
 		Short: "Show daemon status",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			w := writerFrom(cmd.Context())
 			conn, err := ipc.Connect()
 			if err != nil {
-				w := writerFrom(cmd.Context())
-				w.Value("daemon not running")
+				w.Render(ipc.StatusResponse{Running: false})
 				return nil
 			}
 			defer conn.Close()
@@ -95,15 +95,9 @@ func newDaemonStatusCommand() *cobra.Command {
 				return output.Errorf("recv status: "+err.Error(), "")
 			}
 
-			w := writerFrom(cmd.Context())
 			var resp ipc.StatusResponse
 			json.Unmarshal(msg, &resp)
-
-			if w.IsJSONMode() {
-				w.JSONOut(resp)
-			} else {
-				w.Value(renderDaemonStatus(resp))
-			}
+			w.Render(resp)
 			return nil
 		},
 	}
@@ -124,15 +118,6 @@ func sendSimpleAction(action, successMsg string, cmd *cobra.Command) error {
 	w := writerFrom(cmd.Context())
 	w.Success(successMsg)
 	return nil
-}
-
-func renderDaemonStatus(resp ipc.StatusResponse) string {
-	s := fmt.Sprintf("daemon running uptime=%ds connections=%d\n", resp.Uptime, len(resp.Connections))
-	for _, c := range resp.Connections {
-		idle := time.Since(time.Unix(c.IdleSince, 0)).Truncate(time.Second)
-		s += fmt.Sprintf("  %s %s:%s idle=%s\n", c.Alias, c.Host, c.Port, idle)
-	}
-	return s
 }
 
 // --- daemon server ---

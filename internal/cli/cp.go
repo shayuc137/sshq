@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net"
 	"time"
 
@@ -38,14 +37,10 @@ func newCpCommand() *cobra.Command {
 
 			w := writerFrom(cmd.Context())
 			recursive, _ := cmd.Flags().GetBool("recursive")
-			noProgress, _ := cmd.Flags().GetBool("no-progress")
 			noDaemon, _ := cmd.Flags().GetBool("no-daemon")
 			timeout, _ := cmd.Flags().GetDuration("timeout")
 
-			var progressFn transfer.ProgressFunc
-			if !noProgress {
-				progressFn = makeProgressFunc(w)
-			}
+			progressFn := transferProgress(w)
 
 			ctx := cmd.Context()
 			if timeout > 0 {
@@ -57,9 +52,9 @@ func newCpCommand() *cobra.Command {
 			if !noDaemon && ipc.IsRunning() {
 				switch parsed.Direction {
 				case transfer.Upload, transfer.Download:
-					return cpTransferViaDaemon(cmd, w, parsed, recursive, noProgress)
+					return cpTransferViaDaemon(cmd, w, parsed, recursive)
 				case transfer.Relay:
-					return cpRelayViaDaemon(cmd, w, parsed, recursive, noProgress)
+					return cpRelayViaDaemon(cmd, w, parsed, recursive)
 				}
 			}
 
@@ -74,18 +69,17 @@ func newCpCommand() *cobra.Command {
 	}
 
 	cmd.Flags().BoolP("recursive", "r", false, "copy directories recursively")
-	cmd.Flags().Bool("no-progress", false, "disable progress output")
 	cmd.Flags().Bool("no-daemon", false, "skip daemon, connect directly")
 	return cmd
 }
 
 // --- daemon paths ---
 
-func cpTransferViaDaemon(cmd *cobra.Command, w *output.Writer, parsed transfer.ParsedArgs, recursive, noProgress bool) error {
+func cpTransferViaDaemon(cmd *cobra.Command, w *output.Writer, parsed transfer.ParsedArgs, recursive bool) error {
 	conn, err := ipc.Connect()
 	if err != nil {
 		w.Info("daemon unreachable, falling back to direct connection")
-		return cpTransferDirectFromCmd(cmd, w, parsed, recursive, noProgress)
+		return cpTransferDirectFromCmd(cmd, w, parsed, recursive)
 	}
 	defer conn.Close()
 
@@ -115,17 +109,17 @@ func cpTransferViaDaemon(cmd *cobra.Command, w *output.Writer, parsed transfer.P
 	})
 	if err := ipc.Send(conn, env); err != nil {
 		w.Info("daemon send failed, falling back to direct connection")
-		return cpTransferDirectFromCmd(cmd, w, parsed, recursive, noProgress)
+		return cpTransferDirectFromCmd(cmd, w, parsed, recursive)
 	}
 
 	return recvTransferFrames(w, conn)
 }
 
-func cpRelayViaDaemon(cmd *cobra.Command, w *output.Writer, parsed transfer.ParsedArgs, recursive, noProgress bool) error {
+func cpRelayViaDaemon(cmd *cobra.Command, w *output.Writer, parsed transfer.ParsedArgs, recursive bool) error {
 	conn, err := ipc.Connect()
 	if err != nil {
 		w.Info("daemon unreachable, falling back to direct connection")
-		return cpRelayDirectFromCmd(cmd, w, parsed, recursive, noProgress)
+		return cpRelayDirectFromCmd(cmd, w, parsed, recursive)
 	}
 	defer conn.Close()
 
@@ -138,7 +132,7 @@ func cpRelayViaDaemon(cmd *cobra.Command, w *output.Writer, parsed transfer.Pars
 	})
 	if err := ipc.Send(conn, env); err != nil {
 		w.Info("daemon send failed, falling back to direct connection")
-		return cpRelayDirectFromCmd(cmd, w, parsed, recursive, noProgress)
+		return cpRelayDirectFromCmd(cmd, w, parsed, recursive)
 	}
 
 	return recvTransferFrames(w, conn)
@@ -160,19 +154,19 @@ func recvTransferFrames(w *output.Writer, conn net.Conn) error {
 		case "stderr":
 			w.Info(frame.Data)
 		case "progress":
-			if !w.IsJSONMode() {
-				var info transfer.ProgressInfo
-				json.Unmarshal(frame.Payload, &info)
-				w.Info(fmt.Sprintf("%s %d%% %s/%s %s",
-					info.File, info.Percent,
-					transfer.HumanSize(info.Transferred),
-					transfer.HumanSize(info.Total),
-					info.Speed))
-			}
+			var info transfer.ProgressInfo
+			json.Unmarshal(frame.Payload, &info)
+			w.Progress(output.ProgressInfo{
+				File:        info.File,
+				Percent:     info.Percent,
+				Transferred: info.Transferred,
+				Total:       info.Total,
+				Speed:       info.Speed,
+			})
 		case "result":
 			var result transfer.Result
 			json.Unmarshal(frame.Payload, &result)
-			renderCpResult(w, &result)
+			w.Render(&result)
 			return nil
 		case "error":
 			return output.Errorf(frame.Hint, frame.Action)
@@ -182,22 +176,14 @@ func recvTransferFrames(w *output.Writer, conn net.Conn) error {
 
 // --- direct paths (fallback) ---
 
-func cpTransferDirectFromCmd(cmd *cobra.Command, w *output.Writer, parsed transfer.ParsedArgs, recursive, noProgress bool) error {
+func cpTransferDirectFromCmd(cmd *cobra.Command, w *output.Writer, parsed transfer.ParsedArgs, recursive bool) error {
 	store := configFrom(cmd.Context())
-	var progressFn transfer.ProgressFunc
-	if !noProgress {
-		progressFn = makeProgressFunc(w)
-	}
-	return cpTransferDirect(cmd.Context(), w, store, parsed, recursive, progressFn)
+	return cpTransferDirect(cmd.Context(), w, store, parsed, recursive, transferProgress(w))
 }
 
-func cpRelayDirectFromCmd(cmd *cobra.Command, w *output.Writer, parsed transfer.ParsedArgs, recursive, noProgress bool) error {
+func cpRelayDirectFromCmd(cmd *cobra.Command, w *output.Writer, parsed transfer.ParsedArgs, recursive bool) error {
 	store := configFrom(cmd.Context())
-	var progressFn transfer.ProgressFunc
-	if !noProgress {
-		progressFn = makeProgressFunc(w)
-	}
-	return cpRelayDirect(cmd.Context(), w, store, parsed, recursive, progressFn)
+	return cpRelayDirect(cmd.Context(), w, store, parsed, recursive, transferProgress(w))
 }
 
 func cpTransferDirect(ctx context.Context, w *output.Writer, store *config.Store, parsed transfer.ParsedArgs, recursive bool, progress transfer.ProgressFunc) error {
@@ -254,7 +240,7 @@ func cpTransferDirect(ctx context.Context, w *output.Writer, store *config.Store
 		return output.Errorf(err.Error(), "")
 	}
 
-	renderCpResult(w, result)
+	w.Render(result)
 	return nil
 }
 
@@ -307,35 +293,18 @@ func cpRelayDirect(ctx context.Context, w *output.Writer, store *config.Store, p
 		return output.Errorf(err.Error(), "")
 	}
 
-	renderCpResult(w, result)
+	w.Render(result)
 	return nil
 }
 
-func renderCpResult(w *output.Writer, r *transfer.Result) {
-	if w.IsJSONMode() {
-		w.JSONOut(r)
-		return
-	}
-	if r.Files > 1 {
-		w.Value(fmt.Sprintf("%s %d files %s %s %s",
-			r.Remote, r.Files, transfer.HumanSize(r.Size), r.Duration, r.Engine))
-	} else {
-		w.Value(fmt.Sprintf("%s %s %s %s",
-			r.Remote, transfer.HumanSize(r.Size), r.Duration, r.Engine))
-	}
-}
-
-func makeProgressFunc(w *output.Writer) transfer.ProgressFunc {
-	return func(info transfer.ProgressInfo) {
-		if w.IsJSONMode() {
-			b, _ := json.Marshal(info)
-			w.Info(string(b))
-			return
-		}
-		w.Info(fmt.Sprintf("%s %d%% %s/%s %s",
-			info.File, info.Percent,
-			transfer.HumanSize(info.Transferred),
-			transfer.HumanSize(info.Total),
-			info.Speed))
+func transferProgress(w *output.Writer) transfer.ProgressFunc {
+	return func(i transfer.ProgressInfo) {
+		w.Progress(output.ProgressInfo{
+			File:        i.File,
+			Percent:     i.Percent,
+			Transferred: i.Transferred,
+			Total:       i.Total,
+			Speed:       i.Speed,
+		})
 	}
 }

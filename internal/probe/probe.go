@@ -98,10 +98,3 @@ func RenderBatchSummary(results []Result) string {
 	}
 	return fmt.Sprintf("total=%d ok=%d fail=%d", len(results), ok, fail)
 }
-
-func RenderPretty(r Result) string {
-	if r.Reachable {
-		return fmt.Sprintf("%-15s %s:%s  ✓ reachable (%dms)", r.Alias, r.Host, r.Port, r.LatencyMs)
-	}
-	return fmt.Sprintf("%-15s %s:%s  ✗ %s", r.Alias, r.Host, r.Port, r.Error)
-}

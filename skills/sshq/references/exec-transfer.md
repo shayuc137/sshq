@@ -34,8 +34,7 @@ Copy files using alias:path syntax to determine direction:
 **Flags:**
 
 ```
-      --no-daemon     skip daemon, connect directly
-      --no-progress   disable progress output
-  -r, --recursive     copy directories recursively
+      --no-daemon   skip daemon, connect directly
+  -r, --recursive   copy directories recursively
 ```
 

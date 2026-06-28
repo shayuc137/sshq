@@ -40,8 +40,12 @@ func runRecvCluster(t *testing.T, jsonMode bool, frames ...ipc.Frame) (out, errO
 	clientConn, serverConn := net.Pipe()
 	outBuf := &bytes.Buffer{}
 	errBuf := &bytes.Buffer{}
-	w := output.New(outBuf, errBuf)
-	w.SetJSONMode(jsonMode)
+	var w *output.Writer
+	if jsonMode {
+		w = output.New(outBuf, errBuf, output.WithJSON())
+	} else {
+		w = output.New(outBuf, errBuf, output.WithPretty())
+	}
 
 	// Safety net so a malformed scenario fails fast instead of hanging.
 	clientConn.SetDeadline(time.Now().Add(5 * time.Second))
@@ -145,7 +149,7 @@ func TestRecvClusterFramesPartialFailureJSON(t *testing.T) {
 }
 
 func TestRecvClusterFramesNonZeroExitText(t *testing.T) {
-	out, errOut, err := runRecvCluster(t, false,
+	out, _, err := runRecvCluster(t, false,
 		clusterFrame(t, ipc.ClusterFrame{Alias: "web1", Type: "stdout", Data: "hello"}),
 		clusterFrame(t, ipc.ClusterFrame{Alias: "web1", Type: "exit", Code: 3}),
 		resultFrame(t, ipc.ClusterSummary{Total: 1, Success: 0, Failed: 1}),
@@ -158,8 +162,8 @@ func TestRecvClusterFramesNonZeroExitText(t *testing.T) {
 	if !strings.Contains(out.String(), "[web1] hello") {
 		t.Errorf("stdout missing host output: %q", out.String())
 	}
-	if !strings.Contains(errOut.String(), "[web1] exit=3") {
-		t.Errorf("stderr missing exit notice: %q", errOut.String())
+	if !strings.Contains(out.String(), "[web1] exit=3") {
+		t.Errorf("stdout missing exit notice: %q", out.String())
 	}
 }
 

@@ -23,16 +23,20 @@ func main() {
 			os.Exit(exitErr.Code)
 		}
 
-		w := output.New(cmd.OutOrStdout(), cmd.ErrOrStderr())
-		if (cmd.Flag("json") != nil && cmd.Flag("json").Changed) || output.DetectEnvJSONMode() {
-			w.SetJSONMode(true)
+		var opts []output.Option
+		if cmd.Flag("json") != nil && cmd.Flag("json").Changed {
+			opts = append(opts, output.WithJSON())
 		}
+		if cmd.Flag("pretty") != nil && cmd.Flag("pretty").Changed {
+			opts = append(opts, output.WithPretty())
+		}
+		w := output.New(cmd.OutOrStdout(), cmd.ErrOrStderr(), opts...)
 
 		var cmdErr *output.CmdError
 		if errors.As(err, &cmdErr) {
-			w.RenderError(cmdErr)
+			w.Error(cmdErr)
 		} else {
-			w.RenderError(output.Errorf(err.Error(), ""))
+			w.Error(output.Errorf(err.Error(), ""))
 		}
 		os.Exit(1)
 	}

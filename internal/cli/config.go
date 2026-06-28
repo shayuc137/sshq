@@ -168,19 +168,7 @@ func newConfigListCommand() *cobra.Command {
 				return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists")
 			}
 			w := writerFrom(cmd.Context())
-			hosts := store.List()
-
-			if w.IsJSONMode() {
-				w.JSONOut(hostsToMaps(hosts))
-				return nil
-			}
-
-			pretty, _ := cmd.Flags().GetBool("pretty")
-			if pretty {
-				w.Value(config.RenderListPretty(hosts))
-			} else {
-				w.Value(config.RenderListCompact(hosts))
-			}
+			w.Render(config.HostList(store.List()))
 			return nil
 		},
 	}

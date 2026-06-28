@@ -1,27 +1,30 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 )
 
-func RenderListCompact(hosts []Host) string {
-	var b strings.Builder
-	for _, h := range hosts {
-		auth := "key"
-		if h.IdentityFile == "" {
-			auth = "agent"
-		}
-		line := fmt.Sprintf("%s %s@%s:%s auth=%s", h.Alias, h.User, h.HostName, h.Port, auth)
-		if desc := h.Metadata["description"]; desc != "" {
-			line += " desc=" + desc
-		}
-		b.WriteString(line + "\n")
+// HostList wraps []Host as a Renderable for output.Writer.Render in non-JSON mode.
+type HostList []Host
+
+func (hl HostList) Pretty() string { return RenderListPretty([]Host(hl)) }
+
+// MarshalJSON renders an empty or nil HostList as [] rather than null, keeping the
+// JSON list contract stable for agents that iterate over the array.
+func (hl HostList) MarshalJSON() ([]byte, error) {
+	if len(hl) == 0 {
+		return []byte("[]"), nil
 	}
-	fmt.Fprintf(&b, "total=%d\n", len(hosts))
-	return b.String()
+	return json.Marshal([]Host(hl))
 }
+
+// HostDetail wraps a single Host as a Renderable for output.Writer.Render in non-JSON mode.
+type HostDetail Host
+
+func (hd HostDetail) Pretty() string { return RenderInfoPretty(Host(hd)) }
 
 func RenderListPretty(hosts []Host) string {
 	if len(hosts) == 0 {
@@ -46,31 +49,6 @@ func RenderListPretty(hosts []Host) string {
 			h.User, h.HostName, h.Port)
 	}
 	return b.String()
-}
-
-func RenderInfoCompact(h Host) string {
-	auth := "key"
-	if h.IdentityFile == "" {
-		auth = "agent"
-	}
-	parts := []string{
-		fmt.Sprintf("%s %s@%s:%s auth=%s", h.Alias, h.User, h.HostName, h.Port, auth),
-	}
-	if h.IdentityFile != "" {
-		parts = append(parts, "identity="+h.IdentityFile)
-	}
-	if h.ProxyJump != "" {
-		parts = append(parts, "proxy="+h.ProxyJump)
-	}
-	keys := make([]string, 0, len(h.Metadata))
-	for k := range h.Metadata {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		parts = append(parts, k+"="+h.Metadata[k])
-	}
-	return strings.Join(parts, " ") + "\n"
 }
 
 func RenderInfoPretty(h Host) string {
