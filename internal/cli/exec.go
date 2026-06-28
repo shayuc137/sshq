@@ -22,31 +22,7 @@ func newExecCommand() *cobra.Command {
 		Short: "Execute a command on a remote host",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			alias := args[0]
-
-			store := configFrom(cmd.Context())
-			if store == nil {
-				return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists")
-			}
-
-			w := writerFrom(cmd.Context())
-
-			scriptFile, _ := cmd.Flags().GetString("script-file")
-			if scriptFile != "" {
-				return execScript(cmd, w, alias, scriptFile)
-			}
-
-			if len(args) < 2 {
-				return output.Errorf("command required", "usage: sshq exec <alias> <command...> or sshq exec --script-file <path> <alias>")
-			}
-			command := strings.Join(args[1:], " ")
-
-			noDaemon, _ := cmd.Flags().GetBool("no-daemon")
-			if !noDaemon && ipc.IsRunning() {
-				return execViaDaemon(cmd, w, alias, command)
-			}
-
-			return execDirect(cmd, w, alias, command)
+			return runExecCommand(cmd, args)
 		},
 	}
 
@@ -54,6 +30,34 @@ func newExecCommand() *cobra.Command {
 	cmd.Flags().String("script-file", "", "execute a local script file on the remote host via stdin")
 	cmd.Flags().String("shell", "", "override detected remote shell type (bash/ash/zsh/sh/powershell)")
 	return cmd
+}
+
+func runExecCommand(cmd *cobra.Command, args []string) error {
+	alias := args[0]
+
+	store := configFrom(cmd.Context())
+	if store == nil {
+		return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists")
+	}
+
+	w := writerFrom(cmd.Context())
+
+	scriptFile, _ := cmd.Flags().GetString("script-file")
+	if scriptFile != "" {
+		return execScript(cmd, w, alias, scriptFile)
+	}
+
+	if len(args) < 2 {
+		return output.Errorf("command required", "usage: sshq exec <alias> <command...> or sshq exec --script-file <path> <alias>")
+	}
+	command := strings.Join(args[1:], " ")
+
+	noDaemon, _ := cmd.Flags().GetBool("no-daemon")
+	if !noDaemon && ipc.IsRunning() {
+		return execViaDaemon(cmd, w, alias, command)
+	}
+
+	return execDirect(cmd, w, alias, command)
 }
 
 func execScript(cmd *cobra.Command, w *output.Writer, alias, scriptFile string) error {
@@ -72,7 +76,7 @@ func execScript(cmd *cobra.Command, w *output.Writer, alias, scriptFile string) 
 
 func execScriptViaDaemon(cmd *cobra.Command, w *output.Writer, alias string, script []byte) error {
 	timeout, _ := cmd.Flags().GetDuration("timeout")
-	shellOverride, _ := cmd.Flags().GetString("shell")
+	shellOverride := execShellOverride(cmd)
 
 	conn, err := ipc.Connect()
 	if err != nil {
@@ -122,11 +126,7 @@ func execScriptDirect(cmd *cobra.Command, w *output.Writer, alias string, script
 
 	cache := profileCacheFrom(ctx)
 	profile, _ := remote.GetProfile(ctx, client, cache, host.HostName, host.Port)
-	shellOverride, _ := cmd.Flags().GetString("shell")
-	shell := shellOverride
-	if shell == "" && profile != nil {
-		shell = string(profile.Shell)
-	}
+	shell := shellForExec(profile, execShellOverride(cmd))
 
 	w.Info("executing script via " + shell + "...")
 
@@ -154,6 +154,7 @@ func execScriptDirect(cmd *cobra.Command, w *output.Writer, alias string, script
 
 func execViaDaemon(cmd *cobra.Command, w *output.Writer, alias, command string) error {
 	timeout, _ := cmd.Flags().GetDuration("timeout")
+	shellOverride := execShellOverride(cmd)
 
 	conn, err := ipc.Connect()
 	if err != nil {
@@ -165,6 +166,7 @@ func execViaDaemon(cmd *cobra.Command, w *output.Writer, alias, command string) 
 	env, _ := ipc.MakeEnvelope("exec", ipc.ExecPayload{
 		Alias:   alias,
 		Command: command,
+		Shell:   shellOverride,
 		Timeout: int(timeout.Seconds()),
 	})
 	if err := ipc.Send(conn, env); err != nil {
@@ -241,14 +243,10 @@ func execDirect(cmd *cobra.Command, w *output.Writer, alias, command string) err
 
 	cache := profileCacheFrom(ctx)
 	profile, _ := remote.GetProfile(ctx, client, cache, host.HostName, host.Port)
+	shell := shellForExec(profile, execShellOverride(cmd))
 
 	start := time.Now()
-	var result *exec.Result
-	if profile != nil && profile.NeedsStdinInjection() {
-		result, err = exec.RunScriptBuffered(ctx, client, []byte(command), string(profile.Shell))
-	} else {
-		result, err = exec.RunBuffered(ctx, client, command)
-	}
+	result, err := exec.RunBufferedWithShell(ctx, client, command, shell)
 	if err != nil {
 		return output.Errorf(err.Error(), "")
 	}
@@ -267,6 +265,21 @@ func execDirect(cmd *cobra.Command, w *output.Writer, alias, command string) err
 		return &exec.ExitError{Code: result.ExitCode}
 	}
 	return nil
+}
+
+func execShellOverride(cmd *cobra.Command) string {
+	shell, _ := cmd.Flags().GetString("shell")
+	return shell
+}
+
+func shellForExec(profile *remote.Profile, override string) string {
+	if override != "" {
+		return override
+	}
+	if profile == nil {
+		return ""
+	}
+	return string(profile.Shell)
 }
 
 func timeoutContext(parent context.Context, d time.Duration) (context.Context, func()) {

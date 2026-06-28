@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/shayuc137/sshq/internal/config"
@@ -15,6 +16,8 @@ func NewRootCommand() *cobra.Command {
 		Short:         "Agent-native SSH multiplexing CLI",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		Args:          cobra.ArbitraryArgs,
+		RunE:          runRootCommand,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			jsonFlag, _ := cmd.Flags().GetBool("json")
 			prettyFlag, _ := cmd.Flags().GetBool("pretty")
@@ -81,4 +84,25 @@ func NewRootCommand() *cobra.Command {
 	)
 
 	return cmd
+}
+
+func runRootCommand(cmd *cobra.Command, args []string) error {
+	if len(args) == 0 {
+		return cmd.Help()
+	}
+
+	store := configFrom(cmd.Context())
+	if store == nil {
+		return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists")
+	}
+
+	alias := args[0]
+	if _, err := store.Get(alias); err != nil {
+		return output.Errorf(
+			fmt.Sprintf("unknown command %q for %q", alias, cmd.CommandPath()),
+			"run 'sshq --help' to see available commands",
+		)
+	}
+
+	return runExecCommand(cmd, args)
 }

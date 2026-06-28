@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"sync"
 	"time"
 
 	"github.com/shayuc137/sshq/internal/exec"
@@ -13,7 +12,6 @@ import (
 	"github.com/shayuc137/sshq/internal/remote"
 	"github.com/shayuc137/sshq/internal/sshclient"
 	"github.com/shayuc137/sshq/internal/transfer"
-	"golang.org/x/crypto/ssh"
 )
 
 func (dc *daemonContext) resolveHost(conn net.Conn, alias string) (*sshclient.ConnConfig, bool) {
@@ -28,7 +26,11 @@ func (dc *daemonContext) resolveHost(conn net.Conn, alias string) (*sshclient.Co
 }
 
 func (dc *daemonContext) getClient(conn net.Conn, alias string, cfg *sshclient.ConnConfig) (*sshclient.Client, bool) {
-	client, err := dc.pool.Get(context.Background(), alias, *cfg)
+	return dc.getClientWithContext(context.Background(), conn, alias, cfg)
+}
+
+func (dc *daemonContext) getClientWithContext(ctx context.Context, conn net.Conn, alias string, cfg *sshclient.ConnConfig) (*sshclient.Client, bool) {
+	client, err := dc.pool.Get(ctx, alias, *cfg)
 	if err != nil {
 		ce := connErrorToOutput(err, alias)
 		ipc.SendError(conn, ce.Hint, ce.Action)
@@ -61,70 +63,31 @@ func (dc *daemonContext) handleScript(conn net.Conn, raw json.RawMessage) {
 	}
 	cfg.Timeout = timeout
 
-	client, ok := dc.getClient(conn, payload.Alias, cfg)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	client, ok := dc.getClientWithContext(ctx, conn, payload.Alias, cfg)
 	if !ok {
 		return
 	}
 
-	shell := payload.Shell
-	if shell == "" {
-		p := dc.getProfile(context.Background(), client, cfg.Host, cfg.Port)
-		if p != nil {
-			shell = string(p.Shell)
-		}
-	}
+	profile := dc.getProfile(ctx, client, cfg.Host, cfg.Port)
+	shell := shellForExec(profile, payload.Shell)
 	if shell == "" {
 		shell = "sh"
 	}
 
-	interpreterCmd, err := exec.InterpreterCmd(shell)
+	result, err := exec.RunScriptBuffered(ctx, client, payload.Script, shell)
 	if err != nil {
 		ipc.SendError(conn, err.Error(), "")
 		return
 	}
-
-	session, err := client.NewSession()
-	if err != nil {
-		ipc.SendError(conn, "create session: "+err.Error(), "")
-		return
-	}
-	defer session.Close()
-
-	stdin, err := session.StdinPipe()
-	if err != nil {
-		ipc.SendError(conn, "stdin pipe: "+err.Error(), "")
-		return
+	if remote.NeedsTranscoding(profile) {
+		result.Stdout = remote.DecodeString(result.Stdout, profile.Encoding)
+		result.Stderr = remote.DecodeString(result.Stderr, profile.Encoding)
 	}
 
-	stdoutPipe, _ := session.StdoutPipe()
-	stderrPipe, _ := session.StderrPipe()
-
-	if err := session.Start(interpreterCmd); err != nil {
-		ipc.SendError(conn, "start interpreter: "+err.Error(), "")
-		return
-	}
-
-	go func() {
-		stdin.Write(payload.Script)
-		stdin.Close()
-	}()
-
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() { defer wg.Done(); streamPipe(conn, stdoutPipe, "stdout") }()
-	go func() { defer wg.Done(); streamPipe(conn, stderrPipe, "stderr") }()
-	wg.Wait()
-
-	exitCode := 0
-	if err := session.Wait(); err != nil {
-		if exitErr, ok := err.(*ssh.ExitError); ok {
-			exitCode = exitErr.ExitStatus()
-		} else {
-			ipc.SendError(conn, "wait: "+err.Error(), "")
-			return
-		}
-	}
-	ipc.Send(conn, ipc.Frame{Type: "exit", Code: exitCode})
+	sendExecResultFrames(conn, result)
 }
 
 // --- transfer handler ---

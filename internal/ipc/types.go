@@ -34,6 +34,7 @@ type Frame struct {
 type ExecPayload struct {
 	Alias   string `json:"alias"`
 	Command string `json:"command"`
+	Shell   string `json:"shell,omitempty"`
 	Timeout int    `json:"timeout,omitempty"`
 }
 

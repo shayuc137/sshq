@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"os/signal"
@@ -14,13 +13,13 @@ import (
 	"time"
 
 	"github.com/shayuc137/sshq/internal/config"
+	"github.com/shayuc137/sshq/internal/exec"
 	"github.com/shayuc137/sshq/internal/ipc"
 	"github.com/shayuc137/sshq/internal/output"
 	"github.com/shayuc137/sshq/internal/pool"
 	"github.com/shayuc137/sshq/internal/remote"
 	"github.com/shayuc137/sshq/internal/tunnel"
 	"github.com/spf13/cobra"
-	"golang.org/x/crypto/ssh"
 )
 
 const defaultIdleTimeout = 30 * time.Minute
@@ -317,67 +316,39 @@ func (dc *daemonContext) handleExec(conn net.Conn, raw json.RawMessage) {
 		cfg.Timeout = 30 * time.Second
 	}
 
-	client, err := dc.pool.Get(context.Background(), payload.Alias, cfg)
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+	defer cancel()
+
+	client, err := dc.pool.Get(ctx, payload.Alias, cfg)
 	if err != nil {
 		ce := connErrorToOutput(err, payload.Alias)
 		ipc.SendError(conn, ce.Hint, ce.Action)
 		return
 	}
 
-	session, err := client.NewSession()
+	profile := dc.getProfile(ctx, client, host.HostName, host.Port)
+	shell := shellForExec(profile, payload.Shell)
+
+	result, err := exec.RunBufferedWithShell(ctx, client, payload.Command, shell)
 	if err != nil {
-		ipc.SendError(conn, "create session: "+err.Error(), "")
+		ipc.SendError(conn, err.Error(), "")
 		return
 	}
-	defer session.Close()
-
-	stdoutPipe, _ := session.StdoutPipe()
-	stderrPipe, _ := session.StderrPipe()
-
-	if err := session.Start(payload.Command); err != nil {
-		ipc.SendError(conn, "start command: "+err.Error(), "")
-		return
+	if remote.NeedsTranscoding(profile) {
+		result.Stdout = remote.DecodeString(result.Stdout, profile.Encoding)
+		result.Stderr = remote.DecodeString(result.Stderr, profile.Encoding)
 	}
-
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	go func() {
-		defer wg.Done()
-		streamPipe(conn, stdoutPipe, "stdout")
-	}()
-
-	go func() {
-		defer wg.Done()
-		streamPipe(conn, stderrPipe, "stderr")
-	}()
-
-	wg.Wait()
-
-	exitCode := 0
-	if err := session.Wait(); err != nil {
-		if exitErr, ok := err.(*ssh.ExitError); ok {
-			exitCode = exitErr.ExitStatus()
-		} else {
-			ipc.SendError(conn, "wait: "+err.Error(), "")
-			return
-		}
-	}
-
-	ipc.Send(conn, ipc.Frame{Type: "exit", Code: exitCode})
+	sendExecResultFrames(conn, result)
 }
 
-func streamPipe(conn net.Conn, pipe io.Reader, frameType string) {
-	buf := make([]byte, 32*1024)
-	for {
-		n, err := pipe.Read(buf)
-		if n > 0 {
-			ipc.Send(conn, ipc.Frame{Type: frameType, Data: string(buf[:n])})
-		}
-		if err != nil {
-			return
-		}
+func sendExecResultFrames(conn net.Conn, result *exec.Result) {
+	if result.Stdout != "" {
+		ipc.Send(conn, ipc.Frame{Type: "stdout", Data: result.Stdout})
 	}
+	if result.Stderr != "" {
+		ipc.Send(conn, ipc.Frame{Type: "stderr", Data: result.Stderr})
+	}
+	ipc.Send(conn, ipc.Frame{Type: "exit", Code: result.ExitCode})
 }
 
 func (dc *daemonContext) handleStatus(conn net.Conn) {

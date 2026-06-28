@@ -5,13 +5,15 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/shayuc137/sshq/internal/sshclient"
 	"golang.org/x/crypto/ssh"
 )
 
 func InterpreterCmd(shell string) (string, error) {
-	switch shell {
+	normalized := normalizeShell(shell)
+	switch normalized {
 	case "bash":
 		return "bash -s", nil
 	case "ash":
@@ -25,7 +27,29 @@ func InterpreterCmd(shell string) (string, error) {
 	case "cmd":
 		return "", fmt.Errorf("cmd does not support stdin script injection — use PowerShell or specify --shell powershell")
 	default:
-		return shell + " -s", nil
+		return normalized + " -s", nil
+	}
+}
+
+func RunBufferedWithShell(ctx context.Context, client *sshclient.Client, command, shell string) (*Result, error) {
+	switch normalizeShell(shell) {
+	case "powershell":
+		return RunScriptBuffered(ctx, client, []byte(command), "powershell")
+	case "cmd":
+		return RunBuffered(ctx, client, "cmd /C "+command)
+	default:
+		return RunBuffered(ctx, client, command)
+	}
+}
+
+func normalizeShell(shell string) string {
+	switch strings.ToLower(strings.TrimSpace(shell)) {
+	case "powershell.exe", "pwsh", "pwsh.exe":
+		return "powershell"
+	case "cmd.exe":
+		return "cmd"
+	default:
+		return strings.ToLower(strings.TrimSpace(shell))
 	}
 }
 

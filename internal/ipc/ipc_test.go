@@ -144,6 +144,26 @@ func TestMakeEnvelopeNilPayload(t *testing.T) {
 	}
 }
 
+func TestExecPayloadCarriesShellOverride(t *testing.T) {
+	env, err := MakeEnvelope("exec", ExecPayload{
+		Alias:   "win",
+		Command: `Write-Output "test"`,
+		Shell:   "powershell",
+		Timeout: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var payload ExecPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Shell != "powershell" {
+		t.Errorf("shell = %q, want powershell", payload.Shell)
+	}
+}
+
 func TestMakeResultFrame(t *testing.T) {
 	result := ProfileResult{OS: "linux", Shell: "bash", Encoding: "utf-8"}
 	frame, err := MakeResultFrame(result)
