@@ -101,10 +101,12 @@ sshq myhost "df -h"
 #   /dev/sda1        50G   12G   35G  26% /
 ```
 
-**作为 Claude Code Skill 安装：**
+**作为 AI Skill 安装：**
 
 ```bash
-claude skill add --from github.com/shayuc137/sshq/skills/sshq
+sshq skill install                       # Claude Code（默认）
+sshq skill install --target codex        # Codex
+sshq skill install --scope project       # 项目级安装
 ```
 
 详见 [Agent 集成指南](docs/zh-CN/guide/agent-integration.md)，了解输出协议、错误处理和 stdout 纯净性保证。

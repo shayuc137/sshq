@@ -85,6 +85,7 @@ func NewRootCommand() *cobra.Command {
 		newConfigCommand(),
 		newClusterCommand(),
 		newTunnelCommand(),
+		newSkillCommand(),
 		newDocsCommand(),
 	)
 

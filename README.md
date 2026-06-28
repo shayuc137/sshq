@@ -101,10 +101,12 @@ sshq myhost "df -h"
 #   /dev/sda1        50G   12G   35G  26% /
 ```
 
-**Install as a Claude Code skill:**
+**Install as an AI skill:**
 
 ```bash
-claude skill add --from github.com/shayuc137/sshq/skills/sshq
+sshq skill install                       # Claude Code (default)
+sshq skill install --target codex        # Codex
+sshq skill install --scope project       # project-level instead of user-level
 ```
 
 See [Agent Integration Guide](docs/en/guide/agent-integration.md) for details on output contracts, error handling, and the stdout purity guarantee.

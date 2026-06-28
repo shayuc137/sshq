@@ -100,3 +100,49 @@ sshq version
 
 Print version information
 
+## sshq skill
+
+```
+sshq skill
+```
+
+Install and inspect sshq AI skill files
+
+### sshq skill install
+
+```
+sshq skill install [flags]
+```
+
+Install the embedded sshq skill
+
+**Flags:**
+
+```
+      --dry-run         print file paths without writing
+      --scope string    install scope: user or project (default "user")
+      --target string   target platform: claude or codex (default "claude")
+```
+
+### sshq skill export
+
+```
+sshq skill export [flags]
+```
+
+Export the embedded sshq skill files
+
+**Flags:**
+
+```
+      --dir string   output directory (default "./sshq-skill/")
+```
+
+### sshq skill status
+
+```
+sshq skill status
+```
+
+Show installed sshq skill versions
+
