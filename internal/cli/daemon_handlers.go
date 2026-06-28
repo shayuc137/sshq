@@ -27,7 +27,7 @@ func (dc *daemonContext) resolveHost(conn net.Conn, alias string) (*sshclient.Co
 	return cfg, true
 }
 
-func (dc *daemonContext) getClient(conn net.Conn, alias string, cfg *sshclient.ConnConfig) (*ssh.Client, bool) {
+func (dc *daemonContext) getClient(conn net.Conn, alias string, cfg *sshclient.ConnConfig) (*sshclient.Client, bool) {
 	client, err := dc.pool.Get(context.Background(), alias, *cfg)
 	if err != nil {
 		ce := connErrorToOutput(err, alias)
@@ -37,7 +37,7 @@ func (dc *daemonContext) getClient(conn net.Conn, alias string, cfg *sshclient.C
 	return client, true
 }
 
-func (dc *daemonContext) getProfile(ctx context.Context, client *ssh.Client, hostName, port string) *remote.Profile {
+func (dc *daemonContext) getProfile(ctx context.Context, client *sshclient.Client, hostName, port string) *remote.Profile {
 	p, _ := remote.GetProfile(ctx, client, dc.cache, hostName, port)
 	return p
 }

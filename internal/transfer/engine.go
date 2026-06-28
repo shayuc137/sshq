@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/shayuc137/sshq/internal/remote"
-	"golang.org/x/crypto/ssh"
+	"github.com/shayuc137/sshq/internal/sshclient"
 )
 
 type Result struct {
@@ -30,7 +30,7 @@ type Engine interface {
 	Name() string
 }
 
-func NewEngine(client *ssh.Client, profile *remote.Profile, info func(string)) (Engine, error) {
+func NewEngine(client *sshclient.Client, profile *remote.Profile, info func(string)) (Engine, error) {
 	eng, err := newSFTPEngine(client)
 	if err == nil {
 		return eng, nil

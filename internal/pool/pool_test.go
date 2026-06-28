@@ -69,13 +69,13 @@ func dialSSHRaw(addr string, hk ssh.PublicKey) (*ssh.Client, error) {
 	})
 }
 
-// --- test fixture: server + a tracked dialer wired into the dialFn seam ---------
+// --- test fixture: server + a tracked dialer wired into Pool.DialFunc -----------
 
 type poolFixture struct {
 	addr    string
 	hk      ssh.PublicKey
 	mu      sync.Mutex
-	created []*ssh.Client
+	created []*sshclient.Client
 	dials   int32
 }
 
@@ -93,35 +93,64 @@ func newPoolFixture(t *testing.T) *poolFixture {
 	return f
 }
 
-func (f *poolFixture) dial(_ context.Context, _ sshclient.ConnConfig) (*ssh.Client, error) {
+func (f *poolFixture) dial(_ context.Context, _ sshclient.ConnConfig) (*sshclient.Client, error) {
 	atomic.AddInt32(&f.dials, 1)
 	c, err := dialSSHRaw(f.addr, f.hk)
 	if err != nil {
 		return nil, err
 	}
+	wrapped := &sshclient.Client{Client: c}
 	f.mu.Lock()
-	f.created = append(f.created, c)
+	f.created = append(f.created, wrapped)
 	f.mu.Unlock()
-	return c, nil
+	return wrapped, nil
 }
 
 func (f *poolFixture) dialCount() int32 { return atomic.LoadInt32(&f.dials) }
 
-// swapSeams installs test doubles for the dialFn/healthFn package seams and
-// restores the originals when the test ends. A nil argument keeps the real impl.
-func swapSeams(t *testing.T, dial func(context.Context, sshclient.ConnConfig) (*ssh.Client, error), health func(*ssh.Client) bool) {
-	t.Helper()
-	origDial, origHealth := dialFn, healthFn
-	if dial != nil {
-		dialFn = dial
-	}
-	if health != nil {
-		healthFn = health
-	}
-	t.Cleanup(func() {
-		dialFn = origDial
-		healthFn = origHealth
+// newTestPool wires the fixture's tracked dialer into Pool.DialFunc, replacing
+// the former package-level seam. HealthFunc keeps the real isHealthy default
+// (against the live test server) unless a test overrides it.
+func newTestPool(ttl time.Duration, f *poolFixture) *Pool {
+	p := New(ttl)
+	p.DialFunc = f.dial
+	return p
+}
+
+// blockingCloseConn wraps a net.Conn whose Close blocks until released, so a
+// pooled client's Close can be parked off-lock to prove pool operations do not
+// hold p.mu across connection teardown.
+type blockingCloseConn struct {
+	net.Conn
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (b *blockingCloseConn) Close() error {
+	b.once.Do(func() {
+		close(b.entered)
+		<-b.release
 	})
+	return b.Conn.Close()
+}
+
+func dialBlockingClose(t *testing.T, addr string, hk ssh.PublicKey, entered, release chan struct{}) *sshclient.Client {
+	t.Helper()
+	raw, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bc := &blockingCloseConn{Conn: raw, entered: entered, release: release}
+	sshConn, chans, reqs, err := ssh.NewClientConn(bc, addr, &ssh.ClientConfig{
+		User:            "test",
+		HostKeyCallback: ssh.FixedHostKey(hk),
+		Timeout:         5 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &sshclient.Client{Client: ssh.NewClient(sshConn, chans, reqs)}
 }
 
 // --- tests ----------------------------------------------------------------------
@@ -141,19 +170,19 @@ func TestIsHealthy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !isHealthy(c) {
+	wrapped := &sshclient.Client{Client: c}
+	if !isHealthy(wrapped) {
 		t.Error("a fresh connection should be healthy")
 	}
-	c.Close()
-	if isHealthy(c) {
+	wrapped.Close()
+	if isHealthy(wrapped) {
 		t.Error("a closed connection should be unhealthy")
 	}
 }
 
 func TestGetReusesHealthyConnection(t *testing.T) {
 	f := newPoolFixture(t)
-	swapSeams(t, f.dial, nil) // real isHealthy against the live server
-	p := New(time.Minute)
+	p := newTestPool(time.Minute, f) // real isHealthy against the live server
 	cfg := sshclient.ConnConfig{Host: "h1", Port: "22", User: "u"}
 
 	c1, err := p.Get(context.Background(), "a", cfg)
@@ -177,10 +206,9 @@ func TestGetReusesHealthyConnection(t *testing.T) {
 
 func TestGetReplacesUnhealthyConnection(t *testing.T) {
 	f := newPoolFixture(t)
-	var bad *ssh.Client
-	health := func(c *ssh.Client) bool { return c != bad }
-	swapSeams(t, f.dial, health)
-	p := New(time.Minute)
+	var bad *sshclient.Client
+	p := newTestPool(time.Minute, f)
+	p.HealthFunc = func(c *sshclient.Client) bool { return c != bad }
 	cfg := sshclient.ConnConfig{Host: "h1", Port: "22", User: "u"}
 
 	c1, err := p.Get(context.Background(), "a", cfg)
@@ -209,12 +237,11 @@ func TestGetReplacesUnhealthyConnection(t *testing.T) {
 
 func TestGetConcurrentSameKeyDedups(t *testing.T) {
 	f := newPoolFixture(t)
-	swapSeams(t, f.dial, nil)
-	p := New(time.Minute)
+	p := newTestPool(time.Minute, f)
 	cfg := sshclient.ConnConfig{Host: "h1", Port: "22", User: "u"}
 
 	const n = 20
-	results := make([]*ssh.Client, n)
+	results := make([]*sshclient.Client, n)
 	errs := make([]error, n)
 	var wg sync.WaitGroup
 	for i := 0; i < n; i++ {
@@ -244,8 +271,7 @@ func TestGetConcurrentSameKeyDedups(t *testing.T) {
 
 func TestGetConcurrentDifferentKeysNoDeadlock(t *testing.T) {
 	f := newPoolFixture(t)
-	swapSeams(t, f.dial, nil)
-	p := New(time.Minute)
+	p := newTestPool(time.Minute, f)
 
 	const n = 15
 	var wg sync.WaitGroup
@@ -282,8 +308,7 @@ func TestGetConcurrentDifferentKeysNoDeadlock(t *testing.T) {
 // not stall other pool operations.
 func TestGetReleasesLockDuringHealthCheck(t *testing.T) {
 	f := newPoolFixture(t)
-	swapSeams(t, f.dial, nil)
-	p := New(time.Minute)
+	p := newTestPool(time.Minute, f)
 	cfg := sshclient.ConnConfig{Host: "h1", Port: "22", User: "u"}
 
 	c1, err := p.Get(context.Background(), "a", cfg)
@@ -295,7 +320,7 @@ func TestGetReleasesLockDuringHealthCheck(t *testing.T) {
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	var once sync.Once
-	healthFn = func(c *ssh.Client) bool {
+	p.HealthFunc = func(c *sshclient.Client) bool {
 		if c == c1 {
 			once.Do(func() { close(entered) })
 			<-release
@@ -321,4 +346,51 @@ func TestGetReleasesLockDuringHealthCheck(t *testing.T) {
 
 	close(release)
 	<-getDone
+}
+
+// TestReapReleasesLockDuringClose is the R4 guard for the teardown paths: Reap
+// (and, by the same discipline, Close/CloseAll) must collect expired entries
+// under the lock and close them off-lock, so a slow connection teardown does not
+// stall other pool operations.
+func TestReapReleasesLockDuringClose(t *testing.T) {
+	addr, hk := newSSHServer(t)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	blocking := dialBlockingClose(t, addr, hk, entered, release)
+
+	p := New(time.Minute)
+	p.HealthFunc = func(*sshclient.Client) bool { return true }
+	p.DialFunc = func(context.Context, sshclient.ConnConfig) (*sshclient.Client, error) {
+		return blocking, nil
+	}
+	cfg := sshclient.ConnConfig{Host: "h1", Port: "22", User: "u"}
+	if _, err := p.Get(context.Background(), "a", cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	// Age the entry so Reap selects it for teardown.
+	p.mu.Lock()
+	for _, e := range p.conns {
+		e.lastUsed = time.Now().Add(-time.Hour)
+	}
+	p.mu.Unlock()
+
+	reapDone := make(chan struct{})
+	go func() {
+		p.Reap()
+		close(reapDone)
+	}()
+	<-entered // Reap is now blocked inside client.Close, off-lock
+
+	lenDone := make(chan int, 1)
+	go func() { lenDone <- p.Len() }()
+	select {
+	case <-lenDone:
+		// Good: p.mu was free while the reap's client.Close ran.
+	case <-time.After(2 * time.Second):
+		t.Fatal("Pool.Len blocked while Reap closed a connection off-lock (R4 regression)")
+	}
+
+	close(release)
+	<-reapDone
 }

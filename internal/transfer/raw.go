@@ -9,14 +9,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shayuc137/sshq/internal/sshclient"
 	"golang.org/x/crypto/ssh"
 )
 
 type rawEngine struct {
-	client *ssh.Client
+	client *sshclient.Client
 }
 
-func newRawEngine(client *ssh.Client) *rawEngine {
+func newRawEngine(client *sshclient.Client) *rawEngine {
 	return &rawEngine{client: client}
 }
 

@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"golang.org/x/crypto/ssh"
+	"github.com/shayuc137/sshq/internal/sshclient"
 )
 
 type Direction string
@@ -122,7 +122,7 @@ func (r *Registry) Stop(id string) error {
 	return nil
 }
 
-func StartLocal(ctx context.Context, client *ssh.Client, cfg Config, infoFn func(string)) (*Tunnel, error) {
+func StartLocal(ctx context.Context, client *sshclient.Client, cfg Config, infoFn func(string)) (*Tunnel, error) {
 	ln, err := net.Listen("tcp", cfg.LocalAddr)
 	if err != nil {
 		return nil, fmt.Errorf("listen %s: %w", cfg.LocalAddr, err)
@@ -156,7 +156,7 @@ func StartLocal(ctx context.Context, client *ssh.Client, cfg Config, infoFn func
 	return t, nil
 }
 
-func StartRemote(ctx context.Context, client *ssh.Client, cfg Config, infoFn func(string)) (*Tunnel, error) {
+func StartRemote(ctx context.Context, client *sshclient.Client, cfg Config, infoFn func(string)) (*Tunnel, error) {
 	ln, err := client.Listen("tcp", cfg.RemoteAddr)
 	if err != nil {
 		return nil, fmt.Errorf("remote listen %s: %w", cfg.RemoteAddr, err)

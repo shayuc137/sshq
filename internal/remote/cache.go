@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/crypto/ssh"
+	"github.com/shayuc137/sshq/internal/sshclient"
 )
 
 const DefaultTTL = 24 * time.Hour
@@ -91,7 +91,7 @@ func (c *Cache) Save() {
 	os.WriteFile(c.path, data, 0644)
 }
 
-func GetProfile(ctx context.Context, client *ssh.Client, cache *Cache, host, port string) (*Profile, error) {
+func GetProfile(ctx context.Context, client *sshclient.Client, cache *Cache, host, port string) (*Profile, error) {
 	if cache != nil {
 		if p, ok := cache.Get(host, port); ok {
 			return p, nil

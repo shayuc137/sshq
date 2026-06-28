@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/shayuc137/sshq/internal/sshclient"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -19,7 +20,7 @@ func (e *ExitError) Error() string {
 	return fmt.Sprintf("exit %d", e.Code)
 }
 
-func Run(ctx context.Context, client *ssh.Client, command string, stdout, stderr io.Writer) (int, error) {
+func Run(ctx context.Context, client *sshclient.Client, command string, stdout, stderr io.Writer) (int, error) {
 	session, err := client.NewSession()
 	if err != nil {
 		return -1, fmt.Errorf("create session: %w", err)
@@ -50,7 +51,7 @@ type Result struct {
 	Stderr   string `json:"stderr"`
 }
 
-func RunBuffered(ctx context.Context, client *ssh.Client, command string) (*Result, error) {
+func RunBuffered(ctx context.Context, client *sshclient.Client, command string) (*Result, error) {
 	session, err := client.NewSession()
 	if err != nil {
 		return nil, fmt.Errorf("create session: %w", err)

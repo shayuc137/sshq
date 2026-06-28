@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/pkg/sftp"
-	"golang.org/x/crypto/ssh"
+	"github.com/shayuc137/sshq/internal/sshclient"
 )
 
 const chunkSize = 32 * 1024
@@ -19,8 +19,8 @@ type sftpEngine struct {
 	client *sftp.Client
 }
 
-func newSFTPEngine(sshClient *ssh.Client) (*sftpEngine, error) {
-	c, err := sftp.NewClient(sshClient)
+func newSFTPEngine(sshClient *sshclient.Client) (*sftpEngine, error) {
+	c, err := sftp.NewClient(sshClient.Client)
 	if err != nil {
 		return nil, err
 	}

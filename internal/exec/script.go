@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/shayuc137/sshq/internal/sshclient"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -28,7 +29,7 @@ func InterpreterCmd(shell string) (string, error) {
 	}
 }
 
-func RunScript(ctx context.Context, client *ssh.Client, script []byte, shell string, stdout, stderr io.Writer) (int, error) {
+func RunScript(ctx context.Context, client *sshclient.Client, script []byte, shell string, stdout, stderr io.Writer) (int, error) {
 	cmd, err := InterpreterCmd(shell)
 	if err != nil {
 		return -1, err
@@ -73,7 +74,7 @@ func RunScript(ctx context.Context, client *ssh.Client, script []byte, shell str
 	}
 }
 
-func RunScriptBuffered(ctx context.Context, client *ssh.Client, script []byte, shell string) (*Result, error) {
+func RunScriptBuffered(ctx context.Context, client *sshclient.Client, script []byte, shell string) (*Result, error) {
 	cmd, err := InterpreterCmd(shell)
 	if err != nil {
 		return nil, err

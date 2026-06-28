@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/shayuc137/sshq/internal/remote"
-	"golang.org/x/crypto/ssh"
+	"github.com/shayuc137/sshq/internal/sshclient"
 )
 
-func RunRelay(ctx context.Context, srcClient, dstClient *ssh.Client, srcPath, dstPath string, srcProfile, dstProfile *remote.Profile, info func(string), progress ProgressFunc) (*Result, error) {
+func RunRelay(ctx context.Context, srcClient, dstClient *sshclient.Client, srcPath, dstPath string, srcProfile, dstProfile *remote.Profile, info func(string), progress ProgressFunc) (*Result, error) {
 	start := time.Now()
 
 	srcEngine, err := NewEngine(srcClient, srcProfile, func(msg string) {
@@ -78,7 +78,7 @@ func RunRelay(ctx context.Context, srcClient, dstClient *ssh.Client, srcPath, ds
 	}, nil
 }
 
-func RunRelayRecursive(ctx context.Context, srcClient, dstClient *ssh.Client, srcDir, dstDir string, srcProfile, dstProfile *remote.Profile, info func(string), progress ProgressFunc) (*Result, error) {
+func RunRelayRecursive(ctx context.Context, srcClient, dstClient *sshclient.Client, srcDir, dstDir string, srcProfile, dstProfile *remote.Profile, info func(string), progress ProgressFunc) (*Result, error) {
 	start := time.Now()
 
 	srcEngine, err := NewEngine(srcClient, srcProfile, func(msg string) {
@@ -159,7 +159,7 @@ func RunRelayRecursive(ctx context.Context, srcClient, dstClient *ssh.Client, sr
 	}, nil
 }
 
-func listRemoteFiles(client *ssh.Client, dir string) ([]string, error) {
+func listRemoteFiles(client *sshclient.Client, dir string) ([]string, error) {
 	eng := newRawEngine(client)
 	return eng.remoteListFiles(dir)
 }

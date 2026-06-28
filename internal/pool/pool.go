@@ -7,19 +7,26 @@ import (
 	"time"
 
 	"github.com/shayuc137/sshq/internal/sshclient"
-	"golang.org/x/crypto/ssh"
 )
+
+// DialFunc and HealthFunc are the pool's dependency-injection seams. They default
+// to the real implementations in New and let tests drive Get's concurrency
+// behaviour deterministically without a live SSH server — replacing the former
+// package-level mutable globals, which leaked shared state across tests.
+type DialFunc func(context.Context, sshclient.ConnConfig) (*sshclient.Client, error)
+type HealthFunc func(*sshclient.Client) bool
 
 type Pool struct {
 	mu    sync.Mutex
 	conns map[string]*entry
 	ttl   time.Duration
+
+	DialFunc   DialFunc
+	HealthFunc HealthFunc
 }
 
 type entry struct {
-	client   *ssh.Client
-	cfg      sshclient.ConnConfig
-	alias    string
+	client   *sshclient.Client
 	lastUsed time.Time
 }
 
@@ -33,8 +40,10 @@ type ConnInfo struct {
 
 func New(ttl time.Duration) *Pool {
 	return &Pool{
-		conns: make(map[string]*entry),
-		ttl:   ttl,
+		conns:      make(map[string]*entry),
+		ttl:        ttl,
+		DialFunc:   sshclient.Dial,
+		HealthFunc: isHealthy,
 	}
 }
 
@@ -46,7 +55,7 @@ func Key(cfg sshclient.ConnConfig) string {
 	return key
 }
 
-func (p *Pool) Get(ctx context.Context, alias string, cfg sshclient.ConnConfig) (*ssh.Client, error) {
+func (p *Pool) Get(ctx context.Context, alias string, cfg sshclient.ConnConfig) (*sshclient.Client, error) {
 	key := Key(cfg)
 
 	// Phase 1: look up the cached entry under the lock, then release it. The
@@ -59,7 +68,7 @@ func (p *Pool) Get(ctx context.Context, alias string, cfg sshclient.ConnConfig) 
 	p.mu.Unlock()
 
 	if ok {
-		if healthFn(e.client) {
+		if p.HealthFunc(e.client) {
 			// Phase 2: re-acquire the lock and make sure the entry we just
 			// health-checked is still the one in the map. Another goroutine may
 			// have reaped or replaced it while we were off-lock; if so, discard
@@ -67,7 +76,7 @@ func (p *Pool) Get(ctx context.Context, alias string, cfg sshclient.ConnConfig) 
 			p.mu.Lock()
 			if cur, still := p.conns[key]; still && cur == e {
 				cur.lastUsed = time.Now()
-				cur.alias = alias
+				cur.client.Alias = alias
 				p.mu.Unlock()
 				return cur.client, nil
 			}
@@ -89,10 +98,11 @@ func (p *Pool) Get(ctx context.Context, alias string, cfg sshclient.ConnConfig) 
 		}
 	}
 
-	client, err := dialFn(ctx, cfg)
+	client, err := p.DialFunc(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
+	client.Alias = alias
 
 	// A concurrent Get may have dialed the same key while we were dialing. If an
 	// entry already exists, reuse it and close our redundant connection so we do
@@ -100,15 +110,13 @@ func (p *Pool) Get(ctx context.Context, alias string, cfg sshclient.ConnConfig) 
 	p.mu.Lock()
 	if cur, exists := p.conns[key]; exists {
 		cur.lastUsed = time.Now()
-		cur.alias = alias
+		cur.client.Alias = alias
 		p.mu.Unlock()
 		client.Close()
 		return cur.client, nil
 	}
 	p.conns[key] = &entry{
 		client:   client,
-		cfg:      cfg,
-		alias:    alias,
 		lastUsed: time.Now(),
 	}
 	p.mu.Unlock()
@@ -117,27 +125,36 @@ func (p *Pool) Get(ctx context.Context, alias string, cfg sshclient.ConnConfig) 
 }
 
 func (p *Pool) Close(key string) error {
+	// Remove the entry under the lock, then close it off-lock: client.Close
+	// performs network I/O (and cascades through any ProxyJump chain), which must
+	// never run while holding p.mu or it would stall every other pool operation.
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	e, ok := p.conns[key]
+	if ok {
+		delete(p.conns, key)
+	}
+	p.mu.Unlock()
+
 	if !ok {
 		return nil
 	}
-	delete(p.conns, key)
 	return e.client.Close()
 }
 
 func (p *Pool) CloseAll() error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	clients := make([]*sshclient.Client, 0, len(p.conns))
+	for key, e := range p.conns {
+		clients = append(clients, e.client)
+		delete(p.conns, key)
+	}
+	p.mu.Unlock()
 
 	var lastErr error
-	for key, e := range p.conns {
-		if err := e.client.Close(); err != nil {
+	for _, c := range clients {
+		if err := c.Close(); err != nil {
 			lastErr = err
 		}
-		delete(p.conns, key)
 	}
 	return lastErr
 }
@@ -150,9 +167,9 @@ func (p *Pool) Stats() []ConnInfo {
 	for key, e := range p.conns {
 		stats = append(stats, ConnInfo{
 			Key:       key,
-			Alias:     e.alias,
-			Host:      e.cfg.Host,
-			Port:      e.cfg.Port,
+			Alias:     e.client.Alias,
+			Host:      e.client.Config.Host,
+			Port:      e.client.Config.Port,
 			IdleSince: e.lastUsed,
 		})
 	}
@@ -160,19 +177,23 @@ func (p *Pool) Stats() []ConnInfo {
 }
 
 func (p *Pool) Reap() int {
+	// Collect expired entries under the lock, then close them off-lock for the
+	// same reason as Close: never hold p.mu across the client's network I/O.
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	now := time.Now()
-	reaped := 0
+	var expired []*sshclient.Client
 	for key, e := range p.conns {
 		if now.Sub(e.lastUsed) > p.ttl {
-			e.client.Close()
+			expired = append(expired, e.client)
 			delete(p.conns, key)
-			reaped++
 		}
 	}
-	return reaped
+	p.mu.Unlock()
+
+	for _, c := range expired {
+		c.Close()
+	}
+	return len(expired)
 }
 
 func (p *Pool) Len() int {
@@ -181,15 +202,7 @@ func (p *Pool) Len() int {
 	return len(p.conns)
 }
 
-// healthFn and dialFn are package-level seams so the concurrency behaviour of
-// Get can be exercised deterministically in tests without a real SSH server.
-// Production always uses the real implementations below.
-var (
-	healthFn = isHealthy
-	dialFn   = sshclient.Dial
-)
-
-func isHealthy(client *ssh.Client) bool {
+func isHealthy(client *sshclient.Client) bool {
 	_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
 	return err == nil
 }

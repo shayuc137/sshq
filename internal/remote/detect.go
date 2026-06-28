@@ -7,14 +7,14 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/crypto/ssh"
+	"github.com/shayuc137/sshq/internal/sshclient"
 )
 
 const detectPOSIX = `echo "OS=$(uname -s)" && echo "SHELL=$(basename "$SHELL" 2>/dev/null || readlink /proc/$$/exe 2>/dev/null || echo sh)" && echo "HOME=$HOME"`
 
 const detectWindows = `echo "OS=Windows" ; echo "SHELL=powershell" ; echo "HOME=$env:USERPROFILE" ; chcp 2>$null`
 
-func Detect(ctx context.Context, client *ssh.Client) (*Profile, error) {
+func Detect(ctx context.Context, client *sshclient.Client) (*Profile, error) {
 	p, err := detectPosix(ctx, client)
 	if err == nil {
 		return p, nil
@@ -22,7 +22,7 @@ func Detect(ctx context.Context, client *ssh.Client) (*Profile, error) {
 	return detectWin(ctx, client)
 }
 
-func detectPosix(ctx context.Context, client *ssh.Client) (*Profile, error) {
+func detectPosix(ctx context.Context, client *sshclient.Client) (*Profile, error) {
 	out, err := runProbe(ctx, client, detectPOSIX)
 	if err != nil {
 		return nil, err
@@ -30,7 +30,7 @@ func detectPosix(ctx context.Context, client *ssh.Client) (*Profile, error) {
 	return parsePosixOutput(out)
 }
 
-func detectWin(ctx context.Context, client *ssh.Client) (*Profile, error) {
+func detectWin(ctx context.Context, client *sshclient.Client) (*Profile, error) {
 	out, err := runProbe(ctx, client, detectWindows)
 	if err != nil {
 		return nil, fmt.Errorf("windows detect failed: %w", err)
@@ -38,7 +38,7 @@ func detectWin(ctx context.Context, client *ssh.Client) (*Profile, error) {
 	return parseWindowsOutput(out)
 }
 
-func runProbe(ctx context.Context, client *ssh.Client, command string) (string, error) {
+func runProbe(ctx context.Context, client *sshclient.Client, command string) (string, error) {
 	session, err := client.NewSession()
 	if err != nil {
 		return "", err

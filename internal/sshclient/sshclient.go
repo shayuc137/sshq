@@ -3,6 +3,7 @@ package sshclient
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -24,14 +25,49 @@ type ConnConfig struct {
 	Timeout      time.Duration
 }
 
-func Dial(ctx context.Context, cfg ConnConfig) (*ssh.Client, error) {
+// Client wraps *ssh.Client with connection metadata and deterministic lifecycle
+// management. Embedding *ssh.Client promotes every existing method (Dial, Listen,
+// Wait, SendRequest, NewSession, …) so callers use it exactly like a raw client.
+type Client struct {
+	*ssh.Client
+	Alias     string
+	Config    ConnConfig
+	CreatedAt time.Time
+	// proxy is the closer for the jump connection this client was dialed through
+	// (nil for direct connections). For nested ProxyJump chains it is the inner
+	// *Client, so Close cascades down the entire chain.
+	proxy io.Closer
+}
+
+func newClient(raw *ssh.Client, cfg ConnConfig, proxy io.Closer) *Client {
+	return &Client{
+		Client:    raw,
+		Config:    cfg,
+		CreatedAt: time.Now(),
+		proxy:     proxy,
+	}
+}
+
+// Close tears down the SSH connection and, if this client was dialed through a
+// proxy hop, cascade-closes that hop. An ssh.Client owns a live TCP connection
+// the GC will not reclaim on its own, so the proxy chain must be closed
+// explicitly; otherwise every proxied dial leaks its jump connection(s).
+func (c *Client) Close() error {
+	err := c.Client.Close()
+	if c.proxy != nil {
+		c.proxy.Close()
+	}
+	return err
+}
+
+func Dial(ctx context.Context, cfg ConnConfig) (*Client, error) {
 	if cfg.ProxyJump != "" {
 		return dialViaProxy(ctx, cfg)
 	}
 	return dialDirect(ctx, cfg)
 }
 
-func dialDirect(ctx context.Context, cfg ConnConfig) (*ssh.Client, error) {
+func dialDirect(ctx context.Context, cfg ConnConfig) (*Client, error) {
 	sshCfg, err := buildSSHConfig(cfg)
 	if err != nil {
 		return nil, err
@@ -45,10 +81,14 @@ func dialDirect(ctx context.Context, cfg ConnConfig) (*ssh.Client, error) {
 		return nil, fmt.Errorf("connect to %s: %w", addr, err)
 	}
 
-	return handshake(ctx, conn, addr, sshCfg, cfg)
+	raw, err := handshake(ctx, conn, addr, sshCfg, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return newClient(raw, cfg, nil), nil
 }
 
-func dialViaProxy(ctx context.Context, cfg ConnConfig) (*ssh.Client, error) {
+func dialViaProxy(ctx context.Context, cfg ConnConfig) (*Client, error) {
 	var proxyCfg ConnConfig
 	if cfg.ProxyConfig != nil {
 		proxyCfg = *cfg.ProxyConfig
@@ -80,29 +120,16 @@ func dialViaProxy(ctx context.Context, cfg ConnConfig) (*ssh.Client, error) {
 		return nil, err
 	}
 
-	client, err := handshake(ctx, proxyConn, targetAddr, sshCfg, cfg)
+	raw, err := handshake(ctx, proxyConn, targetAddr, sshCfg, cfg)
 	if err != nil {
 		proxyClient.Close()
 		return nil, err
 	}
 
-	// Bind the proxy hop's lifecycle to the target client. An ssh.Client owns a
-	// live TCP connection that the GC will not reclaim on its own, so the proxy
-	// must be closed explicitly; otherwise every proxied dial leaks the jump
-	// connection (and, for nested ProxyJump chains, the whole chain).
-	bindProxyLifecycle(client, proxyClient)
-	return client, nil
-}
-
-// bindProxyLifecycle closes proxyClient once target's connection ends.
-// target.Wait returns when the target client is closed or its transport dies,
-// at which point the proxy hop is no longer needed. The goroutine always has an
-// exit path: it unblocks as soon as the target client is closed.
-func bindProxyLifecycle(target, proxyClient *ssh.Client) {
-	go func() {
-		target.Wait()
-		proxyClient.Close()
-	}()
+	// Store the proxy hop as this client's proxy closer. proxyClient is itself a
+	// *Client, so Close cascades through the whole ProxyJump chain deterministically
+	// — no background goroutine, and nested jumps are released layer by layer.
+	return newClient(raw, cfg, proxyClient), nil
 }
 
 func resolveProxyConfig(proxyJump string) (ConnConfig, error) {
