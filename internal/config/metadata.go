@@ -83,10 +83,11 @@ func extractMeta(comments []commentLine) map[string]string {
 		if c.key == "password" {
 			continue
 		}
+		key := canonicalMetadataKey(c.key)
 		if c.sshq {
-			meta[c.key] = c.value
-		} else if _, exists := meta[c.key]; !exists {
-			meta[c.key] = c.value
+			meta[key] = c.value
+		} else if _, exists := meta[key]; !exists {
+			meta[key] = c.value
 		}
 	}
 	return meta

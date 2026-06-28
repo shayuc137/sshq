@@ -25,19 +25,19 @@ func TestMatchTag(t *testing.T) {
 func TestStoreFilter(t *testing.T) {
 	raw := []byte(`
 # sshq:tags=prod,web
-# sshq:env=production
+# sshq:environment=production
 Host web1
     HostName 10.0.0.1
     User root
 
 # sshq:tags=prod,db
-# sshq:env=production
+# sshq:environment=production
 Host db1
     HostName 10.0.0.2
     User root
 
 # sshq:tags=dev,web
-# sshq:env=staging
+# sshq:environment=staging
 Host dev1
     HostName 10.0.0.3
     User root
@@ -71,5 +71,22 @@ Host dev1
 				t.Errorf("Filter(%+v) returned %d hosts, want %d", tt.filter, len(got), tt.want)
 			}
 		})
+	}
+}
+
+func TestStoreFilterLegacyEnvMetadata(t *testing.T) {
+	raw := []byte(`
+# sshq:env=production
+Host web1
+    HostName 10.0.0.1
+`)
+	store, err := loadFromBytes(raw, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := store.Filter(Filter{Env: "production"})
+	if len(got) != 1 || got[0].Alias != "web1" {
+		t.Fatalf("Filter legacy env returned %+v, want web1", got)
 	}
 }

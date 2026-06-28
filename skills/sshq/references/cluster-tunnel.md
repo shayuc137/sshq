@@ -26,6 +26,7 @@ Execute a command on multiple hosts concurrently
       --all               target all configured hosts
       --concurrency int   max concurrent connections (default 10)
       --env string        filter hosts by environment
+      --hosts string      comma-separated host aliases
       --no-daemon         skip daemon, connect directly
       --tag string        filter hosts by tag
 ```

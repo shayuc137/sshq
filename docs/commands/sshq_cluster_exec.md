@@ -13,6 +13,7 @@ sshq cluster exec <command> [flags]
       --concurrency int   max concurrent connections (default 10)
       --env string        filter hosts by environment
   -h, --help              help for exec
+      --hosts string      comma-separated host aliases
       --no-daemon         skip daemon, connect directly
       --tag string        filter hosts by tag
 ```

@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/shayuc137/sshq/internal/config"
 	"github.com/shayuc137/sshq/internal/exec"
 	"github.com/shayuc137/sshq/internal/ipc"
 	"github.com/shayuc137/sshq/internal/output"
@@ -210,4 +213,95 @@ func TestRecvClusterFramesMultiHostText(t *testing.T) {
 	if !strings.Contains(s, "total=2 success=2 failed=0") {
 		t.Errorf("stdout missing summary line: %q", s)
 	}
+}
+
+func TestResolveClusterAliasesHostsFlag(t *testing.T) {
+	store := clusterStoreForTest(t, `
+Host rn
+    HostName 192.0.2.10
+Host wee
+    HostName 192.0.2.11
+Host ali
+    HostName 192.0.2.12
+`)
+
+	aliases, err := resolveClusterAliases(store, "rn, wee, rn", "", "", false)
+	if err != nil {
+		t.Fatalf("resolveClusterAliases returned error: %v", err)
+	}
+	want := []string{"rn", "wee"}
+	if !sameAliases(aliases, want) {
+		t.Fatalf("aliases = %v, want %v", aliases, want)
+	}
+}
+
+func TestResolveClusterAliasesHostsFlagMutuallyExclusive(t *testing.T) {
+	store := clusterStoreForTest(t, "Host rn\n    HostName 192.0.2.10\n")
+
+	_, err := resolveClusterAliases(store, "rn", "", "", true)
+	var cmdErr *output.CmdError
+	if !errors.As(err, &cmdErr) {
+		t.Fatalf("expected output.CmdError, got %v", err)
+	}
+	if !strings.Contains(cmdErr.Hint, "--hosts cannot be combined") {
+		t.Fatalf("hint = %q, want --hosts mutual exclusion", cmdErr.Hint)
+	}
+}
+
+func TestResolveClusterAliasesHostsFlagMissingAliases(t *testing.T) {
+	store := clusterStoreForTest(t, "Host rn\n    HostName 192.0.2.10\n")
+
+	_, err := resolveClusterAliases(store, "rn,missing,ghost", "", "", false)
+	var cmdErr *output.CmdError
+	if !errors.As(err, &cmdErr) {
+		t.Fatalf("expected output.CmdError, got %v", err)
+	}
+	if !strings.Contains(cmdErr.Hint, "missing") || !strings.Contains(cmdErr.Hint, "ghost") {
+		t.Fatalf("hint = %q, want all missing aliases", cmdErr.Hint)
+	}
+}
+
+func TestResolveClusterAliasesEnvironmentFilter(t *testing.T) {
+	store := clusterStoreForTest(t, `
+# sshq:environment=development
+Host rn
+    HostName 192.0.2.10
+# sshq:environment=production
+Host wee
+    HostName 192.0.2.11
+`)
+
+	aliases, err := resolveClusterAliases(store, "", "", "development", false)
+	if err != nil {
+		t.Fatalf("resolveClusterAliases returned error: %v", err)
+	}
+	want := []string{"rn"}
+	if !sameAliases(aliases, want) {
+		t.Fatalf("aliases = %v, want %v", aliases, want)
+	}
+}
+
+func clusterStoreForTest(t *testing.T, raw string) *config.Store {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config")
+	if err := os.WriteFile(path, []byte(raw), 0600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store
+}
+
+func sameAliases(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }

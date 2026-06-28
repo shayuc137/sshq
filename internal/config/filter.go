@@ -18,7 +18,7 @@ func (s *Store) Filter(f Filter) []Host {
 		if f.Tag != "" && !matchTag(h.Metadata["tags"], f.Tag) {
 			continue
 		}
-		if f.Env != "" && h.Metadata["env"] != f.Env {
+		if f.Env != "" && h.Metadata["environment"] != f.Env {
 			continue
 		}
 		result = append(result, h)

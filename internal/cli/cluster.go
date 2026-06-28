@@ -76,23 +76,15 @@ func newClusterExecCommand() *cobra.Command {
 
 			tag, _ := cmd.Flags().GetString("tag")
 			env, _ := cmd.Flags().GetString("env")
+			hostsFlag, _ := cmd.Flags().GetString("hosts")
 			all, _ := cmd.Flags().GetBool("all")
 			concurrency, _ := cmd.Flags().GetInt("concurrency")
 			timeout, _ := cmd.Flags().GetDuration("timeout")
 			noDaemon, _ := cmd.Flags().GetBool("no-daemon")
 
-			if !all && tag == "" && env == "" {
-				return output.Errorf("specify --tag, --env, or --all", "usage: sshq cluster exec --all \"command\"")
-			}
-
-			hosts := store.Filter(config.Filter{Tag: tag, Env: env, All: all})
-			if len(hosts) == 0 {
-				return output.Errorf("no hosts matched the filter", "check tags/env with 'sshq ls'")
-			}
-
-			aliases := make([]string, len(hosts))
-			for i, h := range hosts {
-				aliases[i] = h.Alias
+			aliases, err := resolveClusterAliases(store, hostsFlag, tag, env, all)
+			if err != nil {
+				return err
 			}
 
 			command := args[0]
@@ -107,11 +99,70 @@ func newClusterExecCommand() *cobra.Command {
 
 	cmd.Flags().String("tag", "", "filter hosts by tag")
 	cmd.Flags().String("env", "", "filter hosts by environment")
+	cmd.Flags().String("hosts", "", "comma-separated host aliases")
 	cmd.Flags().Bool("all", false, "target all configured hosts")
 	cmd.Flags().Int("concurrency", 10, "max concurrent connections")
 	cmd.Flags().Bool("no-daemon", false, "skip daemon, connect directly")
 
 	return cmd
+}
+
+func resolveClusterAliases(store *config.Store, hostsFlag, tag, env string, all bool) ([]string, error) {
+	if hostsFlag != "" {
+		if all || tag != "" || env != "" {
+			return nil, output.Errorf("--hosts cannot be combined with --tag, --env, or --all", "use exactly one host selector")
+		}
+		return aliasesFromHostsFlag(store, hostsFlag)
+	}
+
+	if !all && tag == "" && env == "" {
+		return nil, output.Errorf("specify --hosts, --tag, --env, or --all", "usage: sshq cluster exec --all \"command\"")
+	}
+
+	hosts := store.Filter(config.Filter{Tag: tag, Env: env, All: all})
+	if len(hosts) == 0 {
+		return nil, output.Errorf("no hosts matched the filter", "check tags/env with 'sshq ls'")
+	}
+
+	aliases := make([]string, len(hosts))
+	for i, h := range hosts {
+		aliases[i] = h.Alias
+	}
+	return aliases, nil
+}
+
+func aliasesFromHostsFlag(store *config.Store, hostsFlag string) ([]string, error) {
+	parts := strings.Split(hostsFlag, ",")
+	aliases := make([]string, 0, len(parts))
+	missing := make([]string, 0)
+	seen := make(map[string]bool, len(parts))
+	hasEmpty := false
+
+	for _, part := range parts {
+		alias := strings.TrimSpace(part)
+		if alias == "" {
+			hasEmpty = true
+			continue
+		}
+		if seen[alias] {
+			continue
+		}
+		seen[alias] = true
+
+		if _, err := store.Get(alias); err != nil {
+			missing = append(missing, alias)
+			continue
+		}
+		aliases = append(aliases, alias)
+	}
+
+	if hasEmpty || len(aliases)+len(missing) == 0 {
+		return nil, output.Errorf("invalid --hosts value", "use comma-separated aliases, for example --hosts rn,wee")
+	}
+	if len(missing) > 0 {
+		return nil, output.Errorf("hosts not found: "+strings.Join(missing, ", "), "run 'sshq ls' to see available hosts")
+	}
+	return aliases, nil
 }
 
 func clusterExecViaDaemon(cmd *cobra.Command, w *output.Writer, store *config.Store, aliases []string, command string, timeout time.Duration, concurrency int) error {

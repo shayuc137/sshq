@@ -54,7 +54,7 @@ func (s *Store) Set(alias, key, value string) error {
 		return s.reload(raw)
 	}
 
-	raw := setMetadataValue(s.raw, alias, key, value)
+	raw := setMetadataValue(s.raw, alias, canonicalMetadataKey(key), value)
 	return s.reload(raw)
 }
 
@@ -266,6 +266,7 @@ func setSSHValue(raw []byte, alias, key, value string) []byte {
 
 func setMetadataValue(raw []byte, alias, key, value string) []byte {
 	lines := strings.Split(string(raw), "\n")
+	canonKey := canonicalMetadataKey(key)
 
 	hostLine := -1
 	for i, line := range lines {
@@ -282,8 +283,9 @@ func setMetadataValue(raw []byte, alias, key, value string) []byte {
 		return raw
 	}
 
-	// Look for existing sshq:key= in comments above Host line
-	prefix := fmt.Sprintf("# sshq:%s=", key)
+	// Look for existing sshq:key= in comments above Host line.
+	// Legacy "env" is rewritten to the canonical "environment" key.
+	prefixes := metadataPrefixes(canonKey)
 	for i := hostLine - 1; i >= 0; i-- {
 		trimmed := strings.TrimSpace(lines[i])
 		if trimmed == "" {
@@ -292,12 +294,12 @@ func setMetadataValue(raw []byte, alias, key, value string) []byte {
 		if !strings.HasPrefix(trimmed, "#") {
 			break
 		}
-		if strings.HasPrefix(trimmed, prefix) {
+		if hasAnyPrefix(trimmed, prefixes) {
 			if value == "" {
 				// Delete the metadata line
 				lines = append(lines[:i], lines[i+1:]...)
 			} else {
-				lines[i] = fmt.Sprintf("# sshq:%s=%s", key, value)
+				lines[i] = fmt.Sprintf("# sshq:%s=%s", canonKey, value)
 			}
 			return []byte(strings.Join(lines, "\n"))
 		}
@@ -309,7 +311,7 @@ func setMetadataValue(raw []byte, alias, key, value string) []byte {
 
 	// Not found, insert before Host line (after any existing comments)
 	insertAt := hostLine
-	newLine := fmt.Sprintf("# sshq:%s=%s", key, value)
+	newLine := fmt.Sprintf("# sshq:%s=%s", canonKey, value)
 
 	// Check if there's already a comment block, insert at end of it
 	for i := hostLine - 1; i >= 0; i-- {
@@ -352,4 +354,29 @@ func canonicalSSHKey(key string) string {
 		return v
 	}
 	return key
+}
+
+func canonicalMetadataKey(key string) string {
+	switch strings.ToLower(key) {
+	case "env", "environment":
+		return "environment"
+	}
+	return key
+}
+
+func metadataPrefixes(key string) []string {
+	prefixes := []string{fmt.Sprintf("# sshq:%s=", key)}
+	if key == "environment" {
+		prefixes = append(prefixes, "# sshq:env=")
+	}
+	return prefixes
+}
+
+func hasAnyPrefix(value string, prefixes []string) bool {
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(value, prefix) {
+			return true
+		}
+	}
+	return false
 }

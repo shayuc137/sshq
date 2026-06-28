@@ -60,7 +60,7 @@ func TestStoreAddWithMetadata(t *testing.T) {
 	err = store.Add(Host{
 		Alias:    "tagged",
 		HostName: "3.3.3.3",
-		Metadata: map[string]string{"tags": "prod,web", "env": "production"},
+		Metadata: map[string]string{"tags": "prod,web", "environment": "production"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -73,8 +73,8 @@ func TestStoreAddWithMetadata(t *testing.T) {
 	if h.Metadata["tags"] != "prod,web" {
 		t.Errorf("tags = %q, want prod,web", h.Metadata["tags"])
 	}
-	if h.Metadata["env"] != "production" {
-		t.Errorf("env = %q, want production", h.Metadata["env"])
+	if h.Metadata["environment"] != "production" {
+		t.Errorf("environment = %q, want production", h.Metadata["environment"])
 	}
 }
 
@@ -215,6 +215,37 @@ func TestStoreSetMetadataUpdate(t *testing.T) {
 	}
 }
 
+func TestStoreSetEnvWritesEnvironmentMetadata(t *testing.T) {
+	raw := []byte("# sshq:env=old\nHost myhost\n    HostName 1.1.1.1\n")
+	store, err := loadFromBytes(raw, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = store.Set("myhost", "env", "production")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	h, err := store.Get("myhost")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.Metadata["environment"] != "production" {
+		t.Errorf("environment = %q, want production", h.Metadata["environment"])
+	}
+	if _, ok := h.Metadata["env"]; ok {
+		t.Errorf("legacy env key should be normalized away: %+v", h.Metadata)
+	}
+	rawConfig := string(store.raw)
+	if !strings.Contains(rawConfig, "# sshq:environment=production") {
+		t.Errorf("raw config missing environment key: %q", rawConfig)
+	}
+	if strings.Contains(rawConfig, "# sshq:env=") {
+		t.Errorf("raw config still contains legacy env key: %q", rawConfig)
+	}
+}
+
 func TestStoreSave(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config")
@@ -261,6 +292,21 @@ func TestCanonicalSSHKey(t *testing.T) {
 	for input, want := range tests {
 		if got := canonicalSSHKey(input); got != want {
 			t.Errorf("canonicalSSHKey(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestCanonicalMetadataKey(t *testing.T) {
+	tests := map[string]string{
+		"env":         "environment",
+		"ENV":         "environment",
+		"environment": "environment",
+		"Environment": "environment",
+		"tags":        "tags",
+	}
+	for input, want := range tests {
+		if got := canonicalMetadataKey(input); got != want {
+			t.Errorf("canonicalMetadataKey(%q) = %q, want %q", input, got, want)
 		}
 	}
 }

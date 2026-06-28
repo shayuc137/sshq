@@ -69,9 +69,10 @@ Transfer engine: tries SFTP first, falls back to raw SSH byte stream when the re
 
 ## cluster
 
-Run a command across multiple hosts concurrently. Hosts are selected by tag, environment, or `--all`:
+Run a command across multiple hosts concurrently. Hosts are selected by explicit aliases, tag, environment, or `--all`:
 
 ```bash
+sshq cluster exec "hostname" --hosts rn,wee
 sshq cluster exec "uptime" --tag web
 sshq cluster exec "df -h" --env production
 sshq cluster exec "systemctl status nginx" --all
@@ -79,7 +80,7 @@ sshq cluster exec "systemctl status nginx" --all
 
 Best-effort: partial failures are reported per-host, surviving hosts complete.
 
-Flags: `--tag <t>`, `--env <e>`, `--all`, `--concurrency <n>` (default 10), `--no-daemon`.
+Flags: `--hosts <a,b>`, `--tag <t>`, `--env <e>`, `--all`, `--concurrency <n>` (default 10), `--no-daemon`.
 
 ## tunnel
 

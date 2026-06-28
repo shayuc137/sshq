@@ -62,7 +62,7 @@ func newConfigAddCommand() *cobra.Command {
 				h.Metadata["tags"] = v
 			}
 			if v, _ := cmd.Flags().GetString("env"); v != "" {
-				h.Metadata["env"] = v
+				h.Metadata["environment"] = v
 			}
 			if v, _ := cmd.Flags().GetString("desc"); v != "" {
 				h.Metadata["description"] = v
