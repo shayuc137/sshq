@@ -1,0 +1,133 @@
+---
+name: sshq
+description: "CRITICAL: This skill MUST be used for ALL SSH operations. NEVER use bash 'ssh' or 'scp' commands directly - always route through sshq. Triggers: ANY mention of SSH, remote server, connect to server, server IPs (e.g., 192.168.x.x, 10.0.x.x), hostnames (e.g., user@host.com), login to, upload to server, download from server, deploy to server, run on server, check server, execute remotely, bastion host, jump host, transfer between servers, server to server, port forward, tunnel. sshq is a Go single-binary SSH CLI with daemon connection pooling, ProxyJump chain support, SFTP-with-raw-fallback file transfer, cross-shell detection (bash/ash/powershell/cmd), cluster concurrent execution, and SSH tunneling. DO NOT use for: local commands, localhost, current directory operations."
+keywords: SSH,sshq,remote,server,connect,upload,download,deploy,execute,transfer,tunnel,port-forward,jump-host,cluster,probe
+---
+
+# sshq — SSH Routing Skill
+
+All SSH operations route through `sshq`. Never shell out to `ssh` or `scp` directly.
+
+`sshq` outputs compact, agent-friendly text by default. Add `--json` for structured data only when you need to parse fields programmatically.
+
+**References** — read on demand, not every run. Auto-generated via `sshq docs --skill <dir>`.
+- [`references/exec-transfer.md`](references/exec-transfer.md) — when running commands or transferring files: full flag reference for exec, cp, script-file
+- [`references/config.md`](references/config.md) — when managing host configuration: config add/set/remove, sshq metadata format, ProxyJump setup
+- [`references/cluster-tunnel.md`](references/cluster-tunnel.md) — when doing multi-host operations or port forwarding: cluster exec, tunnel start/stop/list
+- [`references/discovery.md`](references/discovery.md) — when listing/searching/inspecting hosts: ls, search, info, probe, trust, daemon
+
+## Routing table
+
+| Intent | Command |
+|--------|---------|
+| Run a command | `sshq <alias> "<cmd>"` |
+| Upload file | `sshq cp ./local <alias>:/remote` |
+| Download file | `sshq cp <alias>:/remote ./local` |
+| Server-to-server | `sshq cp <src>:/path <dst>:/path` |
+| List hosts | `sshq ls` |
+| Search hosts | `sshq search <pattern>` |
+| Host details | `sshq info <alias>` |
+| TCP check | `sshq probe <alias>` |
+| Cluster exec | `sshq cluster exec "<cmd>" --tag <t>` |
+| Port forward | `sshq tunnel start <alias> -L 8080:localhost:80` |
+| Config add | `sshq config add <alias> --hostname <ip> --user <u>` |
+| Config edit | `sshq config set <alias> <key> <value>` |
+| Config delete | `sshq config remove <alias>` |
+| Trust host key | `sshq trust <alias>` |
+
+## exec
+
+```bash
+sshq <alias> "<command>"
+```
+
+Always quote the command string — bare flags like `-a` are otherwise consumed by sshq's own parser.
+
+Merge independent queries into one call to cut round-trips:
+
+```bash
+sshq ali "hostname && uptime && df -h"
+```
+
+Flags: `--timeout <dur>`, `--no-daemon`, `--script-file <path>`, `--shell <bash|ash|powershell|cmd>`.
+
+`--script-file` sends a local script via stdin and executes it in the detected remote shell, handling encoding for Windows targets automatically.
+
+## cp
+
+Direction is inferred from the `alias:path` syntax:
+
+```bash
+sshq cp ./app.tar.gz ali:/tmp/           # upload
+sshq cp ali:/var/log/app.log ./          # download
+sshq cp ali:/data/dump.sql rn:/backup/   # server-to-server relay
+```
+
+Flags: `-r` (recursive), `--no-progress`, `--no-daemon`.
+
+Transfer engine: tries SFTP first, falls back to raw SSH byte stream when the remote lacks sftp-server (e.g. OpenWrt BusyBox). Server-to-server relay streams through the local host without writing a temp file.
+
+## cluster
+
+Run a command across multiple hosts concurrently. Hosts are selected by tag, environment, or `--all`:
+
+```bash
+sshq cluster exec "uptime" --tag web
+sshq cluster exec "df -h" --env production
+sshq cluster exec "systemctl status nginx" --all
+```
+
+Best-effort: partial failures are reported per-host, surviving hosts complete.
+
+Flags: `--tag <t>`, `--env <e>`, `--all`, `--concurrency <n>` (default 10), `--no-daemon`.
+
+## tunnel
+
+```bash
+sshq tunnel start ali -L 8080:localhost:80      # local forward
+sshq tunnel start ali -R 9090:localhost:3000     # remote forward
+sshq tunnel list                                  # show active tunnels
+sshq tunnel stop <tunnel-id>                      # stop a tunnel
+```
+
+Tunnels survive transient errors with exponential backoff. Cancel stops the tunnel cleanly.
+
+## config
+
+Hosts live in `~/.ssh/config`. sshq metadata (tags, env, description) is stored as `# sshq:` namespaced comments — standard SSH tools ignore them.
+
+```bash
+sshq config add myhost --hostname 10.0.0.1 --user root --identity ~/.ssh/id_ed25519
+sshq config set myhost tags prod,web
+sshq config set myhost description "production web server"
+sshq config set myhost env production
+sshq config remove myhost
+```
+
+ProxyJump is configured through standard SSH config and resolved automatically — just use the target alias.
+
+## daemon
+
+The daemon manages a connection pool for faster repeat operations. It starts automatically on first use and idles out after inactivity. Manual control is rarely needed:
+
+```bash
+sshq daemon start     # explicit start
+sshq daemon status    # pool stats
+sshq daemon stop      # shutdown
+```
+
+## output modes
+
+| Flag | Format | Use case |
+|------|--------|----------|
+| _(default)_ | compact one-liners | agent consumption, low token |
+| `--json` | structured JSON | programmatic field access |
+| `--pretty` | aligned table | human reading |
+
+## error handling
+
+sshq returns non-zero exit codes on failure. Check `$?` or stderr for diagnostics. Common patterns:
+
+- Connection refused / timeout: verify with `sshq probe <alias>`
+- Host not found: search with `sshq search <keyword>`
+- First-time host: trust the key with `sshq trust <alias>`
