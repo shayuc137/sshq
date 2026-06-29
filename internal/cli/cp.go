@@ -180,10 +180,10 @@ func cpTransferDirect(ctx context.Context, w *output.Writer, store *config.Store
 		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
 	}
 
-	cfg := hostToConnConfigWithStore(host, store)
+	cfg := hostToConnConfigWithCredentials(host, store, credentialStoreFrom(ctx))
 	cfg.Timeout = 30 * time.Second
 
-	w.Info("connecting to " + alias + "...")
+	w.Verbose("connecting to " + alias + "...")
 	connectStart := time.Now()
 	client, err := sshclient.Dial(ctx, cfg)
 	if err != nil {
@@ -244,12 +244,12 @@ func cpRelayDirect(ctx context.Context, w *output.Writer, store *config.Store, p
 		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
 	}
 
-	srcCfg := hostToConnConfigWithStore(srcHost, store)
+	srcCfg := hostToConnConfigWithCredentials(srcHost, store, credentialStoreFrom(ctx))
 	srcCfg.Timeout = 30 * time.Second
-	dstCfg := hostToConnConfigWithStore(dstHost, store)
+	dstCfg := hostToConnConfigWithCredentials(dstHost, store, credentialStoreFrom(ctx))
 	dstCfg.Timeout = 30 * time.Second
 
-	w.Info("connecting to " + parsed.Src.Alias + "...")
+	w.Verbose("connecting to " + parsed.Src.Alias + "...")
 	srcConnectStart := time.Now()
 	srcClient, err := sshclient.Dial(ctx, srcCfg)
 	if err != nil {
@@ -258,7 +258,7 @@ func cpRelayDirect(ctx context.Context, w *output.Writer, store *config.Store, p
 	defer srcClient.Close()
 	w.Verbose("connection: alias=" + parsed.Src.Alias + " duration=" + verboseDuration(time.Since(srcConnectStart)) + " direct")
 
-	w.Info("connecting to " + parsed.Dst.Alias + "...")
+	w.Verbose("connecting to " + parsed.Dst.Alias + "...")
 	dstConnectStart := time.Now()
 	dstClient, err := sshclient.Dial(ctx, dstCfg)
 	if err != nil {

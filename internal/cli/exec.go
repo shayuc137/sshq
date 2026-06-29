@@ -114,10 +114,10 @@ func execScriptDirect(cmd *cobra.Command, w *output.Writer, alias string, script
 	}
 
 	timeout, _ := cmd.Flags().GetDuration("timeout")
-	cfg := hostToConnConfigWithStore(host, store)
+	cfg := hostToConnConfigWithCredentials(host, store, credentialStoreFrom(cmd.Context()))
 	cfg.Timeout = timeout
 
-	w.Info("connecting to " + alias + "...")
+	w.Verbose("connecting to " + alias + "...")
 	ctx := cmd.Context()
 	if timeout > 0 {
 		var cancel func()
@@ -218,10 +218,10 @@ func execDirect(cmd *cobra.Command, w *output.Writer, alias, command string) err
 	}
 
 	timeout, _ := cmd.Flags().GetDuration("timeout")
-	cfg := hostToConnConfigWithStore(host, store)
+	cfg := hostToConnConfigWithCredentials(host, store, credentialStoreFrom(cmd.Context()))
 	cfg.Timeout = timeout
 
-	w.Info("connecting to " + alias + "...")
+	w.Verbose("connecting to " + alias + "...")
 
 	ctx := cmd.Context()
 	if timeout > 0 {

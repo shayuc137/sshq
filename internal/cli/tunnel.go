@@ -148,10 +148,10 @@ func tunnelStartForeground(cmd *cobra.Command, w *output.Writer, alias, directio
 		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
 	}
 
-	cfg := hostToConnConfigWithStore(host, store)
+	cfg := hostToConnConfigWithCredentials(host, store, credentialStoreFrom(cmd.Context()))
 	cfg.Timeout = 30 * time.Second
 
-	w.Info("connecting to " + alias + "...")
+	w.Verbose("connecting to " + alias + "...")
 	client, err := sshclient.Dial(cmd.Context(), cfg)
 	if err != nil {
 		return connErrorToOutput(err, alias)
