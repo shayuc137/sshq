@@ -30,7 +30,7 @@ sshq config add web-1 \
 | `--proxy-jump <alias>` | ProxyJump host alias. |
 
 > [!WARNING]
-> `sshq` refuses to store passwords in SSH config. Use SSH agent or identity files.
+> `sshq` refuses to store passwords in SSH config. For password authentication, use the encrypted credential store (see [Password Credentials](#password-credentials) below).
 
 ## Edit Hosts
 
@@ -134,6 +134,21 @@ sshq tunnel start db-prod -L 15432:localhost:5432
 
 > [!WARNING]
 > A cyclic ProxyJump chain is cut when a repeated host is detected.
+
+## Password Credentials
+
+Some hosts only support password authentication (legacy switches, certain Windows OpenSSH servers). `sshq` encrypts passwords with [age](https://github.com/FiloSottile/age) using your SSH public key and stores them in `~/.config/sshq/credentials.age`.
+
+```bash
+sshq credential set router-1
+sshq credential list
+sshq credential delete router-1
+```
+
+`credential set` prompts for the password interactively (requires a terminal). Passwords are used as the lowest-priority authentication fallback — agent and key authentication always take precedence.
+
+> [!TIP]
+> If you have no SSH key, `sshq` falls back to passphrase-based encryption for the credential file.
 
 ## Probe Connectivity
 

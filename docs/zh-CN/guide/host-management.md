@@ -30,7 +30,7 @@ sshq config add web-1 \
 | `--proxy-jump <alias>` | `ProxyJump` 主机别名。 |
 
 > [!WARNING]
-> `sshq` 会拒绝把密码写入 SSH 配置。请使用 SSH agent 或私钥文件。
+> `sshq` 会拒绝把密码写入 SSH 配置。如需密码认证，请使用加密凭据库（见下方[密码凭据](#密码凭据)段落）。
 
 ## 编辑主机
 
@@ -134,6 +134,21 @@ sshq tunnel start db-prod -L 15432:localhost:5432
 
 > [!WARNING]
 > 如果发现循环 `ProxyJump` 链，解析会在重复主机处停止。
+
+## 密码凭据
+
+部分主机只支持密码认证（老交换机、某些 Windows OpenSSH 服务器）。`sshq` 使用 [age](https://github.com/FiloSottile/age) 加密密码，以 SSH 公钥作为收件人，存储在 `~/.config/sshq/credentials.age`。
+
+```bash
+sshq credential set router-1
+sshq credential list
+sshq credential delete router-1
+```
+
+`credential set` 会交互式提示输入密码（需要终端）。密码仅作为最低优先级的认证方式——SSH agent 和私钥认证始终优先。
+
+> [!TIP]
+> 如果没有 SSH 密钥，`sshq` 会回退到口令加密模式保护凭据文件。
 
 ## 检查连通性
 
