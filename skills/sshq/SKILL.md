@@ -116,15 +116,17 @@ ProxyJump is configured through standard SSH config and resolved automatically �
 
 ## credential
 
-Password credentials are encrypted with age using your SSH public key and stored in the OS config directory (`~/.config/sshq/` on Linux). They are only used as the final fallback after agent and key authentication.
+Password credentials are encrypted with age using your SSH public key and stored in the OS config directory (`~/.config/sshq/` on Linux). They are only used as the final fallback after agent and key authentication — no action needed from the agent once stored.
 
 ```bash
-sshq credential set myhost
+sshq credential set myhost       # interactive, requires TTY
 sshq credential list
 sshq credential delete myhost
 ```
 
 `credential list` only shows aliases. There is no command that prints stored passwords.
+
+For passphrase-mode credential stores (no SSH key), set `SSHQ_CREDENTIAL_PASSPHRASE` in the environment before running commands or starting the daemon.
 
 ## daemon
 
@@ -138,17 +140,21 @@ sshq daemon stop      # shutdown
 
 ## policy
 
-Capability policy is read from `config.toml` in sshq's OS config directory. Use narrow command whitelists and path whitelists for sensitive hosts; daemon requests are rechecked server-side.
+Capability policy is read from `config.toml` in sshq's OS config directory (`~/.config/sshq/config.toml` on Linux). It controls command whitelists/blacklists and path whitelists per host, with global defaults and per-host override/append. Daemon requests are rechecked server-side.
 
 ```bash
-sshq policy validate
-sshq policy check prod --command "journalctl -u app -n 100"
-sshq policy list prod
-sshq policy grant prod "^journalctl(\\s|$)" --ttl 15m
-sshq policy revoke --alias prod
+sshq policy validate                                          # check config syntax
+sshq policy check prod --command "journalctl -u app -n 100"   # test if a command would be allowed
+sshq policy list prod                                          # show effective policy + active grants
+sshq policy grant prod "^journalctl(\\s|$)" --ttl 15m         # temporary whitelist (TTY required)
+sshq policy revoke --alias prod                                # revoke all grants for a host
 ```
 
 Temporary grants live only in daemon memory, require a controlling TTY, expire by TTL, and never override command blacklists.
+
+**When a command is blocked:** sshq returns a structured error with the matched pattern and a suggested `policy grant` command. The agent cannot run `policy grant` itself (requires TTY) — relay the error and grant command to the user.
+
+**Cluster pre-flight:** `cluster exec` checks policy for all target hosts before executing. If any host is blocked, no hosts execute.
 
 ## audit
 
@@ -181,3 +187,5 @@ sshq returns non-zero exit codes on failure. Check `$?` or stderr for diagnostic
 - Connection refused / timeout: verify with `sshq probe <alias>`
 - Host not found: search with `sshq search <keyword>`
 - First-time host: trust the key with `sshq trust <alias>`
+- Command blocked by policy: relay the error to the user — it includes a suggested `sshq policy grant` command. Do not attempt to grant permissions yourself
+- Credential decrypt failure: check if SSH key changed or credentials need re-creation with `sshq credential set`
