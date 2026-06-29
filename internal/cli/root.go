@@ -55,7 +55,7 @@ func NewRootCommand() *cobra.Command {
 				ctx = withConfig(ctx, store)
 			}
 
-			creds, err := credential.Open()
+			creds, err := credential.Open(credential.WithPassphrase(runtimePassphraseProvider(cmd)))
 			if err != nil {
 				w.Info("warning: credential store unavailable: " + err.Error())
 			}

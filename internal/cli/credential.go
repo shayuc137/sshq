@@ -128,6 +128,67 @@ func passphrasePromptForStore(cmd *cobra.Command) func() (string, error) {
 	}
 }
 
+// EnvCredentialPassphrase supplies the passphrase for a passphrase-mode
+// credential store in non-interactive runtime contexts (daemon background loop,
+// agent pipe). Direct commands fall back to a TTY prompt when it is unset.
+const EnvCredentialPassphrase = "SSHQ_CREDENTIAL_PASSPHRASE"
+
+// runtimePassphraseProvider builds the passphrase callback used when opening the
+// credential store for actual exec/cp/tunnel/daemon use (as opposed to the
+// `credential` management commands). The callback is lazy: the credential store
+// only invokes it when it must decrypt a passphrase-mode file, so key-mode
+// stores never trigger a prompt.
+//
+// Resolution order:
+//  1. SSHQ_CREDENTIAL_PASSPHRASE environment variable (works headless), then
+//  2. a TTY prompt on the command's stdin (matches `credential set` UX).
+//
+// When neither is available it returns a clear error instead of silently
+// skipping the password, so passphrase-mode credentials no longer fail as
+// generic auth errors at dial time.
+func runtimePassphraseProvider(cmd *cobra.Command) func() (string, error) {
+	var once bool
+	var passphrase string
+	var err error
+
+	return func() (string, error) {
+		if once {
+			return passphrase, err
+		}
+		once = true
+
+		if env, ok := os.LookupEnv(EnvCredentialPassphrase); ok {
+			passphrase = env
+			return passphrase, nil
+		}
+		if cmd != nil && commandStdinIsTTY(cmd) {
+			passphrase, err = readSecret(cmd, "Credential store passphrase: ")
+			return passphrase, err
+		}
+		err = fmt.Errorf("credential store passphrase required: set %s or run in a TTY", EnvCredentialPassphrase)
+		return "", err
+	}
+}
+
+// daemonPassphraseProvider resolves the credential passphrase for the daemon's
+// background accept loop, which has no controlling TTY. It reads only from the
+// environment; the daemon pre-warms decryption at startup (while a TTY may still
+// be attached) via runtimePassphraseProvider, so by the time this is consulted
+// the value is expected to come from SSHQ_CREDENTIAL_PASSPHRASE.
+func daemonPassphraseProvider() func() (string, error) {
+	return func() (string, error) {
+		if env, ok := os.LookupEnv(EnvCredentialPassphrase); ok {
+			return env, nil
+		}
+		return "", fmt.Errorf("credential store passphrase required: set %s before starting the daemon", EnvCredentialPassphrase)
+	}
+}
+
+func commandStdinIsTTY(cmd *cobra.Command) bool {
+	in, ok := cmd.InOrStdin().(*os.File)
+	return ok && term.IsTerminal(int(in.Fd()))
+}
+
 func readConfirmedSecret(cmd *cobra.Command, prompt, confirmPrompt string) (string, error) {
 	first, err := readSecret(cmd, prompt)
 	if err != nil {

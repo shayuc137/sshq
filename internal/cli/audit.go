@@ -22,6 +22,12 @@ func newAuditCommand() *cobra.Command {
 			}
 			alias, _ := cmd.Flags().GetString("alias")
 			operation, _ := cmd.Flags().GetString("operation")
+			if operation != "" && !isValidAuditOperation(operation) {
+				return output.Errorf(
+					"invalid --operation "+operation,
+					"valid values: "+strings.Join(validAuditOperations, "|"),
+				)
+			}
 
 			path := ""
 			if cfg := appConfigFrom(cmd.Context()); cfg != nil {
@@ -47,6 +53,23 @@ func newAuditCommand() *cobra.Command {
 	cmd.Flags().String("alias", "", "filter audit entries by host alias")
 	cmd.Flags().String("operation", "", "filter audit entries by operation")
 	return cmd
+}
+
+var validAuditOperations = []string{
+	auditpkg.OperationExec,
+	auditpkg.OperationCP,
+	auditpkg.OperationClusterExec,
+	auditpkg.OperationTunnelStart,
+	auditpkg.OperationTunnelStop,
+}
+
+func isValidAuditOperation(op string) bool {
+	for _, v := range validAuditOperations {
+		if op == v {
+			return true
+		}
+	}
+	return false
 }
 
 type auditList []auditpkg.Entry

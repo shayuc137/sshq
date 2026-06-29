@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/shayuc137/sshq/internal/credential"
 )
 
 type QueryOpts struct {
@@ -26,6 +28,8 @@ func Query(path string, opts QueryOpts) ([]Entry, error) {
 			return nil, err
 		}
 		path = defaultPath
+	} else {
+		path = credential.ExpandHome(path)
 	}
 
 	files, err := auditFiles(path)

@@ -142,21 +142,59 @@ func hostToConnConfig(host config.Host) sshclient.ConnConfig {
 	return cfg
 }
 
-func hostToConnConfigWithStore(host config.Host, store *config.Store) sshclient.ConnConfig {
-	return hostToConnConfigWithCredentials(host, store, nil)
-}
-
-func hostToConnConfigWithCredentials(host config.Host, store *config.Store, creds *credential.Store) sshclient.ConnConfig {
+// hostToConnConfigWithCredentials builds a ConnConfig and attaches any stored
+// password credential for the host (and its ProxyJump chain).
+//
+// Only credential.ErrNotFound is treated as "no password configured" and
+// silently ignored; every other credential-store error (corrupt file, decrypt
+// failure, insecure permissions, read error) is surfaced so it cannot be
+// mistaken for a generic SSH authentication failure later.
+func hostToConnConfigWithCredentials(host config.Host, store *config.Store, creds *credential.Store) (sshclient.ConnConfig, error) {
 	cfg := hostToConnConfig(host)
 	if creds != nil {
-		if password, err := creds.Get(host.Alias); err == nil {
-			cfg.Password = password
+		password, err := lookupCredential(creds, host.Alias)
+		if err != nil {
+			return sshclient.ConnConfig{}, err
 		}
+		cfg.Password = password
 	}
 	if cfg.ProxyJump != "" && store != nil {
-		cfg.ProxyConfig = resolveProxyChainWithCredentials(store, cfg.ProxyJump, creds)
+		proxyCfg, err := resolveProxyChainWithCredentials(store, cfg.ProxyJump, creds)
+		if err != nil {
+			return sshclient.ConnConfig{}, err
+		}
+		cfg.ProxyConfig = proxyCfg
 	}
-	return cfg
+	return cfg, nil
+}
+
+// lookupCredential fetches a stored password for alias. A missing credential
+// returns ("", nil); any real store error is returned as-is so callers can
+// surface it.
+func lookupCredential(creds *credential.Store, alias string) (string, error) {
+	password, err := creds.Get(alias)
+	if err != nil {
+		if errors.Is(err, credential.ErrNotFound) {
+			return "", nil
+		}
+		return "", err
+	}
+	return password, nil
+}
+
+// credentialErrorSummary maps a credential-store error to a short,
+// password-free message for contexts that only have a string error channel
+// (cluster result rows, profile probe warnings). credential sentinel errors
+// never embed the secret value, so they are safe to surface verbatim.
+func credentialErrorSummary(err error) string {
+	switch {
+	case errors.Is(err, credential.ErrCannotDecrypt):
+		return "credential decrypt failed"
+	case errors.Is(err, credential.ErrCorrupt):
+		return "credential file corrupt"
+	default:
+		return "credential error: " + err.Error()
+	}
 }
 
 // resolveProxyChain recursively resolves a ProxyJump alias into a full
@@ -165,36 +203,44 @@ func hostToConnConfigWithCredentials(host config.Host, store *config.Store, cred
 // recurse until the stack overflows; on a cycle the chain is cut at the
 // repeated host rather than panicking.
 func resolveProxyChain(store *config.Store, proxyJump string) *sshclient.ConnConfig {
-	return resolveProxyChainWithCredentials(store, proxyJump, nil)
+	cfg, _ := resolveProxyChainWithCredentials(store, proxyJump, nil)
+	return cfg
 }
 
 func resolveProxyChainGuarded(store *config.Store, proxyJump string, visited map[string]bool) *sshclient.ConnConfig {
-	return resolveProxyChainGuardedWithCredentials(store, proxyJump, visited, nil)
+	cfg, _ := resolveProxyChainGuardedWithCredentials(store, proxyJump, visited, nil)
+	return cfg
 }
 
-func resolveProxyChainWithCredentials(store *config.Store, proxyJump string, creds *credential.Store) *sshclient.ConnConfig {
+func resolveProxyChainWithCredentials(store *config.Store, proxyJump string, creds *credential.Store) (*sshclient.ConnConfig, error) {
 	return resolveProxyChainGuardedWithCredentials(store, proxyJump, make(map[string]bool), creds)
 }
 
-func resolveProxyChainGuardedWithCredentials(store *config.Store, proxyJump string, visited map[string]bool, creds *credential.Store) *sshclient.ConnConfig {
+func resolveProxyChainGuardedWithCredentials(store *config.Store, proxyJump string, visited map[string]bool, creds *credential.Store) (*sshclient.ConnConfig, error) {
 	if proxyJump == "" || visited[proxyJump] {
-		return nil
+		return nil, nil
 	}
 	visited[proxyJump] = true
 	proxy, err := store.Get(proxyJump)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	cfg := hostToConnConfig(proxy)
 	if creds != nil {
-		if password, err := creds.Get(proxy.Alias); err == nil {
-			cfg.Password = password
+		password, err := lookupCredential(creds, proxy.Alias)
+		if err != nil {
+			return nil, err
 		}
+		cfg.Password = password
 	}
 	if proxy.ProxyJump != "" {
-		cfg.ProxyConfig = resolveProxyChainGuardedWithCredentials(store, proxy.ProxyJump, visited, creds)
+		proxyCfg, err := resolveProxyChainGuardedWithCredentials(store, proxy.ProxyJump, visited, creds)
+		if err != nil {
+			return nil, err
+		}
+		cfg.ProxyConfig = proxyCfg
 	}
-	return &cfg
+	return &cfg, nil
 }
 
 func connErrorToOutput(err error, alias string) *output.CmdError {

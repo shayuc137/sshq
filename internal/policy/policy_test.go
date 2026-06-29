@@ -186,6 +186,52 @@ remote_path_whitelist = ["/var/log"]
 	}
 }
 
+func TestRemotePathWindowsWhitelist(t *testing.T) {
+	checker := checkerFromTOML(t, `
+[policy.default]
+remote_path_whitelist = ['C:\Temp', '\\fileserver\share']
+`)
+
+	cases := []struct {
+		name    string
+		path    string
+		allowed bool
+	}{
+		{"drive backslash within", `C:\Temp\file.txt`, true},
+		{"drive forward slash within", "C:/Temp/file.txt", true},
+		{"drive lowercase within", `c:\temp\file.txt`, false}, // path segment case-sensitive
+		{"drive lowercase letter only", "c:/Temp/file.txt", true},
+		{"drive sibling boundary", `C:\TempEvil\x`, false},
+		{"different drive", `D:\Temp\x`, false},
+		{"unc within", `\\fileserver\share\dir\f`, true},
+		{"unc forward slash within", "//fileserver/share/dir/f", true},
+		{"unc sibling boundary", `\\fileserver\shareEvil\x`, false},
+		{"relative windows", `Temp\x`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			decision := checker.CheckRemotePath("prod", tc.path)
+			if decision.Allowed != tc.allowed {
+				t.Fatalf("CheckRemotePath(%q).Allowed = %v, want %v (decision=%#v)",
+					tc.path, decision.Allowed, tc.allowed, decision)
+			}
+		})
+	}
+}
+
+func TestRemotePathWindowsTraversalDenied(t *testing.T) {
+	checker := checkerFromTOML(t, `
+[policy.default]
+remote_path_whitelist = ['C:\Temp']
+`)
+	// A .. escape out of the whitelisted Windows directory must be denied after
+	// normalization, the same way POSIX traversal is.
+	decision := checker.CheckRemotePath("prod", `C:\Temp\..\Windows\System32`)
+	if decision.Allowed {
+		t.Fatalf("decision = %#v, windows traversal escape should be denied", decision)
+	}
+}
+
 func TestGrantSupplementWhitelist(t *testing.T) {
 	grants := policy.NewGrantManager()
 	if _, err := grants.Add("prod", policy.KindCommand, "^uptime$", time.Minute); err != nil {

@@ -70,7 +70,23 @@ func (dc *daemonContext) handleClusterExec(conn net.Conn, raw json.RawMessage) {
 				return
 			}
 
-			cfg := hostToConnConfigWithCredentials(host, dc.store, dc.creds)
+			cfg, credErr := hostToConnConfigWithCredentials(host, dc.store, dc.creds)
+			if credErr != nil {
+				mu.Lock()
+				failed++
+				mu.Unlock()
+				entry := audit.ExecErrorEntry(alias, payload.Command, audit.ResultError, time.Since(hostStart).Milliseconds(), audit.SourceDaemon, credErr)
+				entry.Operation = audit.OperationClusterExec
+				entry.Aliases = append([]string(nil), payload.Aliases...)
+				if !dc.sendAuditLocked(conn, &mu, entry) {
+					mu.Lock()
+					auditFailed = true
+					mu.Unlock()
+					return
+				}
+				sendClusterFrame(conn, &mu, ipc.ClusterFrame{Alias: alias, Type: "error", Hint: credentialErrorSummary(credErr)})
+				return
+			}
 			cfg.Timeout = timeout
 
 			connectStart := time.Now()
@@ -185,10 +201,17 @@ func sendClusterFrame(conn net.Conn, mu *sync.Mutex, cf ipc.ClusterFrame) {
 }
 
 func (dc *daemonContext) sendAuditLocked(conn net.Conn, mu *sync.Mutex, entry audit.Entry) bool {
-	if dc == nil || dc.auditLog == nil {
+	logger, enabled := dc.auditTarget()
+	if !enabled {
 		return true
 	}
-	if err := dc.auditLog.Record(entry); err != nil {
+	if logger == nil {
+		mu.Lock()
+		ipc.SendError(conn, "audit log unavailable", "fix [audit] path or disable audit.enabled, then restart daemon")
+		mu.Unlock()
+		return false
+	}
+	if err := logger.Record(entry); err != nil {
 		mu.Lock()
 		ipc.SendError(conn, "audit log write failed: "+err.Error(), "check [audit] path and permissions")
 		mu.Unlock()

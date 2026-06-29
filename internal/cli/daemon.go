@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -133,13 +134,22 @@ type daemonContext struct {
 	checker   *policy.Checker
 	grants    *policy.GrantManager
 	auditLog  *audit.Logger
-	pool      *pool.Pool
-	cache     *remote.Cache
-	tunnels   *tunnel.Registry
-	startTime time.Time
-	stopCh    chan struct{}
-	stopped   *bool
-	stoppedMu sync.Mutex
+	// auditEnabled tracks whether [audit].enabled is true. When enabled, a nil
+	// auditLog means logger initialization failed and auditable operations must
+	// fail closed rather than run unaudited. auditCfg is the [audit] section the
+	// live logger was built from, used to detect path/max_size changes on reload.
+	// auditMu guards auditLog/auditEnabled/auditCfg because reloadAppConfig can
+	// swap them while requests run concurrently.
+	auditEnabled bool
+	auditCfg     appconfig.AuditConfig
+	auditMu      sync.Mutex
+	pool         *pool.Pool
+	cache        *remote.Cache
+	tunnels      *tunnel.Registry
+	startTime    time.Time
+	stopCh       chan struct{}
+	stopped      *bool
+	stoppedMu    sync.Mutex
 }
 
 func runDaemon(w *output.Writer, store *config.Store, creds *credential.Store) error {
@@ -168,42 +178,58 @@ func runDaemon(w *output.Writer, store *config.Store, creds *credential.Store) e
 
 	if creds == nil {
 		var err error
-		creds, err = credential.Open()
+		creds, err = credential.Open(credential.WithPassphrase(daemonPassphraseProvider()))
 		if err != nil {
 			w.Info("warning: credential store unavailable: " + err.Error())
 		}
 	}
+	prewarmCredentialPassphrase(w, creds)
 
 	appCfg, appCfgErr := appconfig.Load()
 	if appCfgErr != nil {
 		w.Info("warning: app config unavailable: " + appCfgErr.Error())
 	}
+	auditEnabled := audit.Enabled(appCfg)
+	var auditCfg appconfig.AuditConfig
+	if appCfg != nil {
+		auditCfg = appCfg.Audit
+	}
 	var auditLog *audit.Logger
-	if audit.Enabled(appCfg) {
-		auditLog, err = audit.NewLogger(appCfg.Audit)
+	if auditEnabled {
+		auditLog, err = audit.NewLogger(auditCfg)
 		if err != nil {
-			w.Info("warning: audit log unavailable: " + err.Error())
+			// Fail closed: audit is explicitly enabled but the logger could not
+			// be created, so refuse to start rather than run unaudited.
+			return output.Errorf("audit log unavailable: "+err.Error(), "fix [audit] path or disable audit.enabled")
 		}
 	}
-	defer auditLog.Close()
 	grants := policy.NewGrantManager()
 
 	stopped := false
 	dc := &daemonContext{
-		store:     store,
-		creds:     creds,
-		appConfig: appCfg,
-		appCfgErr: appCfgErr,
-		checker:   policy.NewChecker(appCfg, grants),
-		grants:    grants,
-		auditLog:  auditLog,
-		pool:      pool.New(defaultIdleTimeout),
-		cache:     cache,
-		tunnels:   tunnel.NewRegistry(),
-		startTime: time.Now(),
-		stopCh:    make(chan struct{}),
-		stopped:   &stopped,
+		store:        store,
+		creds:        creds,
+		appConfig:    appCfg,
+		appCfgErr:    appCfgErr,
+		checker:      policy.NewChecker(appCfg, grants),
+		grants:       grants,
+		auditLog:     auditLog,
+		auditEnabled: auditEnabled,
+		auditCfg:     auditCfg,
+		pool:         pool.New(defaultIdleTimeout),
+		cache:        cache,
+		tunnels:      tunnel.NewRegistry(),
+		startTime:    time.Now(),
+		stopCh:       make(chan struct{}),
+		stopped:      &stopped,
 	}
+	// Close whichever logger is live at shutdown. reloadAppConfig may swap
+	// dc.auditLog over the daemon's lifetime (closing the previous one), so the
+	// final close must read the current value rather than capture auditLog.
+	defer func() {
+		logger, _ := dc.auditTarget()
+		logger.Close()
+	}()
 
 	lastActivity := time.Now()
 	var mu sync.Mutex
@@ -313,7 +339,7 @@ func (dc *daemonContext) handleConn(conn net.Conn) {
 }
 
 func (dc *daemonContext) route(conn net.Conn, env ipc.Envelope) {
-	if err := dc.reloadPolicy(); err != nil && isPolicySensitiveAction(env.Action) {
+	if err := dc.reloadAppConfig(); err != nil && isSensitiveAction(env.Action) {
 		ipc.SendError(conn, "app config invalid: "+err.Error(), "fix config.toml, then retry")
 		return
 	}
@@ -352,7 +378,12 @@ func (dc *daemonContext) route(conn net.Conn, env ipc.Envelope) {
 	}
 }
 
-func (dc *daemonContext) reloadPolicy() error {
+// reloadAppConfig hot-reloads config.toml on every routed request and
+// reconciles BOTH policy and audit state. A parse error or an audit logger that
+// cannot be rebuilt is returned to the caller, which fails closed for sensitive
+// actions so the daemon never serves audited operations under a stale or broken
+// audit configuration.
+func (dc *daemonContext) reloadAppConfig() error {
 	if dc.appConfig == nil {
 		cfg, err := appconfig.Load()
 		if err != nil {
@@ -360,8 +391,12 @@ func (dc *daemonContext) reloadPolicy() error {
 			return err
 		}
 		dc.appConfig = cfg
-		dc.appCfgErr = nil
 		dc.checker.Reload(cfg)
+		if err := dc.reconcileAudit(cfg); err != nil {
+			dc.appCfgErr = err
+			return err
+		}
+		dc.appCfgErr = nil
 		return nil
 	}
 
@@ -372,14 +407,87 @@ func (dc *daemonContext) reloadPolicy() error {
 	}
 	if changed {
 		dc.checker.Reload(dc.appConfig)
+		if err := dc.reconcileAudit(dc.appConfig); err != nil {
+			dc.appCfgErr = err
+			return err
+		}
 	}
 	dc.appCfgErr = nil
 	return nil
 }
 
-func isPolicySensitiveAction(action string) bool {
+// reconcileAudit brings the live audit logger in line with cfg's [audit]
+// section. It opens a logger when audit was just enabled or its path/max_size
+// changed, closes it when audit was disabled, and fails closed (returning an
+// error, keeping no logger while staying enabled) when a needed logger cannot
+// be opened. The swap is done under auditMu so concurrent sendAudit calls see a
+// consistent (logger, enabled) pair.
+func (dc *daemonContext) reconcileAudit(cfg *appconfig.Config) error {
+	enabled := audit.Enabled(cfg)
+
+	dc.auditMu.Lock()
+	prevEnabled := dc.auditEnabled
+	prevCfg := dc.auditCfg
+	prevLog := dc.auditLog
+	dc.auditMu.Unlock()
+
+	if !enabled {
+		if prevLog != nil {
+			prevLog.Close()
+		}
+		dc.auditMu.Lock()
+		dc.auditEnabled = false
+		dc.auditLog = nil
+		dc.auditCfg = appconfig.AuditConfig{}
+		dc.auditMu.Unlock()
+		return nil
+	}
+
+	// Enabled and unchanged: keep the existing logger.
+	if prevEnabled && prevLog != nil && auditConfigEqual(prevCfg, cfg.Audit) {
+		return nil
+	}
+
+	logger, err := audit.NewLogger(cfg.Audit)
+	if err != nil {
+		// Fail closed: stay enabled with no logger so sendAudit rejects
+		// auditable operations until the operator fixes the config.
+		if prevLog != nil {
+			prevLog.Close()
+		}
+		dc.auditMu.Lock()
+		dc.auditEnabled = true
+		dc.auditLog = nil
+		dc.auditCfg = cfg.Audit
+		dc.auditMu.Unlock()
+		return output.Errorf("audit log unavailable: "+err.Error(), "fix [audit] path or disable audit.enabled")
+	}
+
+	if prevLog != nil {
+		prevLog.Close()
+	}
+	dc.auditMu.Lock()
+	dc.auditEnabled = true
+	dc.auditLog = logger
+	dc.auditCfg = cfg.Audit
+	dc.auditMu.Unlock()
+	return nil
+}
+
+func auditConfigEqual(a, b appconfig.AuditConfig) bool {
+	return boolPtrEqual(a.Enabled, b.Enabled) && a.Path == b.Path && a.MaxSize == b.MaxSize
+}
+
+func boolPtrEqual(a, b *bool) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func isSensitiveAction(action string) bool {
 	switch action {
-	case "exec", "script", "transfer", "relay", "cluster-exec":
+	case "exec", "script", "transfer", "relay", "cluster-exec", "tunnel-start", "tunnel-stop":
 		return true
 	default:
 		return false
@@ -406,7 +514,15 @@ func (dc *daemonContext) handleExec(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 
-	cfg := hostToConnConfigWithCredentials(host, dc.store, dc.creds)
+	cfg, credErr := hostToConnConfigWithCredentials(host, dc.store, dc.creds)
+	if credErr != nil {
+		entry := audit.ExecErrorEntry(payload.Alias, payload.Command, audit.ResultError, 0, audit.SourceDaemon, credErr)
+		if !dc.sendAudit(conn, entry) {
+			return
+		}
+		ipc.SendError(conn, credentialErrorSummary(credErr), "check credential store integrity and permissions")
+		return
+	}
 	cfg.Timeout = time.Duration(payload.Timeout) * time.Second
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 30 * time.Second
@@ -492,6 +608,25 @@ func (dc *daemonContext) handleStatus(conn net.Conn) {
 		Connections: conns,
 	}
 	ipc.Send(conn, resp)
+}
+
+// prewarmCredentialPassphrase forces one credential-store decryption while the
+// daemon still runs in the foreground (where a TTY or SSHQ_CREDENTIAL_PASSPHRASE
+// may be available), so a passphrase-mode store is unlocked and cached before
+// the background accept loop — which has no TTY — needs it. A key-mode store
+// decrypts without ever invoking the passphrase callback, so this is a no-op for
+// it. Failures only warn: real credential errors are surfaced per-operation
+// (see hostToConnConfigWithCredentials) rather than blocking daemon startup.
+func prewarmCredentialPassphrase(w *output.Writer, creds *credential.Store) {
+	if creds == nil {
+		return
+	}
+	if _, err := creds.List(); err != nil {
+		if errors.Is(err, credential.ErrNotFound) {
+			return
+		}
+		w.Info("warning: credential store not unlocked: " + err.Error())
+	}
 }
 
 func writePID() error {

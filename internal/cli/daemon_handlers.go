@@ -15,20 +15,52 @@ import (
 	"github.com/shayuc137/sshq/internal/transfer"
 )
 
-func (dc *daemonContext) resolveHost(conn net.Conn, alias string) (*sshclient.ConnConfig, bool) {
+// auditErrFn lets a handler turn a pre-execution failure into an audit entry
+// before the IPC error is sent. It returns the operation-specific error entry
+// for err. A nil auditErrFn (e.g. the non-audited profile handler) skips audit
+// recording entirely.
+type auditErrFn func(err error) audit.Entry
+
+// resolveHost looks up an alias and builds its ConnConfig with credentials.
+// On alias-resolution or credential failure it records an audit entry (when
+// auditErr is non-nil) before sending the IPC error, so daemon error paths are
+// audited the same way the direct paths are. Returns (cfg, true) on success.
+func (dc *daemonContext) resolveHost(conn net.Conn, alias string, auditErr auditErrFn) (*sshclient.ConnConfig, bool) {
 	host, err := dc.store.Get(alias)
 	if err != nil {
+		if !dc.recordResolveAudit(conn, auditErr, err) {
+			return nil, false
+		}
 		ipc.SendError(conn, err.Error(), "run 'sshq ls' to see available hosts")
 		return nil, false
 	}
-	c := hostToConnConfigWithCredentials(host, dc.store, dc.creds)
+	c, credErr := hostToConnConfigWithCredentials(host, dc.store, dc.creds)
+	if credErr != nil {
+		if !dc.recordResolveAudit(conn, auditErr, credErr) {
+			return nil, false
+		}
+		ipc.SendError(conn, credentialErrorSummary(credErr), "check credential store integrity and permissions")
+		return nil, false
+	}
 	cfg := &c
 	return cfg, true
 }
 
-func (dc *daemonContext) getClientWithStatus(ctx context.Context, conn net.Conn, alias string, cfg *sshclient.ConnConfig) (*sshclient.Client, bool, bool) {
+func (dc *daemonContext) recordResolveAudit(conn net.Conn, auditErr auditErrFn, err error) bool {
+	if auditErr == nil {
+		return true
+	}
+	return dc.sendAuditError(conn, auditErr(err), err)
+}
+
+// getClientWithStatus dials (or reuses) a pooled client. On failure it records
+// an audit entry (when auditErr is non-nil) before sending the IPC error.
+func (dc *daemonContext) getClientWithStatus(ctx context.Context, conn net.Conn, alias string, cfg *sshclient.ConnConfig, auditErr auditErrFn) (*sshclient.Client, bool, bool) {
 	client, reused, err := dc.pool.GetWithStatus(ctx, alias, *cfg)
 	if err != nil {
+		if !dc.recordResolveAudit(conn, auditErr, err) {
+			return nil, false, false
+		}
 		ce := connErrorToOutput(err, alias)
 		ipc.SendError(conn, ce.Hint, ce.Action)
 		return nil, false, false
@@ -53,7 +85,12 @@ func (dc *daemonContext) handleScript(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 
-	cfg, ok := dc.resolveHost(conn, payload.Alias)
+	auditStart := time.Now()
+	scriptAuditErr := func(err error) audit.Entry {
+		return audit.ScriptErrorEntry(payload.Alias, payload.Script, audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDaemon, err)
+	}
+
+	cfg, ok := dc.resolveHost(conn, payload.Alias, scriptAuditErr)
 	if !ok {
 		return
 	}
@@ -67,7 +104,7 @@ func (dc *daemonContext) handleScript(conn net.Conn, raw json.RawMessage) {
 	defer cancel()
 
 	connectStart := time.Now()
-	client, reused, ok := dc.getClientWithStatus(ctx, conn, payload.Alias, cfg)
+	client, reused, ok := dc.getClientWithStatus(ctx, conn, payload.Alias, cfg, scriptAuditErr)
 	if !ok {
 		return
 	}
@@ -122,15 +159,18 @@ func (dc *daemonContext) handleTransfer(conn net.Conn, raw json.RawMessage) {
 	}
 	alias, direction, localPath, remotePath := transferPayloadAuditParts(payload)
 	auditStart := time.Now()
+	transferAuditErr := func(error) audit.Entry {
+		return audit.TransferEntry(alias, direction, localPath, remotePath, audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDaemon)
+	}
 
-	cfg, ok := dc.resolveHost(conn, payload.Alias)
+	cfg, ok := dc.resolveHost(conn, payload.Alias, transferAuditErr)
 	if !ok {
 		return
 	}
 	cfg.Timeout = 30 * time.Second
 
 	connectStart := time.Now()
-	client, reused, ok := dc.getClientWithStatus(context.Background(), conn, payload.Alias, cfg)
+	client, reused, ok := dc.getClientWithStatus(context.Background(), conn, payload.Alias, cfg, transferAuditErr)
 	if !ok {
 		return
 	}
@@ -215,21 +255,24 @@ func (dc *daemonContext) handleRelay(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	auditStart := time.Now()
+	relayAuditErr := func(error) audit.Entry {
+		return audit.RelayEntry(payload.SrcAlias, payload.SrcPath, payload.DstAlias, payload.DstPath, audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDaemon)
+	}
 
-	srcCfg, ok := dc.resolveHost(conn, payload.SrcAlias)
+	srcCfg, ok := dc.resolveHost(conn, payload.SrcAlias, relayAuditErr)
 	if !ok {
 		return
 	}
 	srcCfg.Timeout = 30 * time.Second
 
-	dstCfg, ok := dc.resolveHost(conn, payload.DstAlias)
+	dstCfg, ok := dc.resolveHost(conn, payload.DstAlias, relayAuditErr)
 	if !ok {
 		return
 	}
 	dstCfg.Timeout = 30 * time.Second
 
 	srcConnectStart := time.Now()
-	srcClient, srcReused, ok := dc.getClientWithStatus(context.Background(), conn, payload.SrcAlias, srcCfg)
+	srcClient, srcReused, ok := dc.getClientWithStatus(context.Background(), conn, payload.SrcAlias, srcCfg, relayAuditErr)
 	if !ok {
 		return
 	}
@@ -237,7 +280,7 @@ func (dc *daemonContext) handleRelay(conn net.Conn, raw json.RawMessage) {
 		"connection: alias=%s duration=%s daemon reused=%t",
 		payload.SrcAlias, verboseDuration(time.Since(srcConnectStart)), srcReused)
 	dstConnectStart := time.Now()
-	dstClient, dstReused, ok := dc.getClientWithStatus(context.Background(), conn, payload.DstAlias, dstCfg)
+	dstClient, dstReused, ok := dc.getClientWithStatus(context.Background(), conn, payload.DstAlias, dstCfg, relayAuditErr)
 	if !ok {
 		return
 	}
@@ -319,11 +362,15 @@ func (dc *daemonContext) handleProfile(conn net.Conn, raw json.RawMessage) {
 		}
 	}
 
-	cfg := hostToConnConfigWithCredentials(host, dc.store, dc.creds)
+	cfg, credErr := hostToConnConfigWithCredentials(host, dc.store, dc.creds)
+	if credErr != nil {
+		ipc.SendError(conn, credentialErrorSummary(credErr), "check credential store integrity and permissions")
+		return
+	}
 	cfg.Timeout = 30 * time.Second
 
 	connectStart := time.Now()
-	client, reused, ok := dc.getClientWithStatus(context.Background(), conn, payload.Alias, &cfg)
+	client, reused, ok := dc.getClientWithStatus(context.Background(), conn, payload.Alias, &cfg, nil)
 	if !ok {
 		return
 	}

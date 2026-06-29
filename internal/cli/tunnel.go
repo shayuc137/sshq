@@ -143,6 +143,10 @@ func recvTunnelStartResult(w *output.Writer, conn net.Conn, alias, direction str
 }
 
 func tunnelStartForeground(cmd *cobra.Command, w *output.Writer, alias, direction, localAddr, remoteAddr string) error {
+	if err := ensureAppConfigUsable(cmd.Context()); err != nil {
+		return err
+	}
+
 	auditStart := time.Now()
 	store := configFrom(cmd.Context())
 	host, err := store.Get(alias)
@@ -154,7 +158,14 @@ func tunnelStartForeground(cmd *cobra.Command, w *output.Writer, alias, directio
 		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
 	}
 
-	cfg := hostToConnConfigWithCredentials(host, store, credentialStoreFrom(cmd.Context()))
+	cfg, err := hostToConnConfigWithCredentials(host, store, credentialStoreFrom(cmd.Context()))
+	if err != nil {
+		entry := audit.TunnelEntry(alias, direction, localAddr, remoteAddr, "start", audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDirect)
+		if auditErr := recordAuditError(cmd.Context(), entry, err); auditErr != nil {
+			return auditErr
+		}
+		return credentialOutputError(err, alias)
+	}
 	cfg.Timeout = 30 * time.Second
 
 	w.Verbose("connecting to " + alias + "...")

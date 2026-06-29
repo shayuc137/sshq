@@ -282,7 +282,13 @@ func clusterExecDirectCLI(cmd *cobra.Command, w *output.Writer, store *config.St
 				return
 			}
 
-			cfg := hostToConnConfigWithCredentials(host, store, credentialStoreFrom(cmd.Context()))
+			cfg, err := hostToConnConfigWithCredentials(host, store, credentialStoreFrom(cmd.Context()))
+			if err != nil {
+				mu.Lock()
+				results = append(results, clusterHostResult{Alias: alias, Error: credentialErrorSummary(err)})
+				mu.Unlock()
+				return
+			}
 			cfg.Timeout = timeout
 
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)

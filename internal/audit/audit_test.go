@@ -48,6 +48,50 @@ func TestRecordAndQuery(t *testing.T) {
 	}
 }
 
+func TestNewLoggerExpandsHome(t *testing.T) {
+	home := t.TempDir()
+	setTestHome(t, home)
+
+	logger, err := NewLogger(appconfig.AuditConfig{Path: "~/logs/audit.log"})
+	if err != nil {
+		t.Fatalf("NewLogger: %v", err)
+	}
+	defer logger.Close()
+
+	want := filepath.Join(home, "logs", "audit.log")
+	if logger.Path() != want {
+		t.Fatalf("logger path = %q, want %q (~ not expanded)", logger.Path(), want)
+	}
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("expanded audit file not created: %v", err)
+	}
+
+	if err := logger.Record(ExecEntry("ali", "uptime", ResultSuccess, 0, 1, SourceDirect)); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+
+	// Query with the same unexpanded "~" path must read the expanded file.
+	entries, err := Query("~/logs/audit.log", QueryOpts{})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Alias != "ali" {
+		t.Fatalf("query via ~ path = %+v, want 1 entry for ali", entries)
+	}
+}
+
+// setTestHome points the user's home directory at dir for the duration of the
+// test, covering both the POSIX (HOME) and Windows (USERPROFILE) lookups used
+// by os.UserHomeDir.
+func setTestHome(t *testing.T, dir string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", dir)
+		return
+	}
+	t.Setenv("HOME", dir)
+}
+
 func TestRotation(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "audit.log")

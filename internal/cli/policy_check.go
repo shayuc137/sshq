@@ -102,6 +102,18 @@ func checkPolicyClusterCommand(ctx context.Context, aliases []string, command st
 	)
 }
 
+// ensureAppConfigUsable fails closed when config.toml could not be parsed. It
+// is for sensitive direct-path operations (e.g. tunnel start) that do not run a
+// policy/path check yet must not proceed under a broken audit/policy config,
+// matching the fail-closed behavior exec/cp/cluster already get via
+// checkerForPolicyCheck.
+func ensureAppConfigUsable(ctx context.Context) error {
+	if err := appConfigErrorFrom(ctx); err != nil {
+		return output.Errorf("app config invalid: "+err.Error(), "fix config.toml, then retry")
+	}
+	return nil
+}
+
 func checkerForPolicyCheck(ctx context.Context) (*policy.Checker, error) {
 	if err := appConfigErrorFrom(ctx); err != nil {
 		return nil, output.Errorf("app config invalid: "+err.Error(), "fix config.toml")

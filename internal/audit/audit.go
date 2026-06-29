@@ -76,6 +76,8 @@ func NewLogger(cfg appconfig.AuditConfig) (*Logger, error) {
 			return nil, err
 		}
 		path = defaultPath
+	} else {
+		path = credential.ExpandHome(path)
 	}
 
 	maxSize := int64(DefaultMaxSize)

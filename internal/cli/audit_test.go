@@ -56,6 +56,47 @@ func TestAuditCommandPretty(t *testing.T) {
 	}
 }
 
+func TestAuditOperationValidation(t *testing.T) {
+	cases := []struct {
+		op      string
+		wantErr bool
+	}{
+		{"exec", false},
+		{"cp", false},
+		{"cluster-exec", false},
+		{"tunnel-start", false},
+		{"tunnel-stop", false},
+		{"exc", true},   // typo
+		{"bogus", true}, // unknown
+	}
+	for _, tc := range cases {
+		t.Run(tc.op, func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			cmd := NewRootCommand()
+			cmd.SetOut(&out)
+			cmd.SetErr(&errOut)
+			cmd.SetArgs([]string{"audit", "--operation", tc.op, "--last", "1"})
+
+			err := cmd.Execute()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("operation %q: expected validation error, got nil", tc.op)
+				}
+				if !strings.Contains(err.Error(), "invalid --operation") {
+					t.Fatalf("operation %q: error = %v, want invalid --operation", tc.op, err)
+				}
+				return
+			}
+			// Valid operations must not be rejected by validation. Any error
+			// here would have to come from elsewhere (e.g. reading the log),
+			// which an empty/default store does not trigger.
+			if err != nil && strings.Contains(err.Error(), "invalid --operation") {
+				t.Fatalf("operation %q wrongly rejected: %v", tc.op, err)
+			}
+		})
+	}
+}
+
 func quoteTOML(s string) string {
 	return `"` + strings.ReplaceAll(s, `\`, `\\`) + `"`
 }

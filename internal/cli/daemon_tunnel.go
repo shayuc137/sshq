@@ -19,15 +19,18 @@ func (dc *daemonContext) handleTunnelStart(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	auditStart := time.Now()
+	tunnelAuditErr := func(error) audit.Entry {
+		return audit.TunnelEntry(payload.Alias, payload.Direction, payload.LocalAddr, payload.RemoteAddr, "start", audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDaemon)
+	}
 
-	cfg, ok := dc.resolveHost(conn, payload.Alias)
+	cfg, ok := dc.resolveHost(conn, payload.Alias, tunnelAuditErr)
 	if !ok {
 		return
 	}
 	cfg.Timeout = 30 * time.Second
 
 	connectStart := time.Now()
-	client, reused, ok := dc.getClientWithStatus(context.Background(), conn, payload.Alias, cfg)
+	client, reused, ok := dc.getClientWithStatus(context.Background(), conn, payload.Alias, cfg, tunnelAuditErr)
 	if !ok {
 		return
 	}

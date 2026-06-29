@@ -178,7 +178,7 @@ func (s *Store) discoverSSHKeys() {
 }
 
 func (s *Store) loadSSHKey(path string) (age.Identity, age.Recipient, error) {
-	privateKey, err := os.ReadFile(expandHome(path))
+	privateKey, err := os.ReadFile(ExpandHome(path))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -207,7 +207,7 @@ func recipientFromIdentity(identity age.Identity, keyPath string) age.Recipient 
 }
 
 func readSSHRecipient(path string) (age.Recipient, error) {
-	raw, err := os.ReadFile(expandHome(path))
+	raw, err := os.ReadFile(ExpandHome(path))
 	if err != nil {
 		return nil, err
 	}
@@ -399,7 +399,10 @@ func defaultKeyPaths() []string {
 	}
 }
 
-func expandHome(path string) string {
+// ExpandHome expands a leading "~" or "~/" in path to the user's home
+// directory. Other paths (including "~user") are returned unchanged. Shared so
+// app-level config paths (audit log, etc.) expand "~" the same way.
+func ExpandHome(path string) string {
 	if path == "~" {
 		if home, err := os.UserHomeDir(); err == nil {
 			return home

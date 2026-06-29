@@ -187,7 +187,14 @@ func cpTransferDirect(ctx context.Context, w *output.Writer, store *config.Store
 		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
 	}
 
-	cfg := hostToConnConfigWithCredentials(host, store, credentialStoreFrom(ctx))
+	cfg, err := hostToConnConfigWithCredentials(host, store, credentialStoreFrom(ctx))
+	if err != nil {
+		entry := audit.TransferEntry(alias, direction, localPath, remotePath, audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDirect)
+		if auditErr := recordAuditError(ctx, entry, err); auditErr != nil {
+			return auditErr
+		}
+		return credentialOutputError(err, alias)
+	}
 	cfg.Timeout = 30 * time.Second
 
 	w.Verbose("connecting to " + alias + "...")
@@ -279,9 +286,23 @@ func cpRelayDirect(ctx context.Context, w *output.Writer, store *config.Store, p
 		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
 	}
 
-	srcCfg := hostToConnConfigWithCredentials(srcHost, store, credentialStoreFrom(ctx))
+	srcCfg, err := hostToConnConfigWithCredentials(srcHost, store, credentialStoreFrom(ctx))
+	if err != nil {
+		entry := audit.RelayEntry(parsed.Src.Alias, parsed.Src.Path, parsed.Dst.Alias, parsed.Dst.Path, audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDirect)
+		if auditErr := recordAuditError(ctx, entry, err); auditErr != nil {
+			return auditErr
+		}
+		return credentialOutputError(err, parsed.Src.Alias)
+	}
 	srcCfg.Timeout = 30 * time.Second
-	dstCfg := hostToConnConfigWithCredentials(dstHost, store, credentialStoreFrom(ctx))
+	dstCfg, err := hostToConnConfigWithCredentials(dstHost, store, credentialStoreFrom(ctx))
+	if err != nil {
+		entry := audit.RelayEntry(parsed.Src.Alias, parsed.Src.Path, parsed.Dst.Alias, parsed.Dst.Path, audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDirect)
+		if auditErr := recordAuditError(ctx, entry, err); auditErr != nil {
+			return auditErr
+		}
+		return credentialOutputError(err, parsed.Dst.Alias)
+	}
 	dstCfg.Timeout = 30 * time.Second
 
 	w.Verbose("connecting to " + parsed.Src.Alias + "...")
