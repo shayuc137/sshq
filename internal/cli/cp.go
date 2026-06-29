@@ -49,6 +49,10 @@ func newCpCommand() *cobra.Command {
 				defer cancel()
 			}
 
+			if err := checkPolicyTransfer(ctx, parsed); err != nil {
+				return err
+			}
+
 			if !noDaemon && ipc.IsRunning() {
 				switch parsed.Direction {
 				case transfer.Upload, transfer.Download:
@@ -170,6 +174,10 @@ func recvTransferFrames(w *output.Writer, conn net.Conn) error {
 // --- direct paths (fallback) ---
 
 func cpTransferDirect(ctx context.Context, w *output.Writer, store *config.Store, parsed transfer.ParsedArgs, recursive bool, progress transfer.ProgressFunc) error {
+	if err := checkPolicyTransfer(ctx, parsed); err != nil {
+		return err
+	}
+
 	alias := parsed.Src.Alias
 	if alias == "" {
 		alias = parsed.Dst.Alias
@@ -235,6 +243,10 @@ func cpTransferDirect(ctx context.Context, w *output.Writer, store *config.Store
 }
 
 func cpRelayDirect(ctx context.Context, w *output.Writer, store *config.Store, parsed transfer.ParsedArgs, recursive bool, progress transfer.ProgressFunc) error {
+	if err := checkPolicyTransfer(ctx, parsed); err != nil {
+		return err
+	}
+
 	srcHost, err := store.Get(parsed.Src.Alias)
 	if err != nil {
 		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")

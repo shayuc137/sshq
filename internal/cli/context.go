@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/shayuc137/sshq/internal/appconfig"
 	"github.com/shayuc137/sshq/internal/config"
 	"github.com/shayuc137/sshq/internal/credential"
 	"github.com/shayuc137/sshq/internal/output"
+	"github.com/shayuc137/sshq/internal/policy"
 	"github.com/shayuc137/sshq/internal/remote"
 	"github.com/shayuc137/sshq/internal/sshclient"
 )
@@ -17,6 +19,9 @@ type writerKey struct{}
 type configKey struct{}
 type credentialStoreKey struct{}
 type profileCacheKey struct{}
+type appConfigKey struct{}
+type appConfigErrorKey struct{}
+type policyCheckerKey struct{}
 
 func withWriter(ctx context.Context, w *output.Writer) context.Context {
 	return context.WithValue(ctx, writerKey{}, w)
@@ -57,6 +62,39 @@ func withProfileCache(ctx context.Context, c *remote.Cache) context.Context {
 
 func profileCacheFrom(ctx context.Context) *remote.Cache {
 	if c, ok := ctx.Value(profileCacheKey{}).(*remote.Cache); ok {
+		return c
+	}
+	return nil
+}
+
+func withAppConfig(ctx context.Context, c *appconfig.Config) context.Context {
+	return context.WithValue(ctx, appConfigKey{}, c)
+}
+
+func appConfigFrom(ctx context.Context) *appconfig.Config {
+	if c, ok := ctx.Value(appConfigKey{}).(*appconfig.Config); ok {
+		return c
+	}
+	return nil
+}
+
+func withAppConfigError(ctx context.Context, err error) context.Context {
+	return context.WithValue(ctx, appConfigErrorKey{}, err)
+}
+
+func appConfigErrorFrom(ctx context.Context) error {
+	if err, ok := ctx.Value(appConfigErrorKey{}).(error); ok {
+		return err
+	}
+	return nil
+}
+
+func withPolicyChecker(ctx context.Context, c *policy.Checker) context.Context {
+	return context.WithValue(ctx, policyCheckerKey{}, c)
+}
+
+func policyCheckerFrom(ctx context.Context) *policy.Checker {
+	if c, ok := ctx.Value(policyCheckerKey{}).(*policy.Checker); ok {
 		return c
 	}
 	return nil

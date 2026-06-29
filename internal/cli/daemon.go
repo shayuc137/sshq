@@ -12,11 +12,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/shayuc137/sshq/internal/appconfig"
 	"github.com/shayuc137/sshq/internal/config"
 	"github.com/shayuc137/sshq/internal/credential"
 	"github.com/shayuc137/sshq/internal/exec"
 	"github.com/shayuc137/sshq/internal/ipc"
 	"github.com/shayuc137/sshq/internal/output"
+	"github.com/shayuc137/sshq/internal/policy"
 	"github.com/shayuc137/sshq/internal/pool"
 	"github.com/shayuc137/sshq/internal/remote"
 	"github.com/shayuc137/sshq/internal/tunnel"
@@ -125,6 +127,10 @@ func sendSimpleAction(action, successMsg string, cmd *cobra.Command) error {
 type daemonContext struct {
 	store     *config.Store
 	creds     *credential.Store
+	appConfig *appconfig.Config
+	appCfgErr error
+	checker   *policy.Checker
+	grants    *policy.GrantManager
 	pool      *pool.Pool
 	cache     *remote.Cache
 	tunnels   *tunnel.Registry
@@ -166,10 +172,20 @@ func runDaemon(w *output.Writer, store *config.Store, creds *credential.Store) e
 		}
 	}
 
+	appCfg, appCfgErr := appconfig.Load()
+	if appCfgErr != nil {
+		w.Info("warning: app config unavailable: " + appCfgErr.Error())
+	}
+	grants := policy.NewGrantManager()
+
 	stopped := false
 	dc := &daemonContext{
 		store:     store,
 		creds:     creds,
+		appConfig: appCfg,
+		appCfgErr: appCfgErr,
+		checker:   policy.NewChecker(appCfg, grants),
+		grants:    grants,
 		pool:      pool.New(defaultIdleTimeout),
 		cache:     cache,
 		tunnels:   tunnel.NewRegistry(),
@@ -193,6 +209,7 @@ func runDaemon(w *output.Writer, store *config.Store, creds *credential.Store) e
 			select {
 			case <-ticker.C:
 				dc.pool.Reap()
+				dc.grants.Purge()
 				mu.Lock()
 				idle := time.Since(lastActivity)
 				mu.Unlock()
@@ -276,7 +293,7 @@ func (dc *daemonContext) handleConn(conn net.Conn) {
 	if env.Version != ipc.ProtocolVersion {
 		ipc.SendError(conn,
 			fmt.Sprintf("protocol version mismatch: got %d, want %d", env.Version, ipc.ProtocolVersion),
-			"go install github.com/shayuc137/sshq/cmd/sshq@latest",
+			"restart daemon so CLI and daemon use the same sshq version",
 		)
 		return
 	}
@@ -285,6 +302,11 @@ func (dc *daemonContext) handleConn(conn net.Conn) {
 }
 
 func (dc *daemonContext) route(conn net.Conn, env ipc.Envelope) {
+	if err := dc.reloadPolicy(); err != nil && isPolicySensitiveAction(env.Action) {
+		ipc.SendError(conn, "app config invalid: "+err.Error(), "fix config.toml, then retry")
+		return
+	}
+
 	switch env.Action {
 	case "exec":
 		dc.handleExec(conn, env.Payload)
@@ -304,6 +326,12 @@ func (dc *daemonContext) route(conn net.Conn, env ipc.Envelope) {
 		dc.handleTunnelStop(conn, env.Payload)
 	case "tunnel-list":
 		dc.handleTunnelList(conn)
+	case "policy-grant":
+		dc.handlePolicyGrant(conn, env.Payload)
+	case "policy-revoke":
+		dc.handlePolicyRevoke(conn, env.Payload)
+	case "policy-list":
+		dc.handlePolicyList(conn, env.Payload)
 	case "status":
 		dc.handleStatus(conn)
 	case "shutdown":
@@ -313,10 +341,47 @@ func (dc *daemonContext) route(conn net.Conn, env ipc.Envelope) {
 	}
 }
 
+func (dc *daemonContext) reloadPolicy() error {
+	if dc.appConfig == nil {
+		cfg, err := appconfig.Load()
+		if err != nil {
+			dc.appCfgErr = err
+			return err
+		}
+		dc.appConfig = cfg
+		dc.appCfgErr = nil
+		dc.checker.Reload(cfg)
+		return nil
+	}
+
+	changed, err := dc.appConfig.ReloadIfChanged()
+	if err != nil {
+		dc.appCfgErr = err
+		return err
+	}
+	if changed {
+		dc.checker.Reload(dc.appConfig)
+	}
+	dc.appCfgErr = nil
+	return nil
+}
+
+func isPolicySensitiveAction(action string) bool {
+	switch action {
+	case "exec", "script", "transfer", "relay", "cluster-exec":
+		return true
+	default:
+		return false
+	}
+}
+
 func (dc *daemonContext) handleExec(conn net.Conn, raw json.RawMessage) {
 	var payload ipc.ExecPayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		ipc.SendError(conn, "invalid exec payload: "+err.Error(), "")
+		return
+	}
+	if !dc.checkDaemonCommand(conn, payload.Alias, payload.Command) {
 		return
 	}
 

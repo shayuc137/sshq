@@ -3,39 +3,25 @@ package ipc
 import (
 	"encoding/json"
 	"net"
-	"path/filepath"
 	"testing"
 )
 
 func TestSendRecvEnvelope(t *testing.T) {
-	dir := t.TempDir()
-	sock := filepath.Join(dir, "test.sock")
-
-	ln, err := net.Listen("unix", sock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
+	serverConn, clientConn := net.Pipe()
+	defer serverConn.Close()
+	defer clientConn.Close()
 
 	done := make(chan json.RawMessage, 1)
 	go func() {
-		conn, _ := ln.Accept()
-		defer conn.Close()
-		msg, _ := Recv(conn)
+		msg, _ := Recv(serverConn)
 		done <- msg
 	}()
-
-	conn, err := net.Dial("unix", sock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
 
 	env, err := MakeEnvelope("exec", ExecPayload{Alias: "test", Command: "hostname", Timeout: 30})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Send(conn, env); err != nil {
+	if err := Send(clientConn, env); err != nil {
 		t.Fatal(err)
 	}
 
@@ -58,32 +44,19 @@ func TestSendRecvEnvelope(t *testing.T) {
 }
 
 func TestSendRecvFrame(t *testing.T) {
-	dir := t.TempDir()
-	sock := filepath.Join(dir, "test.sock")
-
-	ln, err := net.Listen("unix", sock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
+	serverConn, clientConn := net.Pipe()
+	defer serverConn.Close()
+	defer clientConn.Close()
 
 	go func() {
-		conn, _ := ln.Accept()
-		defer conn.Close()
-		Send(conn, Frame{Type: "stdout", Data: "hello\n"})
-		Send(conn, Frame{Type: "stderr", Data: "warn\n"})
-		Send(conn, Frame{Type: "exit", Code: 0})
+		Send(serverConn, Frame{Type: "stdout", Data: "hello\n"})
+		Send(serverConn, Frame{Type: "stderr", Data: "warn\n"})
+		Send(serverConn, Frame{Type: "exit", Code: 0})
 	}()
-
-	conn, err := net.Dial("unix", sock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
 
 	var frames []Frame
 	for {
-		msg, err := Recv(conn)
+		msg, err := Recv(clientConn)
 		if err != nil {
 			break
 		}

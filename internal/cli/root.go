@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/shayuc137/sshq/internal/appconfig"
 	"github.com/shayuc137/sshq/internal/config"
 	"github.com/shayuc137/sshq/internal/credential"
 	"github.com/shayuc137/sshq/internal/output"
+	"github.com/shayuc137/sshq/internal/policy"
 	"github.com/shayuc137/sshq/internal/remote"
 	"github.com/spf13/cobra"
 )
@@ -59,6 +61,15 @@ func NewRootCommand() *cobra.Command {
 				ctx = withCredentialStore(ctx, creds)
 			}
 
+			appCfg, err := appconfig.Load()
+			if err != nil {
+				ctx = withAppConfigError(ctx, err)
+				w.Info("warning: app config unavailable: " + err.Error())
+			} else {
+				ctx = withAppConfig(ctx, appCfg)
+				ctx = withPolicyChecker(ctx, policy.NewChecker(appCfg, nil))
+			}
+
 			cache, err := remote.NewCache(remote.DefaultTTL, remote.WithCacheInfo(func(msg string) {
 				w.Info("warning: " + msg)
 			}))
@@ -93,6 +104,7 @@ func NewRootCommand() *cobra.Command {
 		newTrustCommand(),
 		newConfigCommand(),
 		newCredentialCommand(),
+		newPolicyCommand(),
 		newClusterCommand(),
 		newTunnelCommand(),
 		newSkillCommand(),

@@ -22,6 +22,9 @@ func (dc *daemonContext) handleClusterExec(conn net.Conn, raw json.RawMessage) {
 		ipc.SendError(conn, "no hosts matched the filter", "use --tag, --env, or --all")
 		return
 	}
+	if !dc.checkDaemonCluster(conn, payload.Aliases, payload.Command) {
+		return
+	}
 
 	concurrency := payload.Concurrency
 	if concurrency <= 0 {

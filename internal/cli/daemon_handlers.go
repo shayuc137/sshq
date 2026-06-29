@@ -48,6 +48,9 @@ func (dc *daemonContext) handleScript(conn net.Conn, raw json.RawMessage) {
 		ipc.SendError(conn, "invalid script payload: "+err.Error(), "")
 		return
 	}
+	if !dc.checkDaemonCommand(conn, payload.Alias, string(payload.Script)) {
+		return
+	}
 
 	cfg, ok := dc.resolveHost(conn, payload.Alias)
 	if !ok {
@@ -98,6 +101,9 @@ func (dc *daemonContext) handleTransfer(conn net.Conn, raw json.RawMessage) {
 	var payload ipc.TransferPayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		ipc.SendError(conn, "invalid transfer payload: "+err.Error(), "")
+		return
+	}
+	if !dc.checkDaemonTransfer(conn, payload) {
 		return
 	}
 
@@ -171,6 +177,9 @@ func (dc *daemonContext) handleRelay(conn net.Conn, raw json.RawMessage) {
 	var payload ipc.RelayPayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		ipc.SendError(conn, "invalid relay payload: "+err.Error(), "")
+		return
+	}
+	if !dc.checkDaemonRelay(conn, payload) {
 		return
 	}
 

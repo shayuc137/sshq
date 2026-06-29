@@ -51,6 +51,9 @@ func runExecCommand(cmd *cobra.Command, args []string) error {
 		return output.Errorf("command required", "usage: sshq exec <alias> <command...> or sshq exec --script-file <path> <alias>")
 	}
 	command := strings.Join(args[1:], " ")
+	if err := checkPolicyCommand(cmd.Context(), alias, command); err != nil {
+		return err
+	}
 
 	noDaemon, _ := cmd.Flags().GetBool("no-daemon")
 	if !noDaemon && ipc.IsRunning() {
@@ -81,6 +84,9 @@ func execScript(cmd *cobra.Command, w *output.Writer, alias, scriptFile string) 
 	if err != nil {
 		return output.Errorf("read script file: "+err.Error(), "check file path")
 	}
+	if err := checkPolicyCommand(cmd.Context(), alias, string(script)); err != nil {
+		return err
+	}
 
 	noDaemon, _ := cmd.Flags().GetBool("no-daemon")
 	if !noDaemon && ipc.IsRunning() {
@@ -107,6 +113,10 @@ func execScript(cmd *cobra.Command, w *output.Writer, alias, scriptFile string) 
 }
 
 func execScriptDirect(cmd *cobra.Command, w *output.Writer, alias string, script []byte) error {
+	if err := checkPolicyCommand(cmd.Context(), alias, string(script)); err != nil {
+		return err
+	}
+
 	store := configFrom(cmd.Context())
 	host, err := store.Get(alias)
 	if err != nil {
@@ -211,6 +221,10 @@ func recvExecFrames(w *output.Writer, conn net.Conn, alias string) error {
 }
 
 func execDirect(cmd *cobra.Command, w *output.Writer, alias, command string) error {
+	if err := checkPolicyCommand(cmd.Context(), alias, command); err != nil {
+		return err
+	}
+
 	store := configFrom(cmd.Context())
 	host, err := store.Get(alias)
 	if err != nil {

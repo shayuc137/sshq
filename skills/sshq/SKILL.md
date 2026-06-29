@@ -15,6 +15,7 @@ All SSH operations route through `sshq`. Never shell out to `ssh` or `scp` direc
 - [`references/exec-transfer.md`](references/exec-transfer.md) — when running commands or transferring files: full flag reference for exec, cp, script-file
 - [`references/config.md`](references/config.md) — when managing host configuration: config add/set/remove, sshq metadata format, ProxyJump setup
 - [`references/cluster-tunnel.md`](references/cluster-tunnel.md) — when doing multi-host operations or port forwarding: cluster exec, tunnel start/stop/list
+- [`references/policy.md`](references/policy.md) — when validating capability policy or managing temporary grants: policy validate/check/list/grant/revoke
 - [`references/discovery.md`](references/discovery.md) — when listing/searching/inspecting hosts: ls, search, info, probe, trust, daemon
 
 ## Routing table
@@ -35,6 +36,9 @@ All SSH operations route through `sshq`. Never shell out to `ssh` or `scp` direc
 | Config edit | `sshq config set <alias> <key> <value>` |
 | Config delete | `sshq config remove <alias>` |
 | Password credential | `sshq credential set <alias>` |
+| Validate capability policy | `sshq policy validate` |
+| Check policy decision | `sshq policy check <alias> --command "<cmd>"` |
+| Temporary policy grant | `sshq policy grant <alias> "<pattern>" --ttl 15m` |
 | Trust host key | `sshq trust <alias>` |
 
 ## exec
@@ -130,6 +134,20 @@ sshq daemon start     # explicit start
 sshq daemon status    # pool stats
 sshq daemon stop      # shutdown
 ```
+
+## policy
+
+Capability policy is read from `config.toml` in sshq's OS config directory. Use narrow command whitelists and path whitelists for sensitive hosts; daemon requests are rechecked server-side.
+
+```bash
+sshq policy validate
+sshq policy check prod --command "journalctl -u app -n 100"
+sshq policy list prod
+sshq policy grant prod "^journalctl(\\s|$)" --ttl 15m
+sshq policy revoke --alias prod
+```
+
+Temporary grants live only in daemon memory, require a controlling TTY, expire by TTL, and never override command blacklists.
 
 ## output modes
 

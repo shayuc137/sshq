@@ -58,6 +58,12 @@ var skillGroups = []struct {
 		cmds:  []string{"cluster", "cluster exec", "tunnel", "tunnel start", "tunnel stop", "tunnel list"},
 	},
 	{
+		file:  "policy.md",
+		title: "Capability Policy",
+		intro: "Commands for validating capability policy and managing temporary daemon grants.",
+		cmds:  []string{"policy", "policy grant", "policy revoke", "policy list", "policy validate", "policy check"},
+	},
+	{
 		file:  "discovery.md",
 		title: "Discovery & Daemon",
 		intro: "Commands for listing, searching, inspecting hosts, credentials, and managing the daemon.",

@@ -88,6 +88,9 @@ func newClusterExecCommand() *cobra.Command {
 			}
 
 			command := args[0]
+			if err := checkPolicyClusterCommand(cmd.Context(), aliases, command); err != nil {
+				return err
+			}
 
 			if !noDaemon && ipc.IsRunning() {
 				env, _ := ipc.MakeEnvelope("cluster-exec", ipc.ClusterExecPayload{
@@ -249,6 +252,10 @@ func recvClusterFrames(w *output.Writer, conn net.Conn) error {
 }
 
 func clusterExecDirectCLI(cmd *cobra.Command, w *output.Writer, store *config.Store, aliases []string, command string, timeout time.Duration, concurrency int) error {
+	if err := checkPolicyClusterCommand(cmd.Context(), aliases, command); err != nil {
+		return err
+	}
+
 	if concurrency <= 0 {
 		concurrency = 10
 	}

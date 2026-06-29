@@ -8,11 +8,11 @@ import (
 )
 
 const (
-	ProtocolVersion   = 2
+	ProtocolVersion   = 3
 	ProtocolVersionV1 = 1
 )
 
-// Envelope is the v2 request format: action + version + typed payload.
+// Envelope is the v3 request format: action + version + typed payload.
 type Envelope struct {
 	Action  string          `json:"action"`
 	Version int             `json:"v"`
@@ -128,6 +128,53 @@ type TunnelStartResult struct {
 	Direction  string `json:"direction"`
 	LocalAddr  string `json:"local_addr"`
 	RemoteAddr string `json:"remote_addr"`
+}
+
+type PolicyGrantPayload struct {
+	Alias      string `json:"alias"`
+	Kind       string `json:"kind"`
+	Pattern    string `json:"pattern"`
+	TTLSeconds int    `json:"ttl_seconds"`
+}
+
+type PolicyRevokePayload struct {
+	ID    string `json:"id,omitempty"`
+	Alias string `json:"alias,omitempty"`
+}
+
+type PolicyListPayload struct {
+	Alias string `json:"alias,omitempty"`
+}
+
+type PolicyGrantInfo struct {
+	ID        string `json:"id"`
+	Alias     string `json:"alias"`
+	Kind      string `json:"kind"`
+	Pattern   string `json:"pattern"`
+	CreatedAt int64  `json:"created_at"`
+	ExpiresAt int64  `json:"expires_at"`
+}
+
+type PolicyGrantResult struct {
+	Grant PolicyGrantInfo `json:"grant"`
+}
+
+type PolicyRevokeResult struct {
+	Removed int `json:"removed"`
+}
+
+type PolicyEffectiveResult struct {
+	Enabled             bool     `json:"enabled"`
+	CommandWhitelist    []string `json:"command_whitelist"`
+	CommandBlacklist    []string `json:"command_blacklist"`
+	LocalPathWhitelist  []string `json:"local_path_whitelist"`
+	RemotePathWhitelist []string `json:"remote_path_whitelist"`
+}
+
+type PolicyListResult struct {
+	Alias  string                `json:"alias,omitempty"`
+	Policy PolicyEffectiveResult `json:"policy"`
+	Grants []PolicyGrantInfo     `json:"grants"`
 }
 
 // StatusResponse is returned by the "status" action.
