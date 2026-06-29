@@ -137,7 +137,7 @@ sshq tunnel start db-prod -L 15432:localhost:5432
 
 ## Password Credentials
 
-Some hosts only support password authentication (legacy switches, certain Windows OpenSSH servers). `sshq` encrypts passwords with [age](https://github.com/FiloSottile/age) using your SSH public key and stores them in `~/.config/sshq/credentials.age`.
+Some hosts only support password authentication (legacy switches, certain Windows OpenSSH servers). `sshq` encrypts passwords with [age](https://github.com/FiloSottile/age) using your SSH public key and stores them in the OS config directory (`~/.config/sshq/credentials.age` on Linux, `~/Library/Application Support/sshq/` on macOS, `%AppData%\sshq\` on Windows).
 
 ```bash
 sshq credential set router-1

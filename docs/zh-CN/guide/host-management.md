@@ -137,7 +137,7 @@ sshq tunnel start db-prod -L 15432:localhost:5432
 
 ## 密码凭据
 
-部分主机只支持密码认证（老交换机、某些 Windows OpenSSH 服务器）。`sshq` 使用 [age](https://github.com/FiloSottile/age) 加密密码，以 SSH 公钥作为收件人，存储在 `~/.config/sshq/credentials.age`。
+部分主机只支持密码认证（老交换机、某些 Windows OpenSSH 服务器）。`sshq` 使用 [age](https://github.com/FiloSottile/age) 加密密码，以 SSH 公钥作为收件人，存储在系统配置目录下（Linux 为 `~/.config/sshq/credentials.age`，macOS 为 `~/Library/Application Support/sshq/`，Windows 为 `%AppData%\sshq\`）。
 
 ```bash
 sshq credential set router-1

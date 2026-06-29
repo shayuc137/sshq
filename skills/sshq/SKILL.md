@@ -111,7 +111,7 @@ ProxyJump is configured through standard SSH config and resolved automatically â
 
 ## credential
 
-Password credentials are encrypted at `~/.config/sshq/credentials.age` with age using your SSH public key. They are only used as the final fallback after agent and key authentication.
+Password credentials are encrypted with age using your SSH public key and stored in the OS config directory (`~/.config/sshq/` on Linux). They are only used as the final fallback after agent and key authentication.
 
 ```bash
 sshq credential set myhost

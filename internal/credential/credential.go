@@ -96,11 +96,19 @@ func withKeyPaths(paths ...string) Option {
 }
 
 func DefaultPath() (string, error) {
-	home, err := os.UserHomeDir()
+	dir, err := ConfigDir()
 	if err != nil {
-		return "", fmt.Errorf("home directory: %w", err)
+		return "", err
 	}
-	return filepath.Join(home, ".config", "sshq", "credentials.age"), nil
+	return filepath.Join(dir, "credentials.age"), nil
+}
+
+func ConfigDir() (string, error) {
+	base, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("config directory: %w", err)
+	}
+	return filepath.Join(base, "sshq"), nil
 }
 
 func (s *Store) Path() string { return s.path }

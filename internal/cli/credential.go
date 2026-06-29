@@ -185,7 +185,11 @@ func credentialOutputError(err error, alias string) *output.CmdError {
 		return output.Errorf("credential file corrupt", action)
 	default:
 		if strings.Contains(err.Error(), "insecure permissions") {
-			return output.Errorf(err.Error(), "fix with: chmod 600 ~/.config/sshq/credentials.age")
+			action := "fix with: chmod 600 <credentials.age path>"
+			if p, pathErr := credential.DefaultPath(); pathErr == nil {
+				action = "fix with: chmod 600 " + p
+			}
+			return output.Errorf(err.Error(), action)
 		}
 		return output.Errorf(err.Error(), "")
 	}
