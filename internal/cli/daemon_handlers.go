@@ -20,7 +20,7 @@ func (dc *daemonContext) resolveHost(conn net.Conn, alias string) (*sshclient.Co
 		ipc.SendError(conn, err.Error(), "run 'sshq ls' to see available hosts")
 		return nil, false
 	}
-	c := hostToConnConfigWithStore(host, dc.store)
+	c := hostToConnConfigWithCredentials(host, dc.store, dc.creds)
 	cfg := &c
 	return cfg, true
 }
@@ -270,7 +270,7 @@ func (dc *daemonContext) handleProfile(conn net.Conn, raw json.RawMessage) {
 		}
 	}
 
-	cfg := hostToConnConfigWithStore(host, dc.store)
+	cfg := hostToConnConfigWithCredentials(host, dc.store, dc.creds)
 	cfg.Timeout = 30 * time.Second
 
 	connectStart := time.Now()

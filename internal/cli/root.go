@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/shayuc137/sshq/internal/config"
+	"github.com/shayuc137/sshq/internal/credential"
 	"github.com/shayuc137/sshq/internal/output"
 	"github.com/shayuc137/sshq/internal/remote"
 	"github.com/spf13/cobra"
@@ -50,6 +51,14 @@ func NewRootCommand() *cobra.Command {
 				ctx = withConfig(ctx, store)
 			}
 
+			creds, err := credential.Open()
+			if err != nil {
+				w.Info("warning: credential store unavailable: " + err.Error())
+			}
+			if creds != nil {
+				ctx = withCredentialStore(ctx, creds)
+			}
+
 			cache, err := remote.NewCache(remote.DefaultTTL, remote.WithCacheInfo(func(msg string) {
 				w.Info("warning: " + msg)
 			}))
@@ -83,6 +92,7 @@ func NewRootCommand() *cobra.Command {
 		newDaemonCommand(),
 		newTrustCommand(),
 		newConfigCommand(),
+		newCredentialCommand(),
 		newClusterCommand(),
 		newTunnelCommand(),
 		newSkillCommand(),

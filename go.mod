@@ -3,6 +3,7 @@ module github.com/shayuc137/sshq
 go 1.26.0
 
 require (
+	filippo.io/age v1.3.1
 	github.com/kevinburke/ssh_config v1.6.0
 	github.com/pkg/sftp v1.13.10
 	github.com/spf13/cobra v1.10.2
@@ -12,6 +13,8 @@ require (
 )
 
 require (
+	filippo.io/edwards25519 v1.1.0 // indirect
+	filippo.io/hpke v0.4.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.6 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/kr/fs v0.1.0 // indirect

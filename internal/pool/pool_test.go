@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -161,6 +162,23 @@ func TestKeyIncludesProxyJump(t *testing.T) {
 	withProxy.ProxyJump = "jump"
 	if Key(base) == Key(withProxy) {
 		t.Error("ProxyJump must change the pool key so proxied connections are not aliased")
+	}
+}
+
+func TestKeyIncludesPasswordDigest(t *testing.T) {
+	base := sshclient.ConnConfig{Host: "h", Port: "22", User: "u", Password: "old-secret"}
+	changed := base
+	changed.Password = "new-secret"
+
+	baseKey := Key(base)
+	if baseKey == Key(changed) {
+		t.Fatal("password changes must change the pool key")
+	}
+	if strings.Contains(baseKey, "old-secret") {
+		t.Fatal("pool key must not contain the raw password")
+	}
+	if !strings.Contains(baseKey, "password-sha256=") {
+		t.Fatal("pool key should contain a password digest marker")
 	}
 }
 

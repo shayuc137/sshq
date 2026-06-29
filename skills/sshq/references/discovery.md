@@ -1,6 +1,6 @@
 # Discovery & Daemon
 
-Commands for listing, searching, inspecting hosts, and managing the daemon.
+Commands for listing, searching, inspecting hosts, credentials, and managing the daemon.
 
 Auto-generated from `sshq docs --skill`. Do not edit manually.
 
@@ -59,6 +59,38 @@ If the key has changed (mismatch), use --replace to update it.
       --all       trust all configured hosts
       --replace   replace mismatched host keys
 ```
+
+## sshq credential
+
+```
+sshq credential
+```
+
+Manage encrypted password credentials
+
+### sshq credential set
+
+```
+sshq credential set <alias>
+```
+
+Store an encrypted password credential
+
+### sshq credential delete
+
+```
+sshq credential delete <alias>
+```
+
+Delete an encrypted password credential
+
+### sshq credential list
+
+```
+sshq credential list
+```
+
+List aliases with stored password credentials
 
 ## sshq daemon
 

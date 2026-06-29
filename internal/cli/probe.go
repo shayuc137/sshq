@@ -132,7 +132,7 @@ func refreshProfileThroughDaemon(w *output.Writer, host config.Host) *remote.Pro
 func refreshProfileDirect(cmd *cobra.Command, w *output.Writer, host config.Host) *remote.Profile {
 	timeout, _ := cmd.Flags().GetDuration("timeout")
 	store := configFrom(cmd.Context())
-	cfg := hostToConnConfigWithStore(host, store)
+	cfg := hostToConnConfigWithCredentials(host, store, credentialStoreFrom(cmd.Context()))
 	cfg.Timeout = timeout
 	ctx := cmd.Context()
 	start := time.Now()

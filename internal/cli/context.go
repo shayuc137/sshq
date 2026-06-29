@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/shayuc137/sshq/internal/config"
+	"github.com/shayuc137/sshq/internal/credential"
 	"github.com/shayuc137/sshq/internal/output"
 	"github.com/shayuc137/sshq/internal/remote"
 	"github.com/shayuc137/sshq/internal/sshclient"
@@ -14,6 +15,7 @@ import (
 
 type writerKey struct{}
 type configKey struct{}
+type credentialStoreKey struct{}
 type profileCacheKey struct{}
 
 func withWriter(ctx context.Context, w *output.Writer) context.Context {
@@ -33,6 +35,17 @@ func withConfig(ctx context.Context, s *config.Store) context.Context {
 
 func configFrom(ctx context.Context) *config.Store {
 	if s, ok := ctx.Value(configKey{}).(*config.Store); ok {
+		return s
+	}
+	return nil
+}
+
+func withCredentialStore(ctx context.Context, s *credential.Store) context.Context {
+	return context.WithValue(ctx, credentialStoreKey{}, s)
+}
+
+func credentialStoreFrom(ctx context.Context) *credential.Store {
+	if s, ok := ctx.Value(credentialStoreKey{}).(*credential.Store); ok {
 		return s
 	}
 	return nil
@@ -61,9 +74,18 @@ func hostToConnConfig(host config.Host) sshclient.ConnConfig {
 }
 
 func hostToConnConfigWithStore(host config.Host, store *config.Store) sshclient.ConnConfig {
+	return hostToConnConfigWithCredentials(host, store, nil)
+}
+
+func hostToConnConfigWithCredentials(host config.Host, store *config.Store, creds *credential.Store) sshclient.ConnConfig {
 	cfg := hostToConnConfig(host)
+	if creds != nil {
+		if password, err := creds.Get(host.Alias); err == nil {
+			cfg.Password = password
+		}
+	}
 	if cfg.ProxyJump != "" && store != nil {
-		cfg.ProxyConfig = resolveProxyChain(store, cfg.ProxyJump)
+		cfg.ProxyConfig = resolveProxyChainWithCredentials(store, cfg.ProxyJump, creds)
 	}
 	return cfg
 }
@@ -74,10 +96,18 @@ func hostToConnConfigWithStore(host config.Host, store *config.Store) sshclient.
 // recurse until the stack overflows; on a cycle the chain is cut at the
 // repeated host rather than panicking.
 func resolveProxyChain(store *config.Store, proxyJump string) *sshclient.ConnConfig {
-	return resolveProxyChainGuarded(store, proxyJump, make(map[string]bool))
+	return resolveProxyChainWithCredentials(store, proxyJump, nil)
 }
 
 func resolveProxyChainGuarded(store *config.Store, proxyJump string, visited map[string]bool) *sshclient.ConnConfig {
+	return resolveProxyChainGuardedWithCredentials(store, proxyJump, visited, nil)
+}
+
+func resolveProxyChainWithCredentials(store *config.Store, proxyJump string, creds *credential.Store) *sshclient.ConnConfig {
+	return resolveProxyChainGuardedWithCredentials(store, proxyJump, make(map[string]bool), creds)
+}
+
+func resolveProxyChainGuardedWithCredentials(store *config.Store, proxyJump string, visited map[string]bool, creds *credential.Store) *sshclient.ConnConfig {
 	if proxyJump == "" || visited[proxyJump] {
 		return nil
 	}
@@ -87,8 +117,13 @@ func resolveProxyChainGuarded(store *config.Store, proxyJump string, visited map
 		return nil
 	}
 	cfg := hostToConnConfig(proxy)
+	if creds != nil {
+		if password, err := creds.Get(proxy.Alias); err == nil {
+			cfg.Password = password
+		}
+	}
 	if proxy.ProxyJump != "" {
-		cfg.ProxyConfig = resolveProxyChainGuarded(store, proxy.ProxyJump, visited)
+		cfg.ProxyConfig = resolveProxyChainGuardedWithCredentials(store, proxy.ProxyJump, visited, creds)
 	}
 	return &cfg
 }

@@ -34,6 +34,7 @@ All SSH operations route through `sshq`. Never shell out to `ssh` or `scp` direc
 | Config add | `sshq config add <alias> --hostname <ip> --user <u>` |
 | Config edit | `sshq config set <alias> <key> <value>` |
 | Config delete | `sshq config remove <alias>` |
+| Password credential | `sshq credential set <alias>` |
 | Trust host key | `sshq trust <alias>` |
 
 ## exec
@@ -107,6 +108,18 @@ sshq config remove myhost
 ```
 
 ProxyJump is configured through standard SSH config and resolved automatically — just use the target alias.
+
+## credential
+
+Password credentials are encrypted at `~/.config/sshq/credentials.age` with age using your SSH public key. They are only used as the final fallback after agent and key authentication.
+
+```bash
+sshq credential set myhost
+sshq credential list
+sshq credential delete myhost
+```
+
+`credential list` only shows aliases. There is no command that prints stored passwords.
 
 ## daemon
 

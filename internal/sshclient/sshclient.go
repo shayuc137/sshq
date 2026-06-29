@@ -21,6 +21,7 @@ type ConnConfig struct {
 	Port         string
 	User         string
 	IdentityFile string
+	Password     string
 	ProxyJump    string
 	ProxyConfig  *ConnConfig
 	Timeout      time.Duration
@@ -224,6 +225,10 @@ func authMethods(cfg ConnConfig) ([]ssh.AuthMethod, error) {
 		if err == nil {
 			methods = append(methods, m)
 		}
+	}
+
+	if cfg.Password != "" {
+		methods = append(methods, ssh.Password(cfg.Password))
 	}
 
 	return methods, nil

@@ -60,8 +60,8 @@ var skillGroups = []struct {
 	{
 		file:  "discovery.md",
 		title: "Discovery & Daemon",
-		intro: "Commands for listing, searching, inspecting hosts, and managing the daemon.",
-		cmds:  []string{"ls", "search", "info", "probe", "trust", "daemon", "daemon start", "daemon stop", "daemon status", "version", "skill", "skill install", "skill export", "skill status"},
+		intro: "Commands for listing, searching, inspecting hosts, credentials, and managing the daemon.",
+		cmds:  []string{"ls", "search", "info", "probe", "trust", "credential", "credential set", "credential delete", "credential list", "daemon", "daemon start", "daemon stop", "daemon status", "version", "skill", "skill install", "skill export", "skill status"},
 	},
 }
 

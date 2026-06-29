@@ -54,7 +54,7 @@ func (dc *daemonContext) handleClusterExec(conn net.Conn, raw json.RawMessage) {
 				return
 			}
 
-			cfg := hostToConnConfigWithStore(host, dc.store)
+			cfg := hostToConnConfigWithCredentials(host, dc.store, dc.creds)
 			cfg.Timeout = timeout
 
 			connectStart := time.Now()

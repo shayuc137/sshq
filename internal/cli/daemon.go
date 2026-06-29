@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/shayuc137/sshq/internal/config"
+	"github.com/shayuc137/sshq/internal/credential"
 	"github.com/shayuc137/sshq/internal/exec"
 	"github.com/shayuc137/sshq/internal/ipc"
 	"github.com/shayuc137/sshq/internal/output"
@@ -54,7 +55,7 @@ func newDaemonStartCommand() *cobra.Command {
 			}
 
 			w := writerFrom(cmd.Context())
-			return runDaemon(w, store)
+			return runDaemon(w, store, credentialStoreFrom(cmd.Context()))
 		},
 	}
 }
@@ -123,6 +124,7 @@ func sendSimpleAction(action, successMsg string, cmd *cobra.Command) error {
 
 type daemonContext struct {
 	store     *config.Store
+	creds     *credential.Store
 	pool      *pool.Pool
 	cache     *remote.Cache
 	tunnels   *tunnel.Registry
@@ -132,7 +134,7 @@ type daemonContext struct {
 	stoppedMu sync.Mutex
 }
 
-func runDaemon(w *output.Writer, store *config.Store) error {
+func runDaemon(w *output.Writer, store *config.Store, creds *credential.Store) error {
 	sockPath := ipc.SocketPath()
 	os.Remove(sockPath)
 
@@ -156,9 +158,18 @@ func runDaemon(w *output.Writer, store *config.Store) error {
 		w.Info("warning: profile cache unavailable: " + err.Error())
 	}
 
+	if creds == nil {
+		var err error
+		creds, err = credential.Open()
+		if err != nil {
+			w.Info("warning: credential store unavailable: " + err.Error())
+		}
+	}
+
 	stopped := false
 	dc := &daemonContext{
 		store:     store,
+		creds:     creds,
 		pool:      pool.New(defaultIdleTimeout),
 		cache:     cache,
 		tunnels:   tunnel.NewRegistry(),
@@ -315,7 +326,7 @@ func (dc *daemonContext) handleExec(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 
-	cfg := hostToConnConfigWithStore(host, dc.store)
+	cfg := hostToConnConfigWithCredentials(host, dc.store, dc.creds)
 	cfg.Timeout = time.Duration(payload.Timeout) * time.Second
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 30 * time.Second

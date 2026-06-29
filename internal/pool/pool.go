@@ -2,6 +2,8 @@ package pool
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sync"
 	"time"
@@ -49,6 +51,10 @@ func New(ttl time.Duration) *Pool {
 
 func Key(cfg sshclient.ConnConfig) string {
 	key := fmt.Sprintf("%s:%s:%s:%s", cfg.Host, cfg.Port, cfg.User, cfg.IdentityFile)
+	if cfg.Password != "" {
+		sum := sha256.Sum256([]byte(cfg.Password))
+		key += ":password-sha256=" + hex.EncodeToString(sum[:])
+	}
 	if cfg.ProxyJump != "" {
 		key += ":proxy=" + cfg.ProxyJump
 	}
