@@ -3,9 +3,11 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"time"
 
+	"github.com/shayuc137/sshq/internal/audit"
 	"github.com/shayuc137/sshq/internal/ipc"
 	"github.com/shayuc137/sshq/internal/tunnel"
 )
@@ -16,6 +18,7 @@ func (dc *daemonContext) handleTunnelStart(conn net.Conn, raw json.RawMessage) {
 		ipc.SendError(conn, "invalid tunnel-start payload: "+err.Error(), "")
 		return
 	}
+	auditStart := time.Now()
 
 	cfg, ok := dc.resolveHost(conn, payload.Alias)
 	if !ok {
@@ -49,11 +52,20 @@ func (dc *daemonContext) handleTunnelStart(conn net.Conn, raw json.RawMessage) {
 	case tunnel.Remote:
 		t, err = tunnel.StartRemote(ctx, client, tunnelCfg, nil)
 	default:
+		err := fmt.Errorf("invalid direction: %s", payload.Direction)
+		entry := audit.TunnelEntry(payload.Alias, payload.Direction, payload.LocalAddr, payload.RemoteAddr, "start", audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDaemon)
+		if !dc.sendAuditError(conn, entry, err) {
+			return
+		}
 		ipc.SendError(conn, "invalid direction: "+payload.Direction, "use 'local' or 'remote'")
 		return
 	}
 
 	if err != nil {
+		entry := audit.TunnelEntry(payload.Alias, payload.Direction, payload.LocalAddr, payload.RemoteAddr, "start", audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDaemon)
+		if !dc.sendAuditError(conn, entry, err) {
+			return
+		}
 		ipc.SendError(conn, err.Error(), "")
 		return
 	}
@@ -66,6 +78,10 @@ func (dc *daemonContext) handleTunnelStart(conn net.Conn, raw json.RawMessage) {
 		LocalAddr:  payload.LocalAddr,
 		RemoteAddr: payload.RemoteAddr,
 	}
+	if !dc.sendAudit(conn, audit.TunnelEntry(payload.Alias, payload.Direction, payload.LocalAddr, payload.RemoteAddr, "start", audit.ResultSuccess, time.Since(auditStart).Milliseconds(), audit.SourceDaemon)) {
+		dc.tunnels.Stop(t.ID)
+		return
+	}
 	frame, _ := ipc.MakeResultFrame(result)
 	ipc.Send(conn, frame)
 }
@@ -77,11 +93,28 @@ func (dc *daemonContext) handleTunnelStop(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 
+	auditStart := time.Now()
+	active, found := dc.tunnels.Get(payload.ID)
 	if err := dc.tunnels.Stop(payload.ID); err != nil {
+		entry := audit.TunnelEntry("", "", "", "", "stop", audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDaemon)
+		entry.Summary = audit.RedactSummary("stop " + payload.ID)
+		if !dc.sendAuditError(conn, entry, err) {
+			return
+		}
 		ipc.SendError(conn, err.Error(), "use 'sshq tunnel list' to see active tunnels")
 		return
 	}
 
+	if found {
+		cfg := active.Config
+		if !dc.sendAudit(conn, audit.TunnelEntry(cfg.Alias, string(cfg.Direction), cfg.LocalAddr, cfg.RemoteAddr, "stop", audit.ResultSuccess, time.Since(auditStart).Milliseconds(), audit.SourceDaemon)) {
+			return
+		}
+	} else {
+		if !dc.sendAudit(conn, audit.TunnelEntry("", "", "", "", "stop", audit.ResultSuccess, time.Since(auditStart).Milliseconds(), audit.SourceDaemon)) {
+			return
+		}
+	}
 	frame, _ := ipc.MakeResultFrame(map[string]string{"stopped": payload.ID})
 	ipc.Send(conn, frame)
 }

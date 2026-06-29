@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shayuc137/sshq/internal/audit"
 	"github.com/shayuc137/sshq/internal/config"
 	"github.com/shayuc137/sshq/internal/exec"
 	"github.com/shayuc137/sshq/internal/ipc"
@@ -88,9 +89,6 @@ func newClusterExecCommand() *cobra.Command {
 			}
 
 			command := args[0]
-			if err := checkPolicyClusterCommand(cmd.Context(), aliases, command); err != nil {
-				return err
-			}
 
 			if !noDaemon && ipc.IsRunning() {
 				env, _ := ipc.MakeEnvelope("cluster-exec", ipc.ClusterExecPayload{
@@ -263,6 +261,7 @@ func clusterExecDirectCLI(cmd *cobra.Command, w *output.Writer, store *config.St
 		timeout = 30 * time.Second
 	}
 
+	auditStart := time.Now()
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -331,6 +330,13 @@ func clusterExecDirectCLI(cmd *cobra.Command, w *output.Writer, store *config.St
 		}
 	}
 
+	auditResult := audit.ResultSuccess
+	if hasError {
+		auditResult = audit.ResultError
+	}
+	if err := recordAudit(cmd.Context(), audit.ClusterEntry(aliases, command, auditResult, time.Since(auditStart).Milliseconds(), audit.SourceDirect)); err != nil {
+		return err
+	}
 	w.Render(clusterResult{
 		Results: results,
 		Summary: ipc.ClusterSummary{Total: len(results), Success: success, Failed: len(results) - success},

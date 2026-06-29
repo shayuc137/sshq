@@ -2,9 +2,11 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/shayuc137/sshq/internal/appconfig"
+	"github.com/shayuc137/sshq/internal/audit"
 	"github.com/shayuc137/sshq/internal/config"
 	"github.com/shayuc137/sshq/internal/credential"
 	"github.com/shayuc137/sshq/internal/output"
@@ -68,6 +70,13 @@ func NewRootCommand() *cobra.Command {
 			} else {
 				ctx = withAppConfig(ctx, appCfg)
 				ctx = withPolicyChecker(ctx, policy.NewChecker(appCfg, nil))
+				if audit.Enabled(appCfg) && !skipAuditLoggerInit(cmd) {
+					auditLog, err := audit.NewLogger(appCfg.Audit)
+					if err != nil {
+						return output.Errorf("audit log unavailable: "+err.Error(), "fix [audit] path or disable audit.enabled")
+					}
+					ctx = withAuditLogger(ctx, auditLog)
+				}
 			}
 
 			cache, err := remote.NewCache(remote.DefaultTTL, remote.WithCacheInfo(func(msg string) {
@@ -105,6 +114,7 @@ func NewRootCommand() *cobra.Command {
 		newConfigCommand(),
 		newCredentialCommand(),
 		newPolicyCommand(),
+		newAuditCommand(),
 		newClusterCommand(),
 		newTunnelCommand(),
 		newSkillCommand(),
@@ -112,6 +122,11 @@ func NewRootCommand() *cobra.Command {
 	)
 
 	return cmd
+}
+
+func skipAuditLoggerInit(cmd *cobra.Command) bool {
+	path := cmd.CommandPath()
+	return strings.HasPrefix(path, "sshq daemon") || strings.HasPrefix(path, "sshq audit")
 }
 
 func runRootCommand(cmd *cobra.Command, args []string) error {

@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/shayuc137/sshq/internal/appconfig"
+	"github.com/shayuc137/sshq/internal/audit"
 	"github.com/shayuc137/sshq/internal/config"
 	"github.com/shayuc137/sshq/internal/credential"
 	"github.com/shayuc137/sshq/internal/output"
@@ -22,6 +23,7 @@ type profileCacheKey struct{}
 type appConfigKey struct{}
 type appConfigErrorKey struct{}
 type policyCheckerKey struct{}
+type auditLoggerKey struct{}
 
 func withWriter(ctx context.Context, w *output.Writer) context.Context {
 	return context.WithValue(ctx, writerKey{}, w)
@@ -98,6 +100,35 @@ func policyCheckerFrom(ctx context.Context) *policy.Checker {
 		return c
 	}
 	return nil
+}
+
+func withAuditLogger(ctx context.Context, l *audit.Logger) context.Context {
+	return context.WithValue(ctx, auditLoggerKey{}, l)
+}
+
+func auditLoggerFrom(ctx context.Context) *audit.Logger {
+	if l, ok := ctx.Value(auditLoggerKey{}).(*audit.Logger); ok {
+		return l
+	}
+	return nil
+}
+
+func recordAudit(ctx context.Context, entry audit.Entry) error {
+	logger := auditLoggerFrom(ctx)
+	if logger == nil {
+		return nil
+	}
+	if err := logger.Record(entry); err != nil {
+		return output.Errorf("audit log write failed: "+err.Error(), "check [audit] path and permissions")
+	}
+	return nil
+}
+
+func recordAuditError(ctx context.Context, entry audit.Entry, err error) error {
+	if err != nil {
+		entry.ErrorHint = audit.RedactSummary(err.Error())
+	}
+	return recordAudit(ctx, entry)
 }
 
 func hostToConnConfig(host config.Host) sshclient.ConnConfig {

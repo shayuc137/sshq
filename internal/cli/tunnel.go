@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/shayuc137/sshq/internal/audit"
 	"github.com/shayuc137/sshq/internal/ipc"
 	"github.com/shayuc137/sshq/internal/output"
 	"github.com/shayuc137/sshq/internal/sshclient"
@@ -142,9 +143,14 @@ func recvTunnelStartResult(w *output.Writer, conn net.Conn, alias, direction str
 }
 
 func tunnelStartForeground(cmd *cobra.Command, w *output.Writer, alias, direction, localAddr, remoteAddr string) error {
+	auditStart := time.Now()
 	store := configFrom(cmd.Context())
 	host, err := store.Get(alias)
 	if err != nil {
+		entry := audit.TunnelEntry(alias, direction, localAddr, remoteAddr, "start", audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDirect)
+		if auditErr := recordAuditError(cmd.Context(), entry, err); auditErr != nil {
+			return auditErr
+		}
 		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
 	}
 
@@ -154,6 +160,10 @@ func tunnelStartForeground(cmd *cobra.Command, w *output.Writer, alias, directio
 	w.Verbose("connecting to " + alias + "...")
 	client, err := sshclient.Dial(cmd.Context(), cfg)
 	if err != nil {
+		entry := audit.TunnelEntry(alias, direction, localAddr, remoteAddr, "start", audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDirect)
+		if auditErr := recordAuditError(cmd.Context(), entry, err); auditErr != nil {
+			return auditErr
+		}
 		return connErrorToOutput(err, alias)
 	}
 	defer client.Close()
@@ -177,16 +187,27 @@ func tunnelStartForeground(cmd *cobra.Command, w *output.Writer, alias, directio
 		_, err = tunnel.StartRemote(ctx, client, tunnelCfg, infoFn)
 	}
 	if err != nil {
+		entry := audit.TunnelEntry(alias, direction, localAddr, remoteAddr, "start", audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDirect)
+		if auditErr := recordAuditError(cmd.Context(), entry, err); auditErr != nil {
+			return auditErr
+		}
 		return output.Errorf(err.Error(), "")
 	}
 
+	if err := recordAudit(cmd.Context(), audit.TunnelEntry(alias, direction, localAddr, remoteAddr, "start", audit.ResultSuccess, time.Since(auditStart).Milliseconds(), audit.SourceDirect)); err != nil {
+		return err
+	}
 	w.Info("tunnel running, press Ctrl+C to stop")
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 
+	stopStart := time.Now()
 	cancel()
+	if err := recordAudit(cmd.Context(), audit.TunnelEntry(alias, direction, localAddr, remoteAddr, "stop", audit.ResultSuccess, time.Since(stopStart).Milliseconds(), audit.SourceDirect)); err != nil {
+		return err
+	}
 	w.Success("tunnel stopped")
 	return nil
 }

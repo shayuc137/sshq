@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/shayuc137/sshq/internal/appconfig"
+	"github.com/shayuc137/sshq/internal/audit"
 	"github.com/shayuc137/sshq/internal/config"
 	"github.com/shayuc137/sshq/internal/credential"
 	"github.com/shayuc137/sshq/internal/exec"
@@ -131,6 +132,7 @@ type daemonContext struct {
 	appCfgErr error
 	checker   *policy.Checker
 	grants    *policy.GrantManager
+	auditLog  *audit.Logger
 	pool      *pool.Pool
 	cache     *remote.Cache
 	tunnels   *tunnel.Registry
@@ -176,6 +178,14 @@ func runDaemon(w *output.Writer, store *config.Store, creds *credential.Store) e
 	if appCfgErr != nil {
 		w.Info("warning: app config unavailable: " + appCfgErr.Error())
 	}
+	var auditLog *audit.Logger
+	if audit.Enabled(appCfg) {
+		auditLog, err = audit.NewLogger(appCfg.Audit)
+		if err != nil {
+			w.Info("warning: audit log unavailable: " + err.Error())
+		}
+	}
+	defer auditLog.Close()
 	grants := policy.NewGrantManager()
 
 	stopped := false
@@ -186,6 +196,7 @@ func runDaemon(w *output.Writer, store *config.Store, creds *credential.Store) e
 		appCfgErr: appCfgErr,
 		checker:   policy.NewChecker(appCfg, grants),
 		grants:    grants,
+		auditLog:  auditLog,
 		pool:      pool.New(defaultIdleTimeout),
 		cache:     cache,
 		tunnels:   tunnel.NewRegistry(),
@@ -387,6 +398,10 @@ func (dc *daemonContext) handleExec(conn net.Conn, raw json.RawMessage) {
 
 	host, err := dc.store.Get(payload.Alias)
 	if err != nil {
+		entry := audit.ExecErrorEntry(payload.Alias, payload.Command, audit.ResultError, 0, audit.SourceDaemon, err)
+		if !dc.sendAudit(conn, entry) {
+			return
+		}
 		ipc.SendError(conn, err.Error(), "run 'sshq ls' to see available hosts")
 		return
 	}
@@ -403,6 +418,10 @@ func (dc *daemonContext) handleExec(conn net.Conn, raw json.RawMessage) {
 	connectStart := time.Now()
 	client, reused, err := dc.pool.GetWithStatus(ctx, payload.Alias, cfg)
 	if err != nil {
+		entry := audit.ExecErrorEntry(payload.Alias, payload.Command, audit.ResultError, 0, audit.SourceDaemon, err)
+		if !dc.sendAudit(conn, entry) {
+			return
+		}
 		ce := connErrorToOutput(err, payload.Alias)
 		ipc.SendError(conn, ce.Hint, ce.Action)
 		return
@@ -420,14 +439,27 @@ func (dc *daemonContext) handleExec(conn net.Conn, raw json.RawMessage) {
 		sendDaemonVerbose(conn, payload.Verbose, "shell selected: %s", shell)
 	}
 
+	start := time.Now()
 	result, err := exec.RunBufferedWithShell(ctx, client, payload.Command, shell)
+	durationMs := time.Since(start).Milliseconds()
 	if err != nil {
+		entry := audit.ExecErrorEntry(payload.Alias, payload.Command, audit.ResultError, durationMs, audit.SourceDaemon, err)
+		if !dc.sendAudit(conn, entry) {
+			return
+		}
 		ipc.SendError(conn, err.Error(), "")
 		return
 	}
 	if remote.NeedsTranscoding(profile) {
 		result.Stdout = remote.DecodeString(result.Stdout, profile.Encoding)
 		result.Stderr = remote.DecodeString(result.Stderr, profile.Encoding)
+	}
+	auditResult := audit.ResultSuccess
+	if result.ExitCode != 0 {
+		auditResult = audit.ResultError
+	}
+	if !dc.sendAudit(conn, audit.ExecEntry(payload.Alias, payload.Command, auditResult, result.ExitCode, durationMs, audit.SourceDaemon)) {
+		return
 	}
 	sendExecResultFrames(conn, result)
 }

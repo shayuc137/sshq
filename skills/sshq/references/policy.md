@@ -1,6 +1,6 @@
-# Capability Policy
+# Policy & Audit
 
-Commands for validating capability policy and managing temporary daemon grants.
+Commands for validating capability policy, managing temporary daemon grants, and querying audit logs.
 
 Auto-generated from `sshq docs --skill`. Do not edit manually.
 
@@ -71,5 +71,21 @@ Check whether a command or path would be allowed
       --command string       command text to check
       --local-path string    local path to check
       --remote-path string   remote path to check
+```
+
+## sshq audit
+
+```
+sshq audit [flags]
+```
+
+Query structured audit logs
+
+**Flags:**
+
+```
+      --alias string       filter audit entries by host alias
+      --last int           show the last N audit entries (default 50)
+      --operation string   filter audit entries by operation
 ```
 

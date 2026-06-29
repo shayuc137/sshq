@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shayuc137/sshq/internal/audit"
 	"github.com/shayuc137/sshq/internal/exec"
 	"github.com/shayuc137/sshq/internal/ipc"
 )
@@ -40,6 +41,8 @@ func (dc *daemonContext) handleClusterExec(conn net.Conn, raw json.RawMessage) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	success, failed := 0, 0
+	auditStart := time.Now()
+	auditFailed := false
 
 	for _, alias := range payload.Aliases {
 		wg.Add(1)
@@ -47,12 +50,22 @@ func (dc *daemonContext) handleClusterExec(conn net.Conn, raw json.RawMessage) {
 		go func(alias string) {
 			defer wg.Done()
 			defer func() { <-sem }()
+			hostStart := time.Now()
 
 			host, err := dc.store.Get(alias)
 			if err != nil {
 				mu.Lock()
 				failed++
 				mu.Unlock()
+				entry := audit.ExecErrorEntry(alias, payload.Command, audit.ResultError, time.Since(hostStart).Milliseconds(), audit.SourceDaemon, err)
+				entry.Operation = audit.OperationClusterExec
+				entry.Aliases = append([]string(nil), payload.Aliases...)
+				if !dc.sendAuditLocked(conn, &mu, entry) {
+					mu.Lock()
+					auditFailed = true
+					mu.Unlock()
+					return
+				}
 				sendClusterFrame(conn, &mu, ipc.ClusterFrame{Alias: alias, Type: "error", Hint: "host not found"})
 				return
 			}
@@ -66,6 +79,15 @@ func (dc *daemonContext) handleClusterExec(conn net.Conn, raw json.RawMessage) {
 				mu.Lock()
 				failed++
 				mu.Unlock()
+				entry := audit.ExecErrorEntry(alias, payload.Command, audit.ResultError, time.Since(hostStart).Milliseconds(), audit.SourceDaemon, cerr)
+				entry.Operation = audit.OperationClusterExec
+				entry.Aliases = append([]string(nil), payload.Aliases...)
+				if !dc.sendAuditLocked(conn, &mu, entry) {
+					mu.Lock()
+					auditFailed = true
+					mu.Unlock()
+					return
+				}
 				sendClusterFrame(conn, &mu, ipc.ClusterFrame{Alias: alias, Type: "error", Hint: cerr.Error()})
 				return
 			}
@@ -81,7 +103,30 @@ func (dc *daemonContext) handleClusterExec(conn net.Conn, raw json.RawMessage) {
 				mu.Lock()
 				failed++
 				mu.Unlock()
+				entry := audit.ExecErrorEntry(alias, payload.Command, audit.ResultError, time.Since(hostStart).Milliseconds(), audit.SourceDaemon, err)
+				entry.Operation = audit.OperationClusterExec
+				entry.Aliases = append([]string(nil), payload.Aliases...)
+				if !dc.sendAuditLocked(conn, &mu, entry) {
+					mu.Lock()
+					auditFailed = true
+					mu.Unlock()
+					return
+				}
 				sendClusterFrame(conn, &mu, ipc.ClusterFrame{Alias: alias, Type: "error", Hint: err.Error()})
+				return
+			}
+
+			auditResult := audit.ResultSuccess
+			if result.ExitCode != 0 {
+				auditResult = audit.ResultError
+			}
+			entry := audit.ExecEntry(alias, payload.Command, auditResult, result.ExitCode, time.Since(hostStart).Milliseconds(), audit.SourceDaemon)
+			entry.Operation = audit.OperationClusterExec
+			entry.Aliases = append([]string(nil), payload.Aliases...)
+			if !dc.sendAuditLocked(conn, &mu, entry) {
+				mu.Lock()
+				auditFailed = true
+				mu.Unlock()
 				return
 			}
 
@@ -107,11 +152,24 @@ func (dc *daemonContext) handleClusterExec(conn net.Conn, raw json.RawMessage) {
 	}
 
 	wg.Wait()
+	mu.Lock()
+	if auditFailed {
+		mu.Unlock()
+		return
+	}
+	mu.Unlock()
 
 	summary := ipc.ClusterSummary{
 		Total:   len(payload.Aliases),
 		Success: success,
 		Failed:  failed,
+	}
+	auditResult := audit.ResultSuccess
+	if failed > 0 {
+		auditResult = audit.ResultError
+	}
+	if !dc.sendAuditLocked(conn, &mu, audit.ClusterEntry(payload.Aliases, payload.Command, auditResult, time.Since(auditStart).Milliseconds(), audit.SourceDaemon)) {
+		return
 	}
 	frame, _ := ipc.MakeResultFrame(summary)
 	mu.Lock()
@@ -124,6 +182,19 @@ func sendClusterFrame(conn net.Conn, mu *sync.Mutex, cf ipc.ClusterFrame) {
 	mu.Lock()
 	ipc.Send(conn, ipc.Frame{Type: "cluster", Payload: json.RawMessage(b)})
 	mu.Unlock()
+}
+
+func (dc *daemonContext) sendAuditLocked(conn net.Conn, mu *sync.Mutex, entry audit.Entry) bool {
+	if dc == nil || dc.auditLog == nil {
+		return true
+	}
+	if err := dc.auditLog.Record(entry); err != nil {
+		mu.Lock()
+		ipc.SendError(conn, "audit log write failed: "+err.Error(), "check [audit] path and permissions")
+		mu.Unlock()
+		return false
+	}
+	return true
 }
 
 func trimTrailingNewline(s string) string {

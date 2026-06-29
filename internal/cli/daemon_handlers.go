@@ -7,6 +7,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/shayuc137/sshq/internal/audit"
 	"github.com/shayuc137/sshq/internal/exec"
 	"github.com/shayuc137/sshq/internal/ipc"
 	"github.com/shayuc137/sshq/internal/remote"
@@ -48,7 +49,7 @@ func (dc *daemonContext) handleScript(conn net.Conn, raw json.RawMessage) {
 		ipc.SendError(conn, "invalid script payload: "+err.Error(), "")
 		return
 	}
-	if !dc.checkDaemonCommand(conn, payload.Alias, string(payload.Script)) {
+	if !dc.checkDaemonCommandWithAudit(conn, payload.Alias, string(payload.Script), audit.OperationExec, audit.ScriptSummary(payload.Script)) {
 		return
 	}
 
@@ -82,8 +83,14 @@ func (dc *daemonContext) handleScript(conn net.Conn, raw json.RawMessage) {
 	}
 	sendDaemonVerbose(conn, payload.Verbose, "shell selected: %s", shell)
 
+	start := time.Now()
 	result, err := exec.RunScriptBuffered(ctx, client, payload.Script, shell)
+	durationMs := time.Since(start).Milliseconds()
 	if err != nil {
+		entry := audit.ScriptErrorEntry(payload.Alias, payload.Script, audit.ResultError, durationMs, audit.SourceDaemon, err)
+		if !dc.sendAudit(conn, entry) {
+			return
+		}
 		ipc.SendError(conn, err.Error(), "")
 		return
 	}
@@ -92,6 +99,13 @@ func (dc *daemonContext) handleScript(conn net.Conn, raw json.RawMessage) {
 		result.Stderr = remote.DecodeString(result.Stderr, profile.Encoding)
 	}
 
+	auditResult := audit.ResultSuccess
+	if result.ExitCode != 0 {
+		auditResult = audit.ResultError
+	}
+	if !dc.sendAudit(conn, audit.ScriptEntry(payload.Alias, payload.Script, auditResult, result.ExitCode, durationMs, audit.SourceDaemon)) {
+		return
+	}
 	sendExecResultFrames(conn, result)
 }
 
@@ -106,6 +120,8 @@ func (dc *daemonContext) handleTransfer(conn net.Conn, raw json.RawMessage) {
 	if !dc.checkDaemonTransfer(conn, payload) {
 		return
 	}
+	alias, direction, localPath, remotePath := transferPayloadAuditParts(payload)
+	auditStart := time.Now()
 
 	cfg, ok := dc.resolveHost(conn, payload.Alias)
 	if !ok {
@@ -130,6 +146,10 @@ func (dc *daemonContext) handleTransfer(conn net.Conn, raw json.RawMessage) {
 
 	engine, err := transfer.NewEngine(client, profile, infoFn)
 	if err != nil {
+		entry := audit.TransferEntry(alias, direction, localPath, remotePath, audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDaemon)
+		if !dc.sendAuditError(conn, entry, err) {
+			return
+		}
 		ipc.SendError(conn, "transfer engine: "+err.Error(), "")
 		return
 	}
@@ -158,15 +178,27 @@ func (dc *daemonContext) handleTransfer(conn net.Conn, raw json.RawMessage) {
 			result, err = engine.Download(ctx, payload.RemotePath, payload.LocalPath, progressFn)
 		}
 	default:
+		err := fmt.Errorf("invalid direction: %s", payload.Direction)
+		entry := audit.TransferEntry(alias, direction, localPath, remotePath, audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDaemon)
+		if !dc.sendAuditError(conn, entry, err) {
+			return
+		}
 		ipc.SendError(conn, "invalid direction: "+payload.Direction, "use 'upload' or 'download'")
 		return
 	}
 
 	if err != nil {
+		entry := audit.TransferEntry(alias, direction, localPath, remotePath, audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDaemon)
+		if !dc.sendAuditError(conn, entry, err) {
+			return
+		}
 		ipc.SendError(conn, err.Error(), "")
 		return
 	}
 
+	if !dc.sendAudit(conn, audit.TransferEntry(alias, direction, localPath, remotePath, audit.ResultSuccess, time.Since(auditStart).Milliseconds(), audit.SourceDaemon)) {
+		return
+	}
 	frame, _ := ipc.MakeResultFrame(result)
 	ipc.Send(conn, frame)
 }
@@ -182,6 +214,7 @@ func (dc *daemonContext) handleRelay(conn net.Conn, raw json.RawMessage) {
 	if !dc.checkDaemonRelay(conn, payload) {
 		return
 	}
+	auditStart := time.Now()
 
 	srcCfg, ok := dc.resolveHost(conn, payload.SrcAlias)
 	if !ok {
@@ -236,11 +269,18 @@ func (dc *daemonContext) handleRelay(conn net.Conn, raw json.RawMessage) {
 	}
 
 	if err != nil {
+		entry := audit.RelayEntry(payload.SrcAlias, payload.SrcPath, payload.DstAlias, payload.DstPath, audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDaemon)
+		if !dc.sendAuditError(conn, entry, err) {
+			return
+		}
 		ipc.SendError(conn, err.Error(), "")
 		return
 	}
 	sendDaemonVerbose(conn, payload.Verbose, "transfer engine: %s", result.Engine)
 
+	if !dc.sendAudit(conn, audit.RelayEntry(payload.SrcAlias, payload.SrcPath, payload.DstAlias, payload.DstPath, audit.ResultSuccess, time.Since(auditStart).Milliseconds(), audit.SourceDaemon)) {
+		return
+	}
 	frame, _ := ipc.MakeResultFrame(result)
 	ipc.Send(conn, frame)
 }

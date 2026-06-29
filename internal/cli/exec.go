@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shayuc137/sshq/internal/audit"
 	"github.com/shayuc137/sshq/internal/exec"
 	"github.com/shayuc137/sshq/internal/ipc"
 	"github.com/shayuc137/sshq/internal/output"
@@ -51,9 +52,6 @@ func runExecCommand(cmd *cobra.Command, args []string) error {
 		return output.Errorf("command required", "usage: sshq exec <alias> <command...> or sshq exec --script-file <path> <alias>")
 	}
 	command := strings.Join(args[1:], " ")
-	if err := checkPolicyCommand(cmd.Context(), alias, command); err != nil {
-		return err
-	}
 
 	noDaemon, _ := cmd.Flags().GetBool("no-daemon")
 	if !noDaemon && ipc.IsRunning() {
@@ -84,9 +82,6 @@ func execScript(cmd *cobra.Command, w *output.Writer, alias, scriptFile string) 
 	if err != nil {
 		return output.Errorf("read script file: "+err.Error(), "check file path")
 	}
-	if err := checkPolicyCommand(cmd.Context(), alias, string(script)); err != nil {
-		return err
-	}
 
 	noDaemon, _ := cmd.Flags().GetBool("no-daemon")
 	if !noDaemon && ipc.IsRunning() {
@@ -113,13 +108,17 @@ func execScript(cmd *cobra.Command, w *output.Writer, alias, scriptFile string) 
 }
 
 func execScriptDirect(cmd *cobra.Command, w *output.Writer, alias string, script []byte) error {
-	if err := checkPolicyCommand(cmd.Context(), alias, string(script)); err != nil {
+	if err := checkPolicyCommandWithAudit(cmd.Context(), alias, string(script), audit.OperationExec, audit.ScriptSummary(script), audit.SourceDirect); err != nil {
 		return err
 	}
 
 	store := configFrom(cmd.Context())
 	host, err := store.Get(alias)
 	if err != nil {
+		entry := audit.ScriptErrorEntry(alias, script, audit.ResultError, 0, audit.SourceDirect, err)
+		if auditErr := recordAudit(cmd.Context(), entry); auditErr != nil {
+			return auditErr
+		}
 		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
 	}
 
@@ -138,6 +137,10 @@ func execScriptDirect(cmd *cobra.Command, w *output.Writer, alias string, script
 	connectStart := time.Now()
 	client, err := sshclient.Dial(ctx, cfg)
 	if err != nil {
+		entry := audit.ScriptErrorEntry(alias, script, audit.ResultError, 0, audit.SourceDirect, err)
+		if auditErr := recordAudit(ctx, entry); auditErr != nil {
+			return auditErr
+		}
 		return connErrorToOutput(err, alias)
 	}
 	defer client.Close()
@@ -160,19 +163,30 @@ func execScriptDirect(cmd *cobra.Command, w *output.Writer, alias string, script
 
 	start := time.Now()
 	result, err := exec.RunScriptBuffered(ctx, client, script, shell)
+	durationMs := time.Since(start).Milliseconds()
 	if err != nil {
+		if auditErr := recordAudit(ctx, audit.ScriptErrorEntry(alias, script, audit.ResultError, durationMs, audit.SourceDirect, err)); auditErr != nil {
+			return auditErr
+		}
 		return output.Errorf(err.Error(), "")
 	}
 	if remote.NeedsTranscoding(profile) {
 		result.Stdout = remote.DecodeString(result.Stdout, profile.Encoding)
 		result.Stderr = remote.DecodeString(result.Stderr, profile.Encoding)
 	}
+	auditResult := audit.ResultSuccess
+	if result.ExitCode != 0 {
+		auditResult = audit.ResultError
+	}
+	if err := recordAudit(ctx, audit.ScriptEntry(alias, script, auditResult, result.ExitCode, durationMs, audit.SourceDirect)); err != nil {
+		return err
+	}
 	w.Exec(&output.ExecResult{
 		ExitCode:   result.ExitCode,
 		Stdout:     result.Stdout,
 		Stderr:     result.Stderr,
 		Host:       alias,
-		DurationMs: time.Since(start).Milliseconds(),
+		DurationMs: durationMs,
 	})
 	if result.ExitCode != 0 {
 		return &exec.ExitError{Code: result.ExitCode}
@@ -228,6 +242,10 @@ func execDirect(cmd *cobra.Command, w *output.Writer, alias, command string) err
 	store := configFrom(cmd.Context())
 	host, err := store.Get(alias)
 	if err != nil {
+		entry := audit.ExecErrorEntry(alias, command, audit.ResultError, 0, audit.SourceDirect, err)
+		if auditErr := recordAudit(cmd.Context(), entry); auditErr != nil {
+			return auditErr
+		}
 		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
 	}
 
@@ -247,6 +265,10 @@ func execDirect(cmd *cobra.Command, w *output.Writer, alias, command string) err
 	connectStart := time.Now()
 	client, err := sshclient.Dial(ctx, cfg)
 	if err != nil {
+		entry := audit.ExecErrorEntry(alias, command, audit.ResultError, 0, audit.SourceDirect, err)
+		if auditErr := recordAudit(ctx, entry); auditErr != nil {
+			return auditErr
+		}
 		return connErrorToOutput(err, alias)
 	}
 	defer client.Close()
@@ -267,19 +289,30 @@ func execDirect(cmd *cobra.Command, w *output.Writer, alias, command string) err
 
 	start := time.Now()
 	result, err := exec.RunBufferedWithShell(ctx, client, command, shell)
+	durationMs := time.Since(start).Milliseconds()
 	if err != nil {
+		if auditErr := recordAudit(ctx, audit.ExecErrorEntry(alias, command, audit.ResultError, durationMs, audit.SourceDirect, err)); auditErr != nil {
+			return auditErr
+		}
 		return output.Errorf(err.Error(), "")
 	}
 	if remote.NeedsTranscoding(profile) {
 		result.Stdout = remote.DecodeString(result.Stdout, profile.Encoding)
 		result.Stderr = remote.DecodeString(result.Stderr, profile.Encoding)
 	}
+	auditResult := audit.ResultSuccess
+	if result.ExitCode != 0 {
+		auditResult = audit.ResultError
+	}
+	if err := recordAudit(ctx, audit.ExecEntry(alias, command, auditResult, result.ExitCode, durationMs, audit.SourceDirect)); err != nil {
+		return err
+	}
 	w.Exec(&output.ExecResult{
 		ExitCode:   result.ExitCode,
 		Stdout:     result.Stdout,
 		Stderr:     result.Stderr,
 		Host:       alias,
-		DurationMs: time.Since(start).Milliseconds(),
+		DurationMs: durationMs,
 	})
 	if result.ExitCode != 0 {
 		return &exec.ExitError{Code: result.ExitCode}

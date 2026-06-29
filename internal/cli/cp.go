@@ -6,6 +6,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/shayuc137/sshq/internal/audit"
 	"github.com/shayuc137/sshq/internal/config"
 	"github.com/shayuc137/sshq/internal/ipc"
 	"github.com/shayuc137/sshq/internal/output"
@@ -47,10 +48,6 @@ func newCpCommand() *cobra.Command {
 				var cancel func()
 				ctx, cancel = context.WithTimeout(ctx, timeout)
 				defer cancel()
-			}
-
-			if err := checkPolicyTransfer(ctx, parsed); err != nil {
-				return err
 			}
 
 			if !noDaemon && ipc.IsRunning() {
@@ -178,13 +175,15 @@ func cpTransferDirect(ctx context.Context, w *output.Writer, store *config.Store
 		return err
 	}
 
-	alias := parsed.Src.Alias
-	if alias == "" {
-		alias = parsed.Dst.Alias
-	}
+	alias, direction, localPath, remotePath := transferAuditParts(parsed)
+	auditStart := time.Now()
 
 	host, err := store.Get(alias)
 	if err != nil {
+		entry := audit.TransferEntry(alias, direction, localPath, remotePath, audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDirect)
+		if auditErr := recordAuditError(ctx, entry, err); auditErr != nil {
+			return auditErr
+		}
 		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
 	}
 
@@ -195,6 +194,10 @@ func cpTransferDirect(ctx context.Context, w *output.Writer, store *config.Store
 	connectStart := time.Now()
 	client, err := sshclient.Dial(ctx, cfg)
 	if err != nil {
+		entry := audit.TransferEntry(alias, direction, localPath, remotePath, audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDirect)
+		if auditErr := recordAuditError(ctx, entry, err); auditErr != nil {
+			return auditErr
+		}
 		return connErrorToOutput(err, alias)
 	}
 	defer client.Close()
@@ -209,6 +212,10 @@ func cpTransferDirect(ctx context.Context, w *output.Writer, store *config.Store
 
 	engine, err := transfer.NewEngine(client, profile, func(msg string) { w.Info(msg) })
 	if err != nil {
+		entry := audit.TransferEntry(alias, direction, localPath, remotePath, audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDirect)
+		if auditErr := recordAuditError(ctx, entry, err); auditErr != nil {
+			return auditErr
+		}
 		return output.Errorf("transfer engine: "+err.Error(), "")
 	}
 	defer engine.Close()
@@ -232,12 +239,19 @@ func cpTransferDirect(ctx context.Context, w *output.Writer, store *config.Store
 	}
 
 	if err != nil {
+		entry := audit.TransferEntry(alias, direction, localPath, remotePath, audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDirect)
+		if auditErr := recordAuditError(ctx, entry, err); auditErr != nil {
+			return auditErr
+		}
 		if ctx.Err() != nil {
 			return output.Errorf("transfer cancelled", "remote temp file cleaned up")
 		}
 		return output.Errorf(err.Error(), "")
 	}
 
+	if err := recordAudit(ctx, audit.TransferEntry(alias, direction, localPath, remotePath, audit.ResultSuccess, time.Since(auditStart).Milliseconds(), audit.SourceDirect)); err != nil {
+		return err
+	}
 	w.Render(result)
 	return nil
 }
@@ -247,12 +261,21 @@ func cpRelayDirect(ctx context.Context, w *output.Writer, store *config.Store, p
 		return err
 	}
 
+	auditStart := time.Now()
 	srcHost, err := store.Get(parsed.Src.Alias)
 	if err != nil {
+		entry := audit.RelayEntry(parsed.Src.Alias, parsed.Src.Path, parsed.Dst.Alias, parsed.Dst.Path, audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDirect)
+		if auditErr := recordAuditError(ctx, entry, err); auditErr != nil {
+			return auditErr
+		}
 		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
 	}
 	dstHost, err := store.Get(parsed.Dst.Alias)
 	if err != nil {
+		entry := audit.RelayEntry(parsed.Src.Alias, parsed.Src.Path, parsed.Dst.Alias, parsed.Dst.Path, audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDirect)
+		if auditErr := recordAuditError(ctx, entry, err); auditErr != nil {
+			return auditErr
+		}
 		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
 	}
 
@@ -265,6 +288,10 @@ func cpRelayDirect(ctx context.Context, w *output.Writer, store *config.Store, p
 	srcConnectStart := time.Now()
 	srcClient, err := sshclient.Dial(ctx, srcCfg)
 	if err != nil {
+		entry := audit.RelayEntry(parsed.Src.Alias, parsed.Src.Path, parsed.Dst.Alias, parsed.Dst.Path, audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDirect)
+		if auditErr := recordAuditError(ctx, entry, err); auditErr != nil {
+			return auditErr
+		}
 		return connErrorToOutput(err, parsed.Src.Alias)
 	}
 	defer srcClient.Close()
@@ -274,6 +301,10 @@ func cpRelayDirect(ctx context.Context, w *output.Writer, store *config.Store, p
 	dstConnectStart := time.Now()
 	dstClient, err := sshclient.Dial(ctx, dstCfg)
 	if err != nil {
+		entry := audit.RelayEntry(parsed.Src.Alias, parsed.Src.Path, parsed.Dst.Alias, parsed.Dst.Path, audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDirect)
+		if auditErr := recordAuditError(ctx, entry, err); auditErr != nil {
+			return auditErr
+		}
 		return connErrorToOutput(err, parsed.Dst.Alias)
 	}
 	defer dstClient.Close()
@@ -301,12 +332,19 @@ func cpRelayDirect(ctx context.Context, w *output.Writer, store *config.Store, p
 	}
 
 	if err != nil {
+		entry := audit.RelayEntry(parsed.Src.Alias, parsed.Src.Path, parsed.Dst.Alias, parsed.Dst.Path, audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDirect)
+		if auditErr := recordAuditError(ctx, entry, err); auditErr != nil {
+			return auditErr
+		}
 		if ctx.Err() != nil {
 			return output.Errorf("relay cancelled", "remote temp files cleaned up")
 		}
 		return output.Errorf(err.Error(), "")
 	}
 
+	if err := recordAudit(ctx, audit.RelayEntry(parsed.Src.Alias, parsed.Src.Path, parsed.Dst.Alias, parsed.Dst.Path, audit.ResultSuccess, time.Since(auditStart).Milliseconds(), audit.SourceDirect)); err != nil {
+		return err
+	}
 	w.Render(result)
 	w.Verbose("transfer engine: " + result.Engine)
 	return nil

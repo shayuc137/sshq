@@ -59,9 +59,9 @@ var skillGroups = []struct {
 	},
 	{
 		file:  "policy.md",
-		title: "Capability Policy",
-		intro: "Commands for validating capability policy and managing temporary daemon grants.",
-		cmds:  []string{"policy", "policy grant", "policy revoke", "policy list", "policy validate", "policy check"},
+		title: "Policy & Audit",
+		intro: "Commands for validating capability policy, managing temporary daemon grants, and querying audit logs.",
+		cmds:  []string{"policy", "policy grant", "policy revoke", "policy list", "policy validate", "policy check", "audit"},
 	},
 	{
 		file:  "discovery.md",

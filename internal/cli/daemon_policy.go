@@ -7,37 +7,44 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shayuc137/sshq/internal/audit"
 	"github.com/shayuc137/sshq/internal/ipc"
 	"github.com/shayuc137/sshq/internal/output"
 	"github.com/shayuc137/sshq/internal/policy"
 )
 
 func (dc *daemonContext) checkDaemonCommand(conn net.Conn, alias, command string) bool {
-	return dc.sendPolicyDecision(conn, dc.checker.CheckCommand(alias, command))
+	return dc.checkDaemonCommandWithAudit(conn, alias, command, audit.OperationExec, audit.ExecSummary(command))
+}
+
+func (dc *daemonContext) checkDaemonCommandWithAudit(conn net.Conn, alias, command, operation, summary string) bool {
+	return dc.sendPolicyDecision(conn, dc.checker.CheckCommand(alias, command), operation, summary, nil)
 }
 
 func (dc *daemonContext) checkDaemonTransfer(conn net.Conn, payload ipc.TransferPayload) bool {
+	summary := transferPayloadAuditSummary(payload)
 	switch payload.Direction {
 	case "upload":
-		if !dc.sendPolicyDecision(conn, dc.checker.CheckLocalPath(payload.Alias, payload.LocalPath)) {
+		if !dc.sendPolicyDecision(conn, dc.checker.CheckLocalPath(payload.Alias, payload.LocalPath), audit.OperationCP, summary, nil) {
 			return false
 		}
-		return dc.sendPolicyDecision(conn, dc.checker.CheckRemotePath(payload.Alias, payload.RemotePath))
+		return dc.sendPolicyDecision(conn, dc.checker.CheckRemotePath(payload.Alias, payload.RemotePath), audit.OperationCP, summary, nil)
 	case "download":
-		if !dc.sendPolicyDecision(conn, dc.checker.CheckRemotePath(payload.Alias, payload.RemotePath)) {
+		if !dc.sendPolicyDecision(conn, dc.checker.CheckRemotePath(payload.Alias, payload.RemotePath), audit.OperationCP, summary, nil) {
 			return false
 		}
-		return dc.sendPolicyDecision(conn, dc.checker.CheckLocalPath(payload.Alias, payload.LocalPath))
+		return dc.sendPolicyDecision(conn, dc.checker.CheckLocalPath(payload.Alias, payload.LocalPath), audit.OperationCP, summary, nil)
 	default:
 		return true
 	}
 }
 
 func (dc *daemonContext) checkDaemonRelay(conn net.Conn, payload ipc.RelayPayload) bool {
-	if !dc.sendPolicyDecision(conn, dc.checker.CheckRemotePath(payload.SrcAlias, payload.SrcPath)) {
+	summary := audit.RelaySummary(payload.SrcAlias, payload.SrcPath, payload.DstAlias, payload.DstPath)
+	if !dc.sendPolicyDecision(conn, dc.checker.CheckRemotePath(payload.SrcAlias, payload.SrcPath), audit.OperationCP, summary, []string{payload.SrcAlias, payload.DstAlias}) {
 		return false
 	}
-	return dc.sendPolicyDecision(conn, dc.checker.CheckRemotePath(payload.DstAlias, payload.DstPath))
+	return dc.sendPolicyDecision(conn, dc.checker.CheckRemotePath(payload.DstAlias, payload.DstPath), audit.OperationCP, summary, []string{payload.SrcAlias, payload.DstAlias})
 }
 
 func (dc *daemonContext) checkDaemonCluster(conn net.Conn, aliases []string, command string) bool {
@@ -46,6 +53,11 @@ func (dc *daemonContext) checkDaemonCluster(conn net.Conn, aliases []string, com
 		decision := dc.checker.CheckCommand(alias, command)
 		if decision.Allowed {
 			continue
+		}
+		entry := audit.BlockedEntry(alias, audit.OperationClusterExec, audit.ExecSummary(command), decision.Reason, decision.Pattern, audit.SourceDaemon)
+		entry.Aliases = append([]string(nil), aliases...)
+		if !dc.sendAudit(conn, entry) {
+			return false
 		}
 		blocked = append(blocked, fmt.Sprintf("%s(%s)", alias, decision.Reason))
 	}
@@ -59,9 +71,16 @@ func (dc *daemonContext) checkDaemonCluster(conn net.Conn, aliases []string, com
 	return false
 }
 
-func (dc *daemonContext) sendPolicyDecision(conn net.Conn, decision policy.Decision) bool {
+func (dc *daemonContext) sendPolicyDecision(conn net.Conn, decision policy.Decision, operation, summary string, aliases []string) bool {
 	if decision.Allowed {
 		return true
+	}
+	entry := audit.BlockedEntry(decision.Alias, operation, summary, decision.Reason, decision.Pattern, audit.SourceDaemon)
+	if len(aliases) > 0 {
+		entry.Aliases = append([]string(nil), aliases...)
+	}
+	if !dc.sendAudit(conn, entry) {
+		return false
 	}
 	err := decisionToError(decision)
 	if ce, ok := err.(*output.CmdError); ok {

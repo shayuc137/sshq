@@ -15,7 +15,7 @@ All SSH operations route through `sshq`. Never shell out to `ssh` or `scp` direc
 - [`references/exec-transfer.md`](references/exec-transfer.md) — when running commands or transferring files: full flag reference for exec, cp, script-file
 - [`references/config.md`](references/config.md) — when managing host configuration: config add/set/remove, sshq metadata format, ProxyJump setup
 - [`references/cluster-tunnel.md`](references/cluster-tunnel.md) — when doing multi-host operations or port forwarding: cluster exec, tunnel start/stop/list
-- [`references/policy.md`](references/policy.md) — when validating capability policy or managing temporary grants: policy validate/check/list/grant/revoke
+- [`references/policy.md`](references/policy.md) — when validating capability policy, managing temporary grants, or querying audit logs: policy validate/check/list/grant/revoke, audit
 - [`references/discovery.md`](references/discovery.md) — when listing/searching/inspecting hosts: ls, search, info, probe, trust, daemon
 
 ## Routing table
@@ -39,6 +39,7 @@ All SSH operations route through `sshq`. Never shell out to `ssh` or `scp` direc
 | Validate capability policy | `sshq policy validate` |
 | Check policy decision | `sshq policy check <alias> --command "<cmd>"` |
 | Temporary policy grant | `sshq policy grant <alias> "<pattern>" --ttl 15m` |
+| Query audit log | `sshq audit --last 50` |
 | Trust host key | `sshq trust <alias>` |
 
 ## exec
@@ -148,6 +149,17 @@ sshq policy revoke --alias prod
 ```
 
 Temporary grants live only in daemon memory, require a controlling TTY, expire by TTL, and never override command blacklists.
+
+## audit
+
+Audit logging is controlled by `[audit]` in `config.toml` and is disabled by default. When enabled, sshq writes JSONL metadata for exec, cp, tunnel, cluster, and policy-blocked operations without storing stdout/stderr, passwords, or full script contents.
+
+```bash
+sshq audit --last 50
+sshq audit --alias prod --operation exec
+```
+
+Use `--verbose` while querying to warn about skipped corrupt JSONL lines.
 
 ## output modes
 
