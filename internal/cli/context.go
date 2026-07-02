@@ -197,21 +197,6 @@ func credentialErrorSummary(err error) string {
 	}
 }
 
-// resolveProxyChain recursively resolves a ProxyJump alias into a full
-// ConnConfig chain. Handles multi-level jumps (A → B → C). A visited set
-// guards against cyclic ProxyJump config (A → B → A), which would otherwise
-// recurse until the stack overflows; on a cycle the chain is cut at the
-// repeated host rather than panicking.
-func resolveProxyChain(store *config.Store, proxyJump string) *sshclient.ConnConfig {
-	cfg, _ := resolveProxyChainWithCredentials(store, proxyJump, nil)
-	return cfg
-}
-
-func resolveProxyChainGuarded(store *config.Store, proxyJump string, visited map[string]bool) *sshclient.ConnConfig {
-	cfg, _ := resolveProxyChainGuardedWithCredentials(store, proxyJump, visited, nil)
-	return cfg
-}
-
 func resolveProxyChainWithCredentials(store *config.Store, proxyJump string, creds *credential.Store) (*sshclient.ConnConfig, error) {
 	return resolveProxyChainGuardedWithCredentials(store, proxyJump, make(map[string]bool), creds)
 }
