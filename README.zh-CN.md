@@ -2,7 +2,7 @@
 
 # sshq
 
-给 Agent 用的 SSH CLI，保留终端手感。
+跨平台 SSH 单二进制，为 AI agent 设计。
 
 [![Go](https://img.shields.io/badge/Go-1.23+-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
@@ -12,9 +12,9 @@
 
 </div>
 
-AI agent 通常通过子进程调用 SSH。普通 `ssh` 默认假设使用者是人：提示、进度、远端 shell 差异、需要猜测的文本输出，最后都落到调用方身上。
+agent 调 SSH 最头疼的事：拿回来的是一堆文本，混着连接提示、进度条、各种编码问题，得靠正则猜着 parse。
 
-sshq 修的是这层管道。stdout 是管道时默认输出 JSON；stdout 是终端时输出易读文本。远端 stdout 不被 sshq 自己的信息污染。shell 差异在调用方看到结果之前处理掉。
+sshq 解决的就是这个。通过管道调用时自动输出 JSON，在终端里用时自动输出易读格式。远程命令的 stdout 就是远端的 stdout，sshq 自己的信息全走 stderr，不会混进去。远端是 bash 还是 PowerShell，sshq 替你处理好。
 
 ```bash
 # 人在终端里执行：stdout 是 TTY，所以输出文本。
@@ -124,29 +124,24 @@ sshq tunnel list
 sshq tunnel stop tun-1
 ```
 
-## sshq 不一样的地方
+## 有什么不同
 
-| 行为 | 为什么重要 |
+| 特性 | 说明 |
 | --- | --- |
-| TTY 自动检测 | Agent 不加 `--json` 也能拿 JSON；人在终端里不加 `--pretty` 也能看易读输出。 |
-| `exec` stdout 纯净 | 终端模式下，进程 stdout 精确等于远端 stdout。sshq 的状态、进度和诊断信息走 stderr。 |
-| Daemon 连接池 | 重复调用复用 SSH 会话。daemon 不可用时，命令回退到直连 SSH。 |
-| SFTP + raw 回退 | 普通服务器走 SFTP；没有 `sftp-server` 的 BusyBox/OpenWrt 这类精简系统走原始字节流。 |
-| 远端 shell 探测 | sshq 探测 bash、ash、zsh、sh、PowerShell、cmd，并用匹配的语法包装命令。 |
-| 服务器之间中转 | `sshq cp hostA:/path hostB:/path` 通过本地 sshq 进程流式中转，不写本地临时文件。 |
-| 能力策略 | 命令黑白名单、路径白名单、隧道转发白名单、临时授权和审计日志在同一层处理。 |
-| AI skill 安装 | `sshq skill install` 把 Claude Code 或 Codex 的 SSH 路由切到 sshq。 |
+| TTY 自动检测 | 管道调用自动 JSON，终端自动易读格式，不用加任何 flag |
+| stdout 干净 | `exec` 的 stdout 就是远端 stdout，sshq 自己的信息全走 stderr |
+| 连接池 | daemon 后台复用 SSH 会话，没有 daemon 时自动直连，不影响使用 |
+| 传输降级 | 有 SFTP 就用 SFTP，没有（比如 OpenWrt）就走原始字节流 |
+| shell 适配 | 自动探测远端 bash/ash/PowerShell/cmd，用对应语法包装命令 |
+| 服务器中转 | `sshq cp hostA:/path hostB:/path` 直接流式中转，不落本地 |
+| 安全策略 | 命令黑白名单、路径白名单、隧道转发白名单、临时授权、审计日志 |
+| skill 安装 | `sshq skill install` 一键安装到 Claude Code 或 Codex |
 
-## 输出契约
+## 输出规则
 
-sshq 按这个顺序决定输出模式：
+sshq 按以下优先级决定输出格式：`--json` > `--pretty` > 环境变量 `SSHQ_OUTPUT=json` > TTY 检测。
 
-1. `--json`
-2. `--pretty`
-3. `SSHQ_OUTPUT=json`
-4. stdout 的 TTY 检测结果
-
-对于 `exec`，stdout 是契约：
+`exec` 有一条硬规则：stdout 只放远端命令的输出，sshq 自己的东西全走 stderr。
 
 ```bash
 # 远端 stdout 保持干净。
@@ -174,11 +169,11 @@ JSON 模式下，同样的保证体现在 `data.stdout`：
 }
 ```
 
-SSH 连接成功不代表远端命令成功。Agent 应同时检查 `ok` 和 `data.exit_code`。
+SSH 连上了不等于远端命令跑成功了——agent 要同时看 `ok` 和 `data.exit_code`。
 
 ## 安全模型
 
-sshq 把秘密、权限和审计记录放在 `~/.ssh/config` 之外。
+密码、权限策略、审计日志都独立于 `~/.ssh/config`，统一放在 `config.toml` 里管理。
 
 ### 加密凭据
 
@@ -188,9 +183,9 @@ sshq credential list
 sshq credential delete router-1
 ```
 
-密码使用 age 加密。ssh-agent 和私钥认证优先，已保存密码只是最后的回退方式。sshq 没有任何命令会打印已保存的密码。
+密码用 age 加密存储。认证优先级：ssh-agent > 私钥 > 存储的密码。没有命令会打印密码明文。
 
-如果凭据库使用口令模式，并且运行环境没有终端，请在启动 sshq 或 daemon 前设置 `SSHQ_CREDENTIAL_PASSPHRASE`。
+无终端环境（daemon、agent 管道）下需要凭据库时，启动前设好 `SSHQ_CREDENTIAL_PASSPHRASE` 环境变量。
 
 ### 能力策略
 
@@ -213,9 +208,9 @@ remote_path_whitelist = ["/var/log"]
 local_forward_whitelist = ["db.internal:5432"]
 ```
 
-直连 CLI 路径和 daemon 分发路径都会检查策略。对于隧道，本地转发检查远端目标（`remote_host:remote_port`），远端转发检查本地目标（`local_host:local_port`）。
+CLI 直连和 daemon 路径都走策略检查。隧道方面，`-L` 检查远端目标，`-R` 检查本地目标。
 
-运行前可以先测试策略结果：
+执行前可以先试一下会不会被拦：
 
 ```bash
 sshq policy validate
@@ -224,7 +219,7 @@ sshq policy check prod-db --remote-path /var/log/app.log
 sshq policy check prod-db --local-forward db.internal:5432
 ```
 
-临时授权需要终端，按 TTL 过期，并且永远不能覆盖黑名单：
+临时授权需要终端交互，到期自动失效，黑名单永远不能绕过：
 
 ```bash
 sshq policy grant prod-db "^journalctl(\\s|$)" --ttl 15m
@@ -241,14 +236,14 @@ path = "~/.config/sshq/audit.jsonl"
 max_size = "10MB"
 ```
 
-审计记录是 JSONL 元数据，覆盖 `exec`、`cp`、`tunnel`、`cluster` 和被策略拦截的操作。审计不保存命令输出、密码或完整脚本内容。脚本文件操作只记录 SHA-256 哈希和字节数。
+记录每次 `exec`、`cp`、`tunnel`、`cluster` 操作和被策略拦截的请求。只记元数据，不存命令输出、密码或脚本内容（脚本只记 SHA-256 和字节数）。
 
 ```bash
 sshq audit --last 50
 sshq audit --alias prod-db --operation exec
 ```
 
-审计开启但日志无法写入时，sshq 会阻止操作，而不是静默绕过审计。
+审计开了但日志写不进去时，sshq 会拒绝执行，不会静默跳过。
 
 ## 架构
 
@@ -268,11 +263,11 @@ graph LR
     H -->|no| J[JSON Output]
 ```
 
-Daemon 负责连接池、远端 profile 缓存和后台隧道。没有 daemon 时，CLI 路径仍然可用。
+daemon 管连接池、profile 缓存和后台隧道。没有 daemon 也能用，只是每次重新连。
 
 ## Agent 集成
 
-sshq 适合被 Claude Code、Codex、Cursor 或自定义 agent 通过普通子进程 API 调用。
+Claude Code、Codex、Cursor 这类工具可以直接通过子进程调用 sshq。
 
 ```bash
 # Agent 通过子进程调用：stdout 是管道，所以输出 JSON。
@@ -294,7 +289,7 @@ sshq skill install --project             # 项目级安装
 sshq skill status
 ```
 
-这个 skill 会把 SSH 操作路由到 sshq，按场景加载命令参考，并避免 agent 直接使用原始 `ssh` / `scp`。
+skill 让 agent 的 SSH 操作都走 sshq，按场景加载命令参考，不再直接调 `ssh` / `scp`。
 
 ## 文档
 
@@ -335,7 +330,7 @@ sshq/
 
 ## 参与贡献
 
-开发环境、工作流、测试、文档同步和提交信息规则见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 许可证
 
