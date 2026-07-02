@@ -17,6 +17,10 @@ func init() {
 	if !ok {
 		return
 	}
+	// go install @v0.2.0 sets a clean semver tag; local builds produce (devel) or pseudo-versions.
+	if v := info.Main.Version; isRelease(v) {
+		Version = v
+	}
 	settings := make(map[string]string)
 	for _, s := range info.Settings {
 		settings[s.Key] = s.Value
@@ -64,4 +68,13 @@ func truncate(s string, n int) string {
 		return s[:n]
 	}
 	return s
+}
+
+// isRelease returns true for clean semver tags like "v0.2.0", false for
+// "(devel)", pseudo-versions, or empty strings.
+func isRelease(v string) bool {
+	if v == "" || v == "(devel)" {
+		return false
+	}
+	return !strings.Contains(v, "-0.") && !strings.Contains(v, "+")
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/shayuc137/sshq/internal/output"
 	"github.com/shayuc137/sshq/internal/policy"
 	"github.com/shayuc137/sshq/internal/remote"
+	"github.com/shayuc137/sshq/internal/version"
 	"github.com/spf13/cobra"
 )
 
@@ -19,6 +20,7 @@ func NewRootCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "sshq",
 		Short:         "Agent-native SSH multiplexing CLI",
+		Version:       version.String(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Args:          cobra.ArbitraryArgs,
@@ -93,6 +95,8 @@ func NewRootCommand() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.SetVersionTemplate("{{.Version}}\n")
 
 	cmd.PersistentFlags().Bool("json", false, "output in JSON format")
 	cmd.PersistentFlags().Bool("pretty", false, "human-readable output")
