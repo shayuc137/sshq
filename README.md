@@ -12,9 +12,9 @@ Agent-safe SSH in one cross-platform binary.
 
 </div>
 
-AI agents call SSH through subprocesses. Plain `ssh` was written for terminals: prompts, progress, remote shell differences, and text output that callers often parse by guesswork.
+AI agents call SSH through subprocesses. What comes back is unstructured text, mixed with connection banners, progress bars, and encoding surprises. The agent parses it with regex and hopes for the best.
 
-sshq fixes that layer. Pipe output is JSON by default. A terminal gets readable output. Remote stdout stays remote stdout. Shell differences are handled before the caller sees them.
+sshq cleans up the plumbing. Pipe calls get JSON automatically. Terminal sessions get readable text. Remote stdout is never polluted by sshq's own messages. Shell differences between bash, ash, PowerShell, and cmd are sorted out before the caller sees anything.
 
 ```bash
 # Human in a terminal: stdout is a TTY, so sshq prints text.
@@ -129,7 +129,7 @@ sshq tunnel stop tun-1
 | Behavior | Why it matters |
 | --- | --- |
 | TTY auto-detection | Agents get JSON without passing `--json`; humans get readable terminal output without passing `--pretty`. |
-| stdout purity for `exec` | In terminal mode, process stdout is the remote stdout exactly. sshq status, progress, and diagnostics go to stderr. |
+| stdout purity for `exec` | stdout is exactly the remote stdout. sshq's own status, progress, and diagnostics go to stderr. |
 | Daemon connection pool | Repeat calls reuse SSH sessions. If the daemon is unavailable, commands fall back to direct SSH. |
 | SFTP with raw fallback | File transfer works on normal servers and on minimal BusyBox/OpenWrt-style hosts without `sftp-server`. |
 | Remote shell detection | sshq probes bash, ash, zsh, sh, PowerShell, and cmd paths, then wraps commands with the right syntax. |
@@ -139,14 +139,9 @@ sshq tunnel stop tun-1
 
 ## Output contract
 
-sshq picks its output mode in this order:
+Output mode priority: `--json` > `--pretty` > `SSHQ_OUTPUT=json` env var > TTY detection.
 
-1. `--json`
-2. `--pretty`
-3. `SSHQ_OUTPUT=json`
-4. stdout TTY detection
-
-For `exec`, stdout is treated as the contract:
+One hard rule for `exec`: stdout only carries remote command output. Everything else goes to stderr.
 
 ```bash
 # Remote stdout stays clean.
@@ -158,7 +153,7 @@ sshq myhost "printf 'one\ntwo\n'"
 sshq -v myhost "hostname" >/tmp/remote.out 2>/tmp/sshq.log
 ```
 
-In JSON mode, the same guarantee moves into `data.stdout`:
+In JSON mode, remote output lands in `data.stdout`:
 
 ```json
 {
@@ -174,11 +169,11 @@ In JSON mode, the same guarantee moves into `data.stdout`:
 }
 ```
 
-A successful SSH connection can still carry a failing remote command. Agents should check both `ok` and `data.exit_code`.
+A successful SSH connection does not mean the remote command succeeded — check both `ok` and `data.exit_code`.
 
 ## Security model
 
-sshq keeps secrets, permissions, and audit records outside `~/.ssh/config`.
+Passwords, access rules, and audit logs live in `config.toml`, separate from `~/.ssh/config`.
 
 ### Encrypted credentials
 
@@ -188,9 +183,9 @@ sshq credential list
 sshq credential delete router-1
 ```
 
-Passwords are encrypted with age. SSH agent and key authentication always win; stored passwords are the last fallback. There is no command that prints a stored password.
+Passwords are encrypted with age. Auth priority: ssh-agent > key file > stored password. No command prints stored passwords.
 
-For headless credential stores that use a passphrase, set `SSHQ_CREDENTIAL_PASSPHRASE` before starting sshq or the daemon.
+Headless environments (daemon, agent pipe): set `SSHQ_CREDENTIAL_PASSPHRASE` before starting sshq.
 
 ### Capability policy
 
@@ -213,7 +208,7 @@ remote_path_whitelist = ["/var/log"]
 local_forward_whitelist = ["db.internal:5432"]
 ```
 
-Policy checks apply to direct CLI paths and daemon-dispatched requests. For tunnels, local forwarding checks the remote target (`remote_host:remote_port`), and remote forwarding checks the local target (`local_host:local_port`).
+Both CLI and daemon paths run policy checks. For tunnels, `-L` checks the remote target, `-R` checks the local target.
 
 Test a decision before running the operation:
 
@@ -241,14 +236,14 @@ path = "~/.config/sshq/audit.jsonl"
 max_size = "10MB"
 ```
 
-Audit records are JSONL metadata for `exec`, `cp`, `tunnel`, `cluster`, and blocked policy decisions. They do not store command output, passwords, or full script contents. Script-file operations record a SHA-256 hash and byte count.
+Records every `exec`, `cp`, `tunnel`, `cluster`, and policy-blocked operation as JSONL metadata. No command output, passwords, or script contents are stored (scripts get a SHA-256 hash and byte count).
 
 ```bash
 sshq audit --last 50
 sshq audit --alias prod-db --operation exec
 ```
 
-When audit is enabled but the log cannot be written, sshq blocks the operation instead of silently running without an audit record.
+If audit is on but the log can't be written, sshq refuses to run the operation. No silent bypass.
 
 ## Architecture
 
@@ -268,11 +263,11 @@ graph LR
     H -->|no| J[JSON Output]
 ```
 
-The daemon owns pooled connections, cached remote profiles, and background tunnels. The CLI path remains usable without it.
+The daemon manages pooled connections, cached profiles, and background tunnels. Everything works without it too — just slower on repeat calls.
 
 ## Agent integration
 
-sshq is meant to be called by tools such as Claude Code, Codex, Cursor, and custom agents through ordinary subprocess APIs.
+Claude Code, Codex, Cursor, or any tool that can run a subprocess can call sshq directly.
 
 ```bash
 # Agent calls via subprocess: stdout is a pipe, so output is JSON.
@@ -294,7 +289,7 @@ sshq skill install --project             # project-level install
 sshq skill status
 ```
 
-The skill routes SSH work through sshq, loads command references only when needed, and keeps raw `ssh` / `scp` out of agent plans.
+The skill makes agents route SSH work through sshq, load command references on demand, and stop using raw `ssh` / `scp`.
 
 ## Documentation
 
