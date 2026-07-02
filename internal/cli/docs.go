@@ -1,16 +1,22 @@
 package cli
 
 import (
+	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 
+	"github.com/shayuc137/sshq/internal/exec"
+	"github.com/shayuc137/sshq/internal/output"
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
 )
 
 func newDocsCommand() *cobra.Command {
 	var skill bool
+	var verify bool
 	cmd := &cobra.Command{
 		Use:    "docs <output-dir>",
 		Short:  "Generate command reference documentation",
@@ -18,11 +24,16 @@ func newDocsCommand() *cobra.Command {
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir := args[0]
+			root := cmd.Root()
+			root.DisableAutoGenTag = true
+
+			if verify {
+				return verifySkillDocs(cmd, root, dir)
+			}
+
 			if err := os.MkdirAll(dir, 0755); err != nil {
 				return fmt.Errorf("create dir: %w", err)
 			}
-			root := cmd.Root()
-			root.DisableAutoGenTag = true
 			if skill {
 				return genSkillDocs(root, dir)
 			}
@@ -30,6 +41,7 @@ func newDocsCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&skill, "skill", false, "generate skill reference docs (grouped by scenario)")
+	cmd.Flags().BoolVar(&verify, "verify", false, "verify skill docs are up-to-date with cobra command tree")
 	return cmd
 }
 
@@ -145,6 +157,153 @@ func buildCmdIndex(cmd *cobra.Command, prefix string) map[string]*cobra.Command 
 		}
 	}
 	return idx
+}
+
+// DocDrift holds the result of comparing generated docs against existing ones.
+type DocDrift struct {
+	Consistent bool       `json:"consistent"`
+	Added      []string   `json:"added,omitempty"`
+	Removed    []string   `json:"removed,omitempty"`
+	Changed    []FileDiff `json:"changed,omitempty"`
+}
+
+type FileDiff struct {
+	File    string `json:"file"`
+	Summary string `json:"summary"`
+}
+
+func (d DocDrift) Pretty() string {
+	var b strings.Builder
+	for _, f := range d.Added {
+		fmt.Fprintf(&b, "  + %s (new, not in target)\n", f)
+	}
+	for _, f := range d.Removed {
+		fmt.Fprintf(&b, "  - %s (in target, no longer generated)\n", f)
+	}
+	for _, c := range d.Changed {
+		fmt.Fprintf(&b, "  ~ %s: %s\n", c.File, c.Summary)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func verifySkillDocs(cmd *cobra.Command, root *cobra.Command, dir string) error {
+	w := writerFrom(cmd.Context())
+
+	tmpDir, err := os.MkdirTemp("", "sshq-docs-verify-*")
+	if err != nil {
+		return output.Errorf("create temp dir: "+err.Error(), "")
+	}
+	defer os.RemoveAll(tmpDir)
+
+	if err := genSkillDocs(root, tmpDir); err != nil {
+		return output.Errorf("generate docs failed: "+err.Error(), "")
+	}
+
+	drift := compareDocDirs(tmpDir, dir)
+	if drift.Consistent {
+		w.Success("docs are up-to-date with cobra command tree")
+		return nil
+	}
+
+	w.Render(drift)
+	w.Info("run: sshq docs --skill " + dir)
+	return &exec.ExitError{Code: 1}
+}
+
+func compareDocDirs(generatedDir, targetDir string) DocDrift {
+	genFiles := listMDFiles(generatedDir)
+	targetFiles := listMDFiles(targetDir)
+
+	var drift DocDrift
+
+	for _, f := range genFiles {
+		if !contains(targetFiles, f) {
+			drift.Added = append(drift.Added, f)
+		}
+	}
+
+	for _, f := range targetFiles {
+		if !contains(genFiles, f) {
+			drift.Removed = append(drift.Removed, f)
+		}
+	}
+
+	for _, f := range genFiles {
+		if !contains(targetFiles, f) {
+			continue
+		}
+		genContent, err1 := os.ReadFile(filepath.Join(generatedDir, f))
+		targetContent, err2 := os.ReadFile(filepath.Join(targetDir, f))
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		if !bytes.Equal(genContent, targetContent) {
+			summary := docDiffSummary(string(targetContent), string(genContent))
+			drift.Changed = append(drift.Changed, FileDiff{File: f, Summary: summary})
+		}
+	}
+
+	drift.Consistent = len(drift.Added) == 0 && len(drift.Removed) == 0 && len(drift.Changed) == 0
+	return drift
+}
+
+func listMDFiles(dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var files []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
+			files = append(files, e.Name())
+		}
+	}
+	sort.Strings(files)
+	return files
+}
+
+func contains(ss []string, s string) bool {
+	for _, v := range ss {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+func docDiffSummary(existing, generated string) string {
+	oldCmds := extractDocCommands(existing)
+	newCmds := extractDocCommands(generated)
+
+	var parts []string
+	for _, c := range newCmds {
+		if !contains(oldCmds, c) {
+			parts = append(parts, "+cmd: "+c)
+		}
+	}
+	for _, c := range oldCmds {
+		if !contains(newCmds, c) {
+			parts = append(parts, "-cmd: "+c)
+		}
+	}
+
+	if len(parts) == 0 {
+		parts = append(parts, "content changed (flags/usage)")
+	}
+	return strings.Join(parts, ", ")
+}
+
+func extractDocCommands(content string) []string {
+	var cmds []string
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "## sshq ") || strings.HasPrefix(line, "### sshq ") {
+			cmd := strings.TrimPrefix(line, "### ")
+			cmd = strings.TrimPrefix(cmd, "## ")
+			cmds = append(cmds, cmd)
+		}
+	}
+	return cmds
 }
 
 const configMetadataRef = "---\n" +
