@@ -23,7 +23,7 @@ Temporarily grant a policy whitelist exception in the daemon
 **Flags:**
 
 ```
-      --kind string    grant kind: command, local-path, or remote-path (default "command")
+      --kind string    grant kind: command, local-path, remote-path, local-forward, or remote-forward (default "command")
       --ttl duration   grant TTL, required and capped at 1h
 ```
 
@@ -63,14 +63,16 @@ Validate config.toml policy syntax and references
 sshq policy check <alias> [flags]
 ```
 
-Check whether a command or path would be allowed
+Check whether a command, path, or forward target would be allowed
 
 **Flags:**
 
 ```
-      --command string       command text to check
-      --local-path string    local path to check
-      --remote-path string   remote path to check
+      --command string          command text to check
+      --local-forward string    local forward target (host:port) to check
+      --local-path string       local path to check
+      --remote-forward string   remote forward target (host:port) to check
+      --remote-path string      remote path to check
 ```
 
 ## sshq audit

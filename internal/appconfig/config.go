@@ -17,11 +17,13 @@ type PolicyConfig struct {
 }
 
 type RuleSet struct {
-	Enabled             *bool    `toml:"enabled"`
-	CommandWhitelist    []string `toml:"command_whitelist"`
-	CommandBlacklist    []string `toml:"command_blacklist"`
-	LocalPathWhitelist  []string `toml:"local_path_whitelist"`
-	RemotePathWhitelist []string `toml:"remote_path_whitelist"`
+	Enabled                *bool    `toml:"enabled"`
+	CommandWhitelist       []string `toml:"command_whitelist"`
+	CommandBlacklist       []string `toml:"command_blacklist"`
+	LocalPathWhitelist     []string `toml:"local_path_whitelist"`
+	RemotePathWhitelist    []string `toml:"remote_path_whitelist"`
+	LocalForwardWhitelist  []string `toml:"local_forward_whitelist"`
+	RemoteForwardWhitelist []string `toml:"remote_forward_whitelist"`
 }
 
 type HostPolicy struct {

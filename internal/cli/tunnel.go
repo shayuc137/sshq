@@ -77,6 +77,16 @@ Examples:
 				localAddr, remoteAddr = la, ra
 			}
 
+			var policyTarget string
+			if direction == "local" {
+				policyTarget = remoteAddr
+			} else {
+				policyTarget = localAddr
+			}
+			if err := policyCheckForward(cmd.Context(), alias, direction, policyTarget); err != nil {
+				return err
+			}
+
 			if ipc.IsRunning() {
 				env, _ := ipc.MakeEnvelope("tunnel-start", ipc.TunnelStartPayload{
 					Direction:  direction,

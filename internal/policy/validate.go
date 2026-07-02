@@ -58,6 +58,16 @@ func validateRuleSet(alias, prefix string, r appconfig.RuleSet) []ValidationErro
 			errs = append(errs, ValidationError{Alias: alias, Field: prefix + ".remote_path_whitelist", Message: err.Error()})
 		}
 	}
+	for _, entry := range r.LocalForwardWhitelist {
+		if _, _, err := parseForwardEntry(entry); err != nil {
+			errs = append(errs, ValidationError{Alias: alias, Field: prefix + ".local_forward_whitelist", Message: fmt.Sprintf("invalid entry %q: %s", entry, err)})
+		}
+	}
+	for _, entry := range r.RemoteForwardWhitelist {
+		if _, _, err := parseForwardEntry(entry); err != nil {
+			errs = append(errs, ValidationError{Alias: alias, Field: prefix + ".remote_forward_whitelist", Message: fmt.Sprintf("invalid entry %q: %s", entry, err)})
+		}
+	}
 	return errs
 }
 

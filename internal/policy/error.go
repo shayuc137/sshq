@@ -43,6 +43,8 @@ func (e *BlockedError) hint() string {
 		return fmt.Sprintf("local path blocked on host %q: %s is outside the whitelist", alias, truncateForError(e.Input))
 	case ReasonRemotePathDenied:
 		return fmt.Sprintf("remote path blocked on host %q: %s is outside the whitelist", alias, truncateForError(e.Input))
+	case ReasonForwardDenied:
+		return fmt.Sprintf("forward blocked on host %q: %s is outside the whitelist", alias, truncateForError(e.Input))
 	case ReasonConfigError:
 		return fmt.Sprintf("policy configuration invalid for host %q: %s", alias, e.Pattern)
 	default:
@@ -60,6 +62,12 @@ func (e *BlockedError) action() string {
 		return fmt.Sprintf("to allow temporarily: sshq policy grant %s %s --kind local-path --ttl 1h", e.Alias, shellQuote(e.Input))
 	case ReasonRemotePathDenied:
 		return fmt.Sprintf("to allow temporarily: sshq policy grant %s %s --kind remote-path --ttl 1h", e.Alias, shellQuote(e.Input))
+	case ReasonForwardDenied:
+		kind := "local-forward"
+		if e.Kind == KindRemoteForward {
+			kind = "remote-forward"
+		}
+		return fmt.Sprintf("to allow temporarily: sshq policy grant %s %s --kind %s --ttl 1h", e.Alias, shellQuote(e.Input), kind)
 	case ReasonConfigError:
 		return "fix config.toml, then rerun the command"
 	default:

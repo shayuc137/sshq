@@ -38,6 +38,16 @@ func (dc *daemonContext) handleTunnelStart(conn net.Conn, raw json.RawMessage) {
 		"connection: alias=%s duration=%s daemon reused=%t",
 		payload.Alias, verboseDuration(time.Since(connectStart)), reused)
 
+	var policyTarget string
+	if payload.Direction == "local" {
+		policyTarget = payload.RemoteAddr
+	} else {
+		policyTarget = payload.LocalAddr
+	}
+	if !dc.checkDaemonForward(conn, payload.Alias, payload.Direction, policyTarget, payload.LocalAddr, payload.RemoteAddr, auditStart) {
+		return
+	}
+
 	tunnelCfg := tunnel.Config{
 		Direction:  tunnel.Direction(payload.Direction),
 		Alias:      payload.Alias,

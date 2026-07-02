@@ -45,7 +45,7 @@ func newPolicyGrantCommand() *cobra.Command {
 				return output.Errorf("ttl exceeds maximum "+policypkg.MaxGrantTTL.String(), "use a shorter --ttl")
 			}
 			if !validPolicyKind(kind) {
-				return output.Errorf("invalid grant kind: "+kind, "use command, local-path, or remote-path")
+				return output.Errorf("invalid grant kind: "+kind, "use command, local-path, remote-path, local-forward, or remote-forward")
 			}
 			if err := confirmPolicyGrant(cmd, alias, kind, pattern, ttl); err != nil {
 				return output.Errorf(err.Error(), "run in an interactive terminal with a controlling TTY")
@@ -65,7 +65,7 @@ func newPolicyGrantCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().DurationVar(&ttl, "ttl", 0, "grant TTL, required and capped at 1h")
-	cmd.Flags().StringVar(&kind, "kind", policypkg.KindCommand, "grant kind: command, local-path, or remote-path")
+	cmd.Flags().StringVar(&kind, "kind", policypkg.KindCommand, "grant kind: command, local-path, remote-path, local-forward, or remote-forward")
 	return cmd
 }
 
@@ -165,20 +165,22 @@ func newPolicyCheckCommand() *cobra.Command {
 	var command string
 	var localPath string
 	var remotePath string
+	var localForward string
+	var remoteForward string
 	cmd := &cobra.Command{
 		Use:   "check <alias>",
-		Short: "Check whether a command or path would be allowed",
+		Short: "Check whether a command, path, or forward target would be allowed",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			alias := args[0]
 			selected := 0
-			for _, v := range []string{command, localPath, remotePath} {
+			for _, v := range []string{command, localPath, remotePath, localForward, remoteForward} {
 				if v != "" {
 					selected++
 				}
 			}
 			if selected != 1 {
-				return output.Errorf("exactly one check input is required", "use --command, --local-path, or --remote-path")
+				return output.Errorf("exactly one check input is required", "use --command, --local-path, --remote-path, --local-forward, or --remote-forward")
 			}
 
 			checker, err := checkerForPolicyCheck(cmd.Context())
@@ -197,6 +199,10 @@ func newPolicyCheckCommand() *cobra.Command {
 				decision = checker.CheckLocalPath(alias, localPath)
 			case remotePath != "":
 				decision = checker.CheckRemotePath(alias, remotePath)
+			case localForward != "":
+				decision = checker.CheckLocalForward(alias, localForward)
+			case remoteForward != "":
+				decision = checker.CheckRemoteForward(alias, remoteForward)
 			}
 
 			writerFrom(cmd.Context()).Render(policyCheckOutput{Decision: decision})
@@ -206,6 +212,8 @@ func newPolicyCheckCommand() *cobra.Command {
 	cmd.Flags().StringVar(&command, "command", "", "command text to check")
 	cmd.Flags().StringVar(&localPath, "local-path", "", "local path to check")
 	cmd.Flags().StringVar(&remotePath, "remote-path", "", "remote path to check")
+	cmd.Flags().StringVar(&localForward, "local-forward", "", "local forward target (host:port) to check")
+	cmd.Flags().StringVar(&remoteForward, "remote-forward", "", "remote forward target (host:port) to check")
 	return cmd
 }
 
@@ -270,7 +278,8 @@ func confirmPolicyGrant(cmd *cobra.Command, alias, kind, pattern string, ttl tim
 
 func validPolicyKind(kind string) bool {
 	switch kind {
-	case policypkg.KindCommand, policypkg.KindLocalPath, policypkg.KindRemotePath:
+	case policypkg.KindCommand, policypkg.KindLocalPath, policypkg.KindRemotePath,
+		policypkg.KindLocalForward, policypkg.KindRemoteForward:
 		return true
 	default:
 		return false
@@ -311,6 +320,8 @@ func (o policyListOutput) Pretty() string {
 	writePatterns(&b, "command_blacklist", o.Policy.CommandBlacklist)
 	writePatterns(&b, "local_path_whitelist", o.Policy.LocalPathWhitelist)
 	writePatterns(&b, "remote_path_whitelist", o.Policy.RemotePathWhitelist)
+	writePatterns(&b, "local_forward_whitelist", o.Policy.LocalForwardWhitelist)
+	writePatterns(&b, "remote_forward_whitelist", o.Policy.RemoteForwardWhitelist)
 	if len(o.Grants) == 0 {
 		b.WriteString("grants: none")
 		return b.String()

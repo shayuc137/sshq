@@ -102,6 +102,37 @@ func checkPolicyClusterCommand(ctx context.Context, aliases []string, command st
 	)
 }
 
+func policyCheckForward(ctx context.Context, alias, direction, target string) error {
+	checker, err := checkerForPolicyCheck(ctx)
+	if err != nil {
+		return err
+	}
+	if checker == nil {
+		return nil
+	}
+
+	var decision policy.Decision
+	var operation string
+	switch direction {
+	case "local":
+		decision = checker.CheckLocalForward(alias, target)
+		operation = audit.OperationTunnelStart
+	case "remote":
+		decision = checker.CheckRemoteForward(alias, target)
+		operation = audit.OperationTunnelStart
+	default:
+		return nil
+	}
+	if decision.Allowed {
+		return nil
+	}
+	summary := audit.TunnelSummary(direction, "", target, "start")
+	if err := recordBlockedDecision(ctx, decision, operation, summary, audit.SourceDirect, nil); err != nil {
+		return err
+	}
+	return decisionToError(decision)
+}
+
 // ensureAppConfigUsable fails closed when config.toml could not be parsed. It
 // is for sensitive direct-path operations (e.g. tunnel start) that do not run a
 // policy/path check yet must not proceed under a broken audit/policy config,

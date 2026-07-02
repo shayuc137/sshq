@@ -3,14 +3,17 @@ package policy
 import "github.com/shayuc137/sshq/internal/appconfig"
 
 const (
-	KindCommand    = "command"
-	KindLocalPath  = "local-path"
-	KindRemotePath = "remote-path"
+	KindCommand        = "command"
+	KindLocalPath      = "local-path"
+	KindRemotePath     = "remote-path"
+	KindLocalForward   = "local-forward"
+	KindRemoteForward  = "remote-forward"
 
 	ReasonWhitelistMiss    = "whitelist_miss"
 	ReasonBlacklistMatch   = "blacklist_match"
 	ReasonLocalPathDenied  = "local_path_denied"
 	ReasonRemotePathDenied = "remote_path_denied"
+	ReasonForwardDenied    = "forward_denied"
 	ReasonConfigError      = "config_error"
 )
 
@@ -20,11 +23,13 @@ type Checker struct {
 }
 
 type EffectiveRuleSet struct {
-	Enabled             bool     `json:"enabled"`
-	CommandWhitelist    []string `json:"command_whitelist"`
-	CommandBlacklist    []string `json:"command_blacklist"`
-	LocalPathWhitelist  []string `json:"local_path_whitelist"`
-	RemotePathWhitelist []string `json:"remote_path_whitelist"`
+	Enabled                bool     `json:"enabled"`
+	CommandWhitelist       []string `json:"command_whitelist"`
+	CommandBlacklist       []string `json:"command_blacklist"`
+	LocalPathWhitelist     []string `json:"local_path_whitelist"`
+	RemotePathWhitelist    []string `json:"remote_path_whitelist"`
+	LocalForwardWhitelist  []string `json:"local_forward_whitelist"`
+	RemoteForwardWhitelist []string `json:"remote_forward_whitelist"`
 }
 
 type Decision struct {

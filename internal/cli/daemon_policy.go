@@ -71,6 +71,20 @@ func (dc *daemonContext) checkDaemonCluster(conn net.Conn, aliases []string, com
 	return false
 }
 
+func (dc *daemonContext) checkDaemonForward(conn net.Conn, alias, direction, target, localAddr, remoteAddr string, auditStart time.Time) bool {
+	var decision policy.Decision
+	switch direction {
+	case "local":
+		decision = dc.checker.CheckLocalForward(alias, target)
+	case "remote":
+		decision = dc.checker.CheckRemoteForward(alias, target)
+	default:
+		return true
+	}
+	summary := audit.TunnelSummary(direction, localAddr, remoteAddr, "start")
+	return dc.sendPolicyDecision(conn, decision, audit.OperationTunnelStart, summary, nil)
+}
+
 func (dc *daemonContext) sendPolicyDecision(conn net.Conn, decision policy.Decision, operation, summary string, aliases []string) bool {
 	if decision.Allowed {
 		return true
@@ -171,11 +185,13 @@ func (dc *daemonContext) handlePolicyList(conn net.Conn, raw json.RawMessage) {
 
 func policyToIPC(p policy.EffectiveRuleSet) ipc.PolicyEffectiveResult {
 	return ipc.PolicyEffectiveResult{
-		Enabled:             p.Enabled,
-		CommandWhitelist:    emptySlice(p.CommandWhitelist),
-		CommandBlacklist:    emptySlice(p.CommandBlacklist),
-		LocalPathWhitelist:  emptySlice(p.LocalPathWhitelist),
-		RemotePathWhitelist: emptySlice(p.RemotePathWhitelist),
+		Enabled:                p.Enabled,
+		CommandWhitelist:       emptySlice(p.CommandWhitelist),
+		CommandBlacklist:       emptySlice(p.CommandBlacklist),
+		LocalPathWhitelist:     emptySlice(p.LocalPathWhitelist),
+		RemotePathWhitelist:    emptySlice(p.RemotePathWhitelist),
+		LocalForwardWhitelist:  emptySlice(p.LocalForwardWhitelist),
+		RemoteForwardWhitelist: emptySlice(p.RemoteForwardWhitelist),
 	}
 }
 

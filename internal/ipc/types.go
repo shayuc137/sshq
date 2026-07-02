@@ -164,11 +164,13 @@ type PolicyRevokeResult struct {
 }
 
 type PolicyEffectiveResult struct {
-	Enabled             bool     `json:"enabled"`
-	CommandWhitelist    []string `json:"command_whitelist"`
-	CommandBlacklist    []string `json:"command_blacklist"`
-	LocalPathWhitelist  []string `json:"local_path_whitelist"`
-	RemotePathWhitelist []string `json:"remote_path_whitelist"`
+	Enabled                bool     `json:"enabled"`
+	CommandWhitelist       []string `json:"command_whitelist"`
+	CommandBlacklist       []string `json:"command_blacklist"`
+	LocalPathWhitelist     []string `json:"local_path_whitelist"`
+	RemotePathWhitelist    []string `json:"remote_path_whitelist"`
+	LocalForwardWhitelist  []string `json:"local_forward_whitelist"`
+	RemoteForwardWhitelist []string `json:"remote_forward_whitelist"`
 }
 
 type PolicyListResult struct {

@@ -138,6 +138,20 @@ func (m *GrantManager) MatchRemotePath(alias, remotePath string) bool {
 	})
 }
 
+func (m *GrantManager) MatchLocalForward(alias, target string) bool {
+	return m.match(alias, KindLocalForward, func(pattern string) bool {
+		matched, _, err := forwardAllowed(target, []string{pattern})
+		return err == nil && matched
+	})
+}
+
+func (m *GrantManager) MatchRemoteForward(alias, target string) bool {
+	return m.match(alias, KindRemoteForward, func(pattern string) bool {
+		matched, _, err := forwardAllowed(target, []string{pattern})
+		return err == nil && matched
+	})
+}
+
 func (m *GrantManager) Purge() {
 	if m == nil {
 		return
@@ -185,6 +199,10 @@ func validateGrant(kind, pattern string, ttl time.Duration) error {
 	case KindRemotePath:
 		if err := remoteWhitelistValid([]string{pattern}); err != nil {
 			return err
+		}
+	case KindLocalForward, KindRemoteForward:
+		if _, _, err := parseForwardEntry(pattern); err != nil {
+			return fmt.Errorf("invalid forward grant %q: %w", pattern, err)
 		}
 	default:
 		return fmt.Errorf("invalid grant kind %q", kind)

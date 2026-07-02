@@ -43,11 +43,13 @@ func (c *Checker) effectivePolicy(alias string) (EffectiveRuleSet, error) {
 
 func fromRuleSet(r appconfig.RuleSet, enabled bool) EffectiveRuleSet {
 	return EffectiveRuleSet{
-		Enabled:             enabled,
-		CommandWhitelist:    append([]string(nil), r.CommandWhitelist...),
-		CommandBlacklist:    append([]string(nil), r.CommandBlacklist...),
-		LocalPathWhitelist:  append([]string(nil), r.LocalPathWhitelist...),
-		RemotePathWhitelist: append([]string(nil), r.RemotePathWhitelist...),
+		Enabled:                enabled,
+		CommandWhitelist:       append([]string(nil), r.CommandWhitelist...),
+		CommandBlacklist:       append([]string(nil), r.CommandBlacklist...),
+		LocalPathWhitelist:     append([]string(nil), r.LocalPathWhitelist...),
+		RemotePathWhitelist:    append([]string(nil), r.RemotePathWhitelist...),
+		LocalForwardWhitelist:  append([]string(nil), r.LocalForwardWhitelist...),
+		RemoteForwardWhitelist: append([]string(nil), r.RemoteForwardWhitelist...),
 	}
 }
 
@@ -56,6 +58,8 @@ func appendRuleSet(base EffectiveRuleSet, host appconfig.RuleSet) EffectiveRuleS
 	base.CommandBlacklist = appendUnique(base.CommandBlacklist, host.CommandBlacklist)
 	base.LocalPathWhitelist = appendUnique(base.LocalPathWhitelist, host.LocalPathWhitelist)
 	base.RemotePathWhitelist = appendUnique(base.RemotePathWhitelist, host.RemotePathWhitelist)
+	base.LocalForwardWhitelist = appendUnique(base.LocalForwardWhitelist, host.LocalForwardWhitelist)
+	base.RemoteForwardWhitelist = appendUnique(base.RemoteForwardWhitelist, host.RemoteForwardWhitelist)
 	return base
 }
 
