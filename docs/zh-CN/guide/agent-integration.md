@@ -185,3 +185,17 @@ sshq exec --no-daemon myhost "hostname"
 ```
 
 解析器应把 `schema_version` 作为兼容性判断字段。
+
+## 安全敏感操作
+
+以下操作需要用户确认或控制终端，agent 应该转告用户而非自行执行：
+
+- `sshq trust --replace <alias>` — 覆盖已知主机密钥，可能是中间人攻击
+- `sshq credential set <alias>` — 需要终端输入密码
+- `sshq credential delete <alias>` — 永久删除已存储的密码
+- `sshq policy grant <alias> ...` — 需要终端确认，agent 不能自行授权
+- `sshq config remove <alias>` — 从 SSH 配置中删除主机
+- 远端转发（`-R`）— 把本地服务暴露给远端网络
+- 破坏性远程命令 — `rm`、`shutdown`、`reboot`、`mkfs`、`systemctl stop`、防火墙变更
+
+命令被策略拦截时，错误中的 `error.action` 包含建议的 `policy grant` 命令，直接转告用户即可。

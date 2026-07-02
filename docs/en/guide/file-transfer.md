@@ -118,6 +118,19 @@ For relay transfers, source and destination engines are selected independently. 
 > [!WARNING]
 > On Windows hosts that require stdin injection, raw stream fallback is unavailable. Enable SFTP on the Windows SSH server for file transfer.
 
+## Path Policy
+
+When capability policy is enabled, `cp` checks both local and remote paths against their respective whitelists:
+
+```bash
+sshq policy check prod --remote-path /var/log/app.log
+```
+
+- `local_path_whitelist`: restricts which local directories `cp` can read from or write to
+- `remote_path_whitelist`: restricts which remote directories `cp` can access
+
+A blocked path returns an error with a suggested `policy grant` command. See the [Security guide](security.md) for whitelist configuration.
+
 ## Progress Control
 
 Progress is written to stderr so stdout remains clean for the final result. Suppress progress with the global `--no-progress` flag:

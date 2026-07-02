@@ -132,9 +132,15 @@ total=2 success=1 failed=1
 
 Use `--json` for machine-readable results. The JSON data contains `results` and `summary`; each result includes `alias`, `stdout`, `stderr`, `exit_code`, and optional `error`.
 
+## Policy Pre-Flight
+
+After resolving the host selector, sshq checks capability policy for all target hosts before executing. If any host is blocked by policy, no hosts execute — this prevents partial execution where some hosts run a command that should have been restricted.
+
+Pre-flight block is different from runtime partial failure: pre-flight rejects the entire operation cleanly, while runtime failures are per-host.
+
 ## Error Handling
 
-Partial failures do not stop other hosts. Every selected host gets an individual result. The local command exits non-zero if any host has a connection error, execution error, or non-zero remote exit code.
+Runtime failures do not stop other hosts. Every selected host gets an individual result. The local command exits non-zero if any host has a connection error, execution error, or non-zero remote exit code.
 
 Selector errors happen before execution:
 

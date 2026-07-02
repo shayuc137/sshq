@@ -1,7 +1,7 @@
 ---
 name: sshq
 description: "CRITICAL: This skill MUST be used for ALL SSH operations. NEVER use bash 'ssh' or 'scp' commands directly - always route through sshq. Triggers: ANY mention of SSH, remote server, connect to server, server IPs (e.g., 192.168.x.x, 10.0.x.x), hostnames (e.g., user@host.com), login to, upload to server, download from server, deploy to server, run on server, check server, execute remotely, bastion host, jump host, transfer between servers, server to server, port forward, tunnel. sshq is a Go single-binary SSH CLI with daemon connection pooling, ProxyJump chain support, SFTP-with-raw-fallback file transfer, cross-shell detection (bash/ash/powershell/cmd), cluster concurrent execution, and SSH tunneling. DO NOT use for: local commands, localhost, current directory operations."
-sshq_version: "0.1.0"
+sshq_version: "0.2.0"
 keywords: SSH,sshq,remote,server,connect,upload,download,deploy,execute,transfer,tunnel,port-forward,jump-host,cluster,probe
 ---
 
@@ -17,6 +17,36 @@ All SSH operations route through `sshq`. Never shell out to `ssh` or `scp` direc
 - [`references/cluster-tunnel.md`](references/cluster-tunnel.md) — when doing multi-host operations or port forwarding: cluster exec, tunnel start/stop/list
 - [`references/policy.md`](references/policy.md) — when validating capability policy, managing temporary grants, or querying audit logs: policy validate/check/list/grant/revoke, audit
 - [`references/discovery.md`](references/discovery.md) — when listing/searching/inspecting hosts: ls, search, info, probe, trust, daemon
+
+## Environment checks
+
+Before first use, verify sshq is working:
+
+```bash
+sshq version              # confirm sshq is installed
+sshq ls                   # confirm hosts are configured
+sshq probe <alias>        # confirm network connectivity
+```
+
+If `sshq version` fails: sshq is not installed or not on PATH — ask the user to install it.
+If `sshq ls` returns empty: no hosts configured — ask the user to run `sshq config add`.
+If `sshq probe` fails: network issue — check firewall, VPN, or host address.
+
+## Safety confirmations
+
+These operations require user confirmation before execution. Do not run them autonomously:
+
+- `sshq trust --replace <alias>` — overwrites a known host key (possible MITM)
+- `sshq credential set <alias>` — requires TTY for password input
+- `sshq credential delete <alias>` — deletes stored password
+- `sshq policy grant <alias> ...` — requires TTY; agent cannot self-grant
+- `sshq policy revoke --alias <alias>` — revokes all temporary grants
+- `sshq config remove <alias>` — deletes host from SSH config
+- `sshq tunnel start ... -R ...` — remote forward exposes local services
+- Destructive remote commands: `rm`, `shutdown`, `reboot`, `mkfs`, `dd`, `systemctl stop`, `kill`, firewall changes
+- Cluster write operations: any cluster exec that modifies state on multiple hosts
+
+When a command is blocked by policy, relay the error and suggested `sshq policy grant` command to the user — do not attempt to bypass.
 
 ## Routing table
 
@@ -37,10 +67,14 @@ All SSH operations route through `sshq`. Never shell out to `ssh` or `scp` direc
 | Config delete | `sshq config remove <alias>` |
 | Password credential | `sshq credential set <alias>` |
 | Validate capability policy | `sshq policy validate` |
-| Check policy decision | `sshq policy check <alias> --command "<cmd>"` |
+| Check command policy | `sshq policy check <alias> --command "<cmd>"` |
+| Check path policy | `sshq policy check <alias> --remote-path <path>` |
+| Check forward policy | `sshq policy check <alias> --local-forward <host:port>` |
 | Temporary policy grant | `sshq policy grant <alias> "<pattern>" --ttl 15m` |
 | Query audit log | `sshq audit --last 50` |
 | Trust host key | `sshq trust <alias>` |
+| Install skill | `sshq skill install` |
+| Skill status | `sshq skill status` |
 
 ## exec
 
@@ -85,7 +119,7 @@ sshq cluster exec "df -h" --env production
 sshq cluster exec "systemctl status nginx" --all
 ```
 
-Best-effort: partial failures are reported per-host, surviving hosts complete.
+After selector resolution, sshq runs a policy pre-flight check on all targets. If any host is blocked, no hosts execute. Once pre-flight passes, runtime failures are per-host — surviving hosts complete independently.
 
 Flags: `--hosts <a,b>`, `--tag <t>`, `--env <e>`, `--all`, `--concurrency <n>` (default 10), `--no-daemon`.
 
@@ -182,10 +216,21 @@ sshq auto-detects: pipe → JSON, terminal → pretty. Override with flags:
 
 ## error handling
 
-sshq returns non-zero exit codes on failure. Check `$?` or stderr for diagnostics. Common patterns:
+Parse stdout JSON first. Branch on `ok`; for exec, also inspect `data.exit_code`. Use stderr only as diagnostics.
 
-- Connection refused / timeout: verify with `sshq probe <alias>`
-- Host not found: search with `sshq search <keyword>`
-- First-time host: trust the key with `sshq trust <alias>`
-- Command blocked by policy: relay the error to the user — it includes a suggested `sshq policy grant` command. Do not attempt to grant permissions yourself
-- Credential decrypt failure: check if SSH key changed or credentials need re-creation with `sshq credential set`
+```
+stdout JSON → ok: true  → success; for exec check data.exit_code
+            → ok: false → read error.hint + error.action
+```
+
+Common recovery patterns:
+
+| Error | Recovery |
+|-------|----------|
+| host not found | `sshq search <keyword>` to find the right alias |
+| connection refused / timeout | `sshq probe <alias>` to verify network |
+| host key unknown | `sshq trust <alias>` (ask user first) |
+| command blocked by policy | relay `error.action` to user — it contains the exact `policy grant` command |
+| credential decrypt failure | ask user to re-run `sshq credential set <alias>` |
+| path outside whitelist | relay `error.action` to user for path grant |
+| forward target blocked | relay `error.action` to user for forward grant |

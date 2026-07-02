@@ -38,3 +38,43 @@ Copy files using alias:path syntax to determine direction:
   -r, --recursive   copy directories recursively
 ```
 
+---
+
+## Agent notes
+
+### exec output contract
+
+In pretty mode, process stdout is the remote stdout exactly — sshq never writes its own messages there. In JSON mode, `data.stdout` and `data.stderr` carry the remote streams separately.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `exit_code` | int | Remote process exit code (0 = success) |
+| `stdout` | string | Remote stdout verbatim |
+| `stderr` | string | Remote stderr verbatim |
+| `host` | string | Alias used |
+| `duration_ms` | int | Wall-clock milliseconds |
+
+A successful SSH connection can carry a failing remote command. Agents should check both `ok` and `data.exit_code`.
+
+### cp output contract
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `direction` | string | upload / download / relay |
+| `remote` | string | Remote path |
+| `size` | int | Total bytes transferred |
+| `duration` | string | Human-readable duration |
+| `engine` | string | sftp / raw / sftp→sftp |
+| `files` | int | File count |
+
+### Exit behavior
+
+- Exit 0: operation succeeded (for exec, remote exit code is in `data.exit_code`)
+- Exit 1: connection failure, policy block, or local error
+- Exit N (exec only): matches remote exit code when using `sshq <alias> "cmd"` shortcut
+
+### Security
+
+- exec: checked against `command_whitelist` / `command_blacklist`
+- cp: local and remote paths checked against `local_path_whitelist` / `remote_path_whitelist`
+- `--script-file`: audit records SHA-256 hash and byte count, not the script content

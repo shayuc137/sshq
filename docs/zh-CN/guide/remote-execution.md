@@ -96,9 +96,19 @@ powershell -NoProfile -NonInteractive -Command -
 sshq exec --script-file ./scripts/health-check.sh web-1
 ```
 
+## 策略和审计
+
+启用能力策略后，sshq 在执行前检查命令是否匹配白名单/黑名单规则。被拦截的命令返回错误，附带匹配的模式和建议的 `policy grant` 命令：
+
+```bash
+sshq policy check prod --command "journalctl -u app -n 100"
+```
+
+审计日志（启用后）记录每次执行的时间戳、别名、命令摘要（截断到 200 字符）、结果和耗时。脚本文件操作只记录 SHA-256 哈希和字节数。配置详见[安全指南](security.md)。
+
 ## 控制超时
 
-`--timeout` 是全局参数，默认值是 `30s`。远程执行场景下，它覆盖连接建立、`shell` 探测、命令执行和脚本执行。
+`--timeout` 是全局参数，默认值是 `30s`。远程执行场景下，它覆盖连接建立、shell 探测、命令执行和脚本执行。
 
 ```bash
 sshq --timeout 10s web-1 "uptime"

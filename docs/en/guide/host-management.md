@@ -150,6 +150,8 @@ sshq credential delete router-1
 > [!TIP]
 > If you have no SSH key, `sshq` falls back to passphrase-based encryption for the credential file.
 
+For headless environments (daemon, agent pipe), set `SSHQ_CREDENTIAL_PASSPHRASE` in the environment before starting commands. See the [Security guide](security.md) for the full credential and policy configuration.
+
 ## Probe Connectivity
 
 Use `probe` for TCP reachability checks.

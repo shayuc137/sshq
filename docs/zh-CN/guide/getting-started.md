@@ -6,46 +6,73 @@
 
 使用前需要：
 
-- `Go 1.23` 或更新版本，用于通过 `go install` 安装
-- 本机已有一组 `SSH` 密钥
-- 至少一台可以连通的 `SSH` 主机
+- 本机已有一组 SSH 密钥
+- 至少一台可以连通的 SSH 主机
 
-检查 `Go`、密钥文件，并在需要时创建密钥：
+检查密钥文件，需要时创建：
 
 ```bash
-go version
 ls ~/.ssh/id_ed25519 ~/.ssh/id_ed25519.pub
 ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519
 ```
 
-先确认远端主机接受这把公钥，再把主机加入 `sshq`。
+先确认远端主机接受这把公钥，再把主机加入 sshq。
 
 > [!NOTE]
-> `sshq` 使用标准 `SSH` 配置、身份文件、`ssh-agent` 和 `known_hosts` 行为。
+> sshq 使用标准 SSH 配置、身份文件、ssh-agent 和 known_hosts 行为。
 
-## 安装 `sshq`
+## 安装 sshq
 
-通过 `Go` 安装，并确认 `Go` 二进制目录在 `PATH` 中：
+选择你的平台，复制下面的命令运行即可。不需要安装 Go 或其他工具链。
+
+**Linux (amd64)：**
+
+```bash
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_linux_amd64.tar.gz | tar xz
+sudo mv sshq /usr/local/bin/
+sshq version
+```
+
+**Linux (arm64，如树莓派)：**
+
+```bash
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_linux_arm64.tar.gz | tar xz
+sudo mv sshq /usr/local/bin/
+sshq version
+```
+
+**macOS (Apple Silicon)：**
+
+```bash
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_darwin_arm64.tar.gz | tar xz
+sudo mv sshq /usr/local/bin/
+sshq version
+```
+
+**macOS (Intel)：**
+
+```bash
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_darwin_amd64.tar.gz | tar xz
+sudo mv sshq /usr/local/bin/
+sshq version
+```
+
+**Windows：**
+
+1. 打开 [GitHub Releases](https://github.com/shayuc137/sshq/releases)，下载 `sshq_windows_amd64.zip`
+2. 解压得到 `sshq.exe`
+3. 把 `sshq.exe` 移到一个已在 PATH 中的文件夹，比如 `C:\Windows\` 或 `C:\Users\你的用户名\bin\`
+4. 打开新终端，运行 `sshq version`
+
+> 不确定哪些文件夹在 PATH 里？在 cmd 里运行 `echo %PATH%`，或在 PowerShell 里运行 `$env:PATH -split ';'` 查看列表。选一个文件夹把 `sshq.exe` 放进去即可。
+
+**备选：从源码安装（需要 Go 1.23+）：**
 
 ```bash
 go install github.com/shayuc137/sshq/cmd/sshq@latest
-export PATH="$PATH:$(go env GOPATH)/bin"
 ```
 
-也可以从 `GitHub Releases` 下载预编译二进制：
-
-```bash
-# 根据操作系统和处理器架构下载对应压缩包：
-# https://github.com/shayuc137/sshq/releases
-```
-
-把 `sshq` 放到 `PATH` 中的目录，例如 `Linux` 或 `macOS` 上的 `/usr/local/bin`。
-
-验证安装：
-
-```bash
-sshq version
-```
+> `go install` 会把二进制放到 `$(go env GOPATH)/bin`。如果 `sshq version` 提示找不到命令，把这个目录加到 PATH：`export PATH="$PATH:$(go env GOPATH)/bin"`（写进 `~/.bashrc` 或 `~/.zshrc` 可以永久生效）。
 
 在终端中运行会输出易读文本。在 `agent` 子进程或脚本中运行会输出 `JSON` 信封。
 
@@ -80,9 +107,17 @@ sshq info myhost
 > [!TIP]
 > 建议选择短且稳定的别名，例如 `myhost`、`prod-web-1` 或 `lab-router`。
 
+如果主机只能用密码登录（传统交换机、部分 Windows SSH 服务器），使用加密凭据库存储密码，不要写进 `~/.ssh/config`：
+
+```bash
+sshq credential set myhost
+```
+
+凭据加密的详细说明见[安全指南](security.md)。
+
 ## 测试连通性
 
-检查配置中的 `SSH` 端口是否可达：
+检查配置中的 SSH 端口是否可达：
 
 ```bash
 sshq probe myhost
@@ -173,12 +208,11 @@ SSHQ_OUTPUT=json sshq myhost "hostname"
 
 ## 下一步
 
-- [`Agent` 集成](agent-integration.zh-CN.md)
-- [命令参考](../commands/sshq.md)
-- [`sshq exec`](../commands/sshq_exec.md)
-- [`sshq cp`](../commands/sshq_cp.md)
-- [`sshq config add`](../commands/sshq_config_add.md)
-- [`sshq cluster exec`](../commands/sshq_cluster_exec.md)
-- [`sshq tunnel`](../commands/sshq_tunnel.md)
+第一条命令成功后：
 
-第一次命令成功后，建议继续试 `sshq cp` 文件传输、`sshq cluster exec` 多主机执行，以及 `sshq tunnel start` 端口转发。
+- [远程执行](remote-execution.md) — 脚本文件、shell 覆盖、超时
+- [文件传输](file-transfer.md) — 上传、下载、中转
+- [集群操作](cluster-operations.md) — 多主机并发执行
+- [SSH 隧道](tunnels.md) — 端口转发
+- [安全](security.md) — 凭据加密、能力策略、审计日志
+- [Agent 集成](agent-integration.md) — JSON 契约、stdout 纯净性、skill 安装

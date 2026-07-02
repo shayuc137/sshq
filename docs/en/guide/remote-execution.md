@@ -96,6 +96,16 @@ Run a local health-check script:
 sshq exec --script-file ./scripts/health-check.sh web-1
 ```
 
+## Policy and Audit
+
+When capability policy is enabled, sshq checks the command against whitelist/blacklist rules before execution. A blocked command returns an error with the matched pattern and a suggested `policy grant` command:
+
+```bash
+sshq policy check prod --command "journalctl -u app -n 100"
+```
+
+Audit logging (when enabled) records each execution with timestamp, alias, command summary (truncated to 200 characters), result, and duration. Script-file operations record a SHA-256 hash and byte count instead of the full script content. See the [Security guide](security.md) for configuration.
+
 ## Control Timeouts
 
 `--timeout` is a global flag. The default timeout is `30s`. For remote execution, it covers connection setup, shell detection, and command or script execution.

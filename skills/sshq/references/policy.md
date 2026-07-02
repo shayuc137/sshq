@@ -91,3 +91,24 @@ Query structured audit logs
       --operation string   filter audit entries by operation
 ```
 
+---
+
+## Agent notes
+
+### policy check output
+
+Returns `{decision: {allowed, alias, kind, reason, pattern, input}}`. Exit 0 regardless of allowed/denied — the decision is in the data, not the exit code.
+
+### policy grant behavior
+
+- Requires a controlling TTY (agents cannot self-grant)
+- TTL maximum is 1 hour
+- Grants live only in daemon memory; daemon restart clears them
+- Grants never override `command_blacklist` — blacklist always wins
+- Supported kinds: `command`, `local-path`, `remote-path`, `local-forward`, `remote-forward`
+
+### audit output
+
+Returns an array of JSONL entries with: `timestamp`, `alias`, `operation`, `summary`, `result` (success/error/blocked), `duration_ms`, `source` (direct/daemon), `exit_code`.
+
+Blocked entries include `blocked_by` (reason) and `matched_pattern`.

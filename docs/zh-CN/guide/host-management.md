@@ -150,6 +150,8 @@ sshq credential delete router-1
 > [!TIP]
 > 如果没有 SSH 密钥，`sshq` 会回退到口令加密模式保护凭据文件。
 
+无终端环境（daemon、agent 管道）下使用凭据库时，在启动命令前设置 `SSHQ_CREDENTIAL_PASSPHRASE` 环境变量。完整的凭据和策略配置见[安全指南](security.md)。
+
 ## 检查连通性
 
 使用 `probe` 做 TCP 可达性检查。

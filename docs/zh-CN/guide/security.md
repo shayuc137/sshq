@@ -1,6 +1,10 @@
 # 安全
 
-`sshq` 提供三层安全机制：加密凭据存储、能力策略和审计日志。所有配置位于系统配置目录下的 `config.toml`（Linux 上为 `~/.config/sshq/`）。
+`sshq` 提供三层安全机制：加密凭据存储、能力策略和审计日志。所有配置位于系统配置目录下的 `config.toml`：
+
+- Linux：`~/.config/sshq/`
+- macOS：`~/Library/Application Support/sshq/`
+- Windows：`%APPDATA%\sshq\`
 
 ## 密码凭据
 
@@ -65,6 +69,34 @@ command_blacklist = ["(?i)(^|[;&|])\\s*(rm|dd|mkfs|shutdown)\\b"]
 - 空白名单 = 该维度不限制
 - 本地路径会解析为绝对路径并解析 symlink，使用前缀边界匹配
 
+### 转发白名单
+
+隧道转发使用和命令/路径相同的策略框架：
+
+```toml
+[policy.default]
+local_forward_whitelist = ["localhost:8000-9000", "db.internal:5432"]
+remote_forward_whitelist = []
+```
+
+- `local_forward_whitelist` 检查 `-L` 隧道的**远端目标**（`remote_host:remote_port`）
+- `remote_forward_whitelist` 检查 `-R` 隧道的**本地目标**（`local_host:local_port`）
+- 空白名单 = 不限制
+
+支持精确匹配（`localhost:8080`）、端口通配（`localhost:*`）、端口范围（`localhost:8000-9000`）和 host 通配（`*:22`）。
+
+测试转发是否允许：
+
+```bash
+sshq policy check bastion --local-forward db.internal:5432
+```
+
+临时授权转发访问：
+
+```bash
+sshq policy grant bastion "db.internal:5432" --kind local-forward --ttl 15m
+```
+
 ### 临时授权
 
 命令被阻止时，错误信息会包含建议的授权命令：
@@ -102,7 +134,7 @@ sshq policy list prod                                           # 查看生效�
 ```toml
 [audit]
 enabled = true
-path = "~/.config/sshq/audit.log"
+path = "~/.config/sshq/audit.jsonl"
 max_size = "10MB"
 ```
 

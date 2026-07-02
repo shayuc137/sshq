@@ -60,7 +60,7 @@ func TestSkillInstallProjectOverwrites(t *testing.T) {
 	withWorkingDirForSkillTest(t, project)
 
 	cmd, _, _ := rootCommandForTest(t)
-	cmd.SetArgs([]string{"--pretty", "skill", "install", "--scope", "project", "--target", "codex"})
+	cmd.SetArgs([]string{"--pretty", "skill", "install", "--project", "--codex"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("skill install failed: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestSkillInstallProjectOverwrites(t *testing.T) {
 	}
 
 	cmd, _, _ = rootCommandForTest(t)
-	cmd.SetArgs([]string{"--pretty", "skill", "install", "--scope", "project", "--target", "codex"})
+	cmd.SetArgs([]string{"--pretty", "skill", "install", "--project", "--codex"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("repeat skill install failed: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestSkillInstallProjectOverwrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read installed skill: %v", err)
 	}
-	if !strings.Contains(string(data), `sshq_version: "0.1.0"`) {
+	if !strings.Contains(string(data), `sshq_version: "0.2.0"`) {
 		t.Fatalf("installed skill was not overwritten with embedded content: %q", string(data))
 	}
 }
@@ -98,7 +98,7 @@ func TestSkillStatusReportsInstalledVersions(t *testing.T) {
 	}
 
 	cmd, _, _ = rootCommandForTest(t)
-	cmd.SetArgs([]string{"--pretty", "skill", "install", "--scope", "project", "--target", "codex"})
+	cmd.SetArgs([]string{"--pretty", "skill", "install", "--project", "--codex"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("install codex project skill: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestSkillStatusReportsInstalledVersions(t *testing.T) {
 	if !env.OK {
 		t.Fatalf("status envelope ok=false: %+v", env)
 	}
-	if env.Data.CurrentVersion != "0.1.0" {
+	if env.Data.CurrentVersion != "0.2.0" {
 		t.Fatalf("current version = %q", env.Data.CurrentVersion)
 	}
 	if len(env.Data.Installations) != 2 {
@@ -136,7 +136,7 @@ func TestSkillStatusReportsInstalledVersions(t *testing.T) {
 
 	found := map[string]bool{}
 	for _, inst := range env.Data.Installations {
-		if inst.SSHQVersion != "0.1.0" || !inst.MatchesCurrent {
+		if inst.SSHQVersion != "0.2.0" || !inst.MatchesCurrent {
 			t.Fatalf("installation mismatch: %+v", inst)
 		}
 		found[inst.Target+"-"+inst.Scope] = true

@@ -74,3 +74,30 @@ sshq tunnel list
 
 List active tunnels
 
+---
+
+## Agent notes
+
+### cluster output contract
+
+JSON mode returns `{results: [{alias, stdout, stderr, exit_code, error}], summary: {total, success, failed}}`.
+
+### cluster policy pre-flight
+
+After selector resolution, sshq checks policy for all targets before execution. If any host is blocked, no hosts execute. Pre-flight block is exit 1 with a policy error, not a partial-failure result.
+
+### tunnel output contract
+
+tunnel start returns `{id, direction, local_addr, remote_addr}`. tunnel list returns an array of `{id, direction, alias, local_addr, remote_addr, active_connections}`.
+
+### tunnel forward whitelist
+
+When capability policy is enabled:
+- `-L` checks `local_forward_whitelist` against the remote target (`remote_host:remote_port`)
+- `-R` checks `remote_forward_whitelist` against the local target (`local_host:local_port`)
+
+Matching supports exact (`host:port`), port wildcard (`host:*`), port range (`host:8000-9000`), and host wildcard (`*:port`).
+
+### Daemon vs foreground
+
+With daemon running, tunnels are background and managed via `tunnel list` / `tunnel stop`. Without daemon, tunnel runs in foreground until Ctrl+C.

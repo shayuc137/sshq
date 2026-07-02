@@ -46,40 +46,46 @@ func newDocsCommand() *cobra.Command {
 }
 
 var skillGroups = []struct {
-	file  string
-	title string
-	intro string
-	cmds  []string
+	file     string
+	title    string
+	intro    string
+	cmds     []string
+	appendix string
 }{
 	{
-		file:  "exec-transfer.md",
-		title: "Execution & File Transfer",
-		intro: "Commands for running remote commands and transferring files.",
-		cmds:  []string{"exec", "cp"},
+		file:     "exec-transfer.md",
+		title:    "Execution & File Transfer",
+		intro:    "Commands for running remote commands and transferring files.",
+		cmds:     []string{"exec", "cp"},
+		appendix: execTransferAppendix,
 	},
 	{
-		file:  "config.md",
-		title: "Configuration Management",
-		intro: "Commands for managing SSH host configuration and sshq metadata.",
-		cmds:  []string{"config", "config add", "config set", "config remove", "config list"},
+		file:     "config.md",
+		title:    "Configuration Management",
+		intro:    "Commands for managing SSH host configuration and sshq metadata.",
+		cmds:     []string{"config", "config add", "config set", "config remove", "config list"},
+		appendix: configMetadataRef,
 	},
 	{
-		file:  "cluster-tunnel.md",
-		title: "Cluster & Tunnel",
-		intro: "Commands for concurrent multi-host operations and port forwarding.",
-		cmds:  []string{"cluster", "cluster exec", "tunnel", "tunnel start", "tunnel stop", "tunnel list"},
+		file:     "cluster-tunnel.md",
+		title:    "Cluster & Tunnel",
+		intro:    "Commands for concurrent multi-host operations and port forwarding.",
+		cmds:     []string{"cluster", "cluster exec", "tunnel", "tunnel start", "tunnel stop", "tunnel list"},
+		appendix: clusterTunnelAppendix,
 	},
 	{
-		file:  "policy.md",
-		title: "Policy & Audit",
-		intro: "Commands for validating capability policy, managing temporary daemon grants, and querying audit logs.",
-		cmds:  []string{"policy", "policy grant", "policy revoke", "policy list", "policy validate", "policy check", "audit"},
+		file:     "policy.md",
+		title:    "Policy & Audit",
+		intro:    "Commands for validating capability policy, managing temporary daemon grants, and querying audit logs.",
+		cmds:     []string{"policy", "policy grant", "policy revoke", "policy list", "policy validate", "policy check", "audit"},
+		appendix: policyAppendix,
 	},
 	{
-		file:  "discovery.md",
-		title: "Discovery & Daemon",
-		intro: "Commands for listing, searching, inspecting hosts, credentials, and managing the daemon.",
-		cmds:  []string{"ls", "search", "info", "probe", "trust", "credential", "credential set", "credential delete", "credential list", "daemon", "daemon start", "daemon stop", "daemon status", "version", "skill", "skill install", "skill export", "skill status"},
+		file:     "discovery.md",
+		title:    "Discovery & Daemon",
+		intro:    "Commands for listing, searching, inspecting hosts, credentials, and managing the daemon.",
+		cmds:     []string{"ls", "search", "info", "probe", "trust", "credential", "credential set", "credential delete", "credential list", "daemon", "daemon start", "daemon stop", "daemon status", "version", "skill", "skill install", "skill export", "skill status"},
+		appendix: discoveryAppendix,
 	},
 }
 
@@ -129,8 +135,8 @@ func genSkillDocs(root *cobra.Command, dir string) error {
 			}
 		}
 
-		if g.file == "config.md" {
-			b.WriteString(configMetadataRef)
+		if g.appendix != "" {
+			b.WriteString(g.appendix)
 		}
 
 		path := dir + "/" + g.file
@@ -305,6 +311,85 @@ func extractDocCommands(content string) []string {
 	}
 	return cmds
 }
+
+const execTransferAppendix = "---\n" +
+	"\n## Agent notes\n\n" +
+	"### exec output contract\n\n" +
+	"In pretty mode, process stdout is the remote stdout exactly — sshq never writes its own messages there. " +
+	"In JSON mode, `data.stdout` and `data.stderr` carry the remote streams separately.\n\n" +
+	"| Field | Type | Description |\n" +
+	"|-------|------|-------------|\n" +
+	"| `exit_code` | int | Remote process exit code (0 = success) |\n" +
+	"| `stdout` | string | Remote stdout verbatim |\n" +
+	"| `stderr` | string | Remote stderr verbatim |\n" +
+	"| `host` | string | Alias used |\n" +
+	"| `duration_ms` | int | Wall-clock milliseconds |\n\n" +
+	"A successful SSH connection can carry a failing remote command. Agents should check both `ok` and `data.exit_code`.\n\n" +
+	"### cp output contract\n\n" +
+	"| Field | Type | Description |\n" +
+	"|-------|------|-------------|\n" +
+	"| `direction` | string | upload / download / relay |\n" +
+	"| `remote` | string | Remote path |\n" +
+	"| `size` | int | Total bytes transferred |\n" +
+	"| `duration` | string | Human-readable duration |\n" +
+	"| `engine` | string | sftp / raw / sftp→sftp |\n" +
+	"| `files` | int | File count |\n\n" +
+	"### Exit behavior\n\n" +
+	"- Exit 0: operation succeeded (for exec, remote exit code is in `data.exit_code`)\n" +
+	"- Exit 1: connection failure, policy block, or local error\n" +
+	"- Exit N (exec only): matches remote exit code when using `sshq <alias> \"cmd\"` shortcut\n\n" +
+	"### Security\n\n" +
+	"- exec: checked against `command_whitelist` / `command_blacklist`\n" +
+	"- cp: local and remote paths checked against `local_path_whitelist` / `remote_path_whitelist`\n" +
+	"- `--script-file`: audit records SHA-256 hash and byte count, not the script content\n"
+
+const clusterTunnelAppendix = "---\n" +
+	"\n## Agent notes\n\n" +
+	"### cluster output contract\n\n" +
+	"JSON mode returns `{results: [{alias, stdout, stderr, exit_code, error}], summary: {total, success, failed}}`.\n\n" +
+	"### cluster policy pre-flight\n\n" +
+	"After selector resolution, sshq checks policy for all targets before execution. " +
+	"If any host is blocked, no hosts execute. Pre-flight block is exit 1 with a policy error, not a partial-failure result.\n\n" +
+	"### tunnel output contract\n\n" +
+	"tunnel start returns `{id, direction, local_addr, remote_addr}`. " +
+	"tunnel list returns an array of `{id, direction, alias, local_addr, remote_addr, active_connections}`.\n\n" +
+	"### tunnel forward whitelist\n\n" +
+	"When capability policy is enabled:\n" +
+	"- `-L` checks `local_forward_whitelist` against the remote target (`remote_host:remote_port`)\n" +
+	"- `-R` checks `remote_forward_whitelist` against the local target (`local_host:local_port`)\n\n" +
+	"Matching supports exact (`host:port`), port wildcard (`host:*`), port range (`host:8000-9000`), and host wildcard (`*:port`).\n\n" +
+	"### Daemon vs foreground\n\n" +
+	"With daemon running, tunnels are background and managed via `tunnel list` / `tunnel stop`. " +
+	"Without daemon, tunnel runs in foreground until Ctrl+C.\n"
+
+const policyAppendix = "---\n" +
+	"\n## Agent notes\n\n" +
+	"### policy check output\n\n" +
+	"Returns `{decision: {allowed, alias, kind, reason, pattern, input}}`. " +
+	"Exit 0 regardless of allowed/denied — the decision is in the data, not the exit code.\n\n" +
+	"### policy grant behavior\n\n" +
+	"- Requires a controlling TTY (agents cannot self-grant)\n" +
+	"- TTL maximum is 1 hour\n" +
+	"- Grants live only in daemon memory; daemon restart clears them\n" +
+	"- Grants never override `command_blacklist` — blacklist always wins\n" +
+	"- Supported kinds: `command`, `local-path`, `remote-path`, `local-forward`, `remote-forward`\n\n" +
+	"### audit output\n\n" +
+	"Returns an array of JSONL entries with: `timestamp`, `alias`, `operation`, `summary`, `result` (success/error/blocked), `duration_ms`, `source` (direct/daemon), `exit_code`.\n\n" +
+	"Blocked entries include `blocked_by` (reason) and `matched_pattern`.\n"
+
+const discoveryAppendix = "---\n" +
+	"\n## Agent notes\n\n" +
+	"### Security-sensitive commands\n\n" +
+	"- `trust --replace`: overwrites a known host key — ask user first (possible MITM)\n" +
+	"- `credential set`: requires TTY for password input — relay to user\n" +
+	"- `credential delete`: permanently deletes a stored password — ask user first\n" +
+	"- `credential list`: only shows aliases, never prints passwords\n\n" +
+	"### daemon status output\n\n" +
+	"Returns `{running, uptime_seconds, connections: [{alias, host, idle}]}`.\n\n" +
+	"### skill commands\n\n" +
+	"- `skill install`: installs sshq skill to Claude Code (`--target codex` for Codex, `--scope project` for project-level)\n" +
+	"- `skill status`: shows install location and version\n" +
+	"- `skill export`: prints skill files to stdout (for manual installation)\n"
 
 const configMetadataRef = "---\n" +
 	"\n## sshq metadata format\n\n" +

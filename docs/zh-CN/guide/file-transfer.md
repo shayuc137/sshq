@@ -118,6 +118,19 @@ transfer engine: raw
 > [!WARNING]
 > 对需要 `stdin` 注入的 `Windows` 主机，`raw` 回退不可用。文件传输需要在 `Windows` 的 `OpenSSH` 服务端启用 `SFTP`。
 
+## 路径策略
+
+启用能力策略后，`cp` 会分别检查本地和远端路径是否在白名单范围内：
+
+```bash
+sshq policy check prod --remote-path /var/log/app.log
+```
+
+- `local_path_whitelist`：限制 `cp` 可以读写的本地目录
+- `remote_path_whitelist`：限制 `cp` 可以访问的远端目录
+
+被拦截时返回错误，附带建议的 `policy grant` 命令。白名单配置详见[安全指南](security.md)。
+
 ## 控制进度
 
 进度写到标准错误，因此标准输出可以保持为最终结果。使用全局参数 `--no-progress` 关闭进度：

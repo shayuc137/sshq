@@ -1,4 +1,4 @@
-# Tunnel
+# SSH 隧道
 
 `sshq tunnel` 用来管理 SSH 端口转发。它可以让本机访问远端服务，也可以把本地服务暴露给远端主机。
 
@@ -93,6 +93,19 @@ sshq tunnel start <alias> -R <remote_port>:<local_host>:<local_port>
 sshq tunnel start bastion -L 8080:80
 sshq tunnel start public-vps -R 18080:3000
 ```
+
+## 转发策略
+
+启用能力策略后，隧道目标在创建前会被转发白名单检查：
+
+- `-L`（本地转发）：`local_forward_whitelist` 检查远端目标（`remote_host:remote_port`）
+- `-R`（远端转发）：`remote_forward_whitelist` 检查本地目标（`local_host:local_port`）
+
+```bash
+sshq policy check bastion --local-forward db.internal:5432
+```
+
+被拦截时，错误信息包含建议的 `policy grant` 命令。白名单语法和授权流程详见[安全指南](security.md)。
 
 ## 前台和后台
 

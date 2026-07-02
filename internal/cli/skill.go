@@ -40,16 +40,21 @@ func newSkillCommand() *cobra.Command {
 }
 
 func newSkillInstallCommand() *cobra.Command {
-	opts := skillInstallOptions{
-		scope:  skillScopeUser,
-		target: skillTargetClaude,
-	}
+	var opts skillInstallOptions
 	cmd := &cobra.Command{
 		Use:   "install",
 		Short: "Install the embedded sshq skill",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dir, err := resolveSkillInstallDir(opts.scope, opts.target)
+			target := skillTargetClaude
+			if opts.codex {
+				target = skillTargetCodex
+			}
+			scope := skillScopeUser
+			if opts.project {
+				scope = skillScopeProject
+			}
+			dir, err := resolveSkillInstallDir(scope, target)
 			if err != nil {
 				return err
 			}
@@ -68,8 +73,8 @@ func newSkillInstallCommand() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&opts.scope, "scope", skillScopeUser, "install scope: user or project")
-	cmd.Flags().StringVar(&opts.target, "target", skillTargetClaude, "target platform: claude or codex")
+	cmd.Flags().BoolVar(&opts.project, "project", false, "install at project level instead of user level")
+	cmd.Flags().BoolVar(&opts.codex, "codex", false, "install for Codex instead of Claude Code")
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print file paths without writing")
 	return cmd
 }
@@ -112,9 +117,9 @@ func newSkillStatusCommand() *cobra.Command {
 }
 
 type skillInstallOptions struct {
-	scope  string
-	target string
-	dryRun bool
+	project bool
+	codex   bool
+	dryRun  bool
 }
 
 type skillWriteSummary struct {
@@ -251,7 +256,7 @@ func skillTargetDir(target string) (string, error) {
 	case skillTargetCodex:
 		return ".codex", nil
 	default:
-		return "", output.Errorf("invalid skill target: "+target, "use --target claude or --target codex")
+		return "", output.Errorf("invalid skill target: "+target, "use --codex for Codex, omit for Claude Code")
 	}
 }
 

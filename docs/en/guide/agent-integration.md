@@ -185,3 +185,17 @@ sshq exec --no-daemon myhost "hostname"
 ```
 
 Treat `schema_version` as the compatibility gate for parsers.
+
+## Security-Sensitive Actions
+
+Some operations require user confirmation or a controlling terminal. Agents should relay these to the user rather than attempting them autonomously:
+
+- `sshq trust --replace <alias>` — overwrites a known host key; possible MITM
+- `sshq credential set <alias>` — requires TTY for password input
+- `sshq credential delete <alias>` — permanently deletes a stored password
+- `sshq policy grant <alias> ...` — requires TTY; agents cannot self-grant
+- `sshq config remove <alias>` — deletes a host from SSH config
+- Remote forward (`-R`) — exposes local services to the remote network
+- Destructive remote commands — `rm`, `shutdown`, `reboot`, `mkfs`, `systemctl stop`, firewall changes
+
+When a command is blocked by policy, the error includes `error.action` with a suggested `policy grant` command. Relay this to the user as-is.

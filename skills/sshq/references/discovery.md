@@ -151,9 +151,9 @@ Install the embedded sshq skill
 **Flags:**
 
 ```
-      --dry-run         print file paths without writing
-      --scope string    install scope: user or project (default "user")
-      --target string   target platform: claude or codex (default "claude")
+      --codex          install for Codex instead of Claude Code
+      --dry-run        print file paths without writing
+      --scope string   install scope: user or project (default "user")
 ```
 
 ### sshq skill export
@@ -178,3 +178,23 @@ sshq skill status
 
 Show installed sshq skill versions
 
+---
+
+## Agent notes
+
+### Security-sensitive commands
+
+- `trust --replace`: overwrites a known host key — ask user first (possible MITM)
+- `credential set`: requires TTY for password input — relay to user
+- `credential delete`: permanently deletes a stored password — ask user first
+- `credential list`: only shows aliases, never prints passwords
+
+### daemon status output
+
+Returns `{running, uptime_seconds, connections: [{alias, host, idle}]}`.
+
+### skill commands
+
+- `skill install`: installs sshq skill to Claude Code (`--target codex` for Codex, `--scope project` for project-level)
+- `skill status`: shows install location and version
+- `skill export`: prints skill files to stdout (for manual installation)

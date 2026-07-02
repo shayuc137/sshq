@@ -2,9 +2,7 @@
 
 # sshq
 
-**Agent-native SSH multiplexing CLI.**
-
-Single binary. Cross-platform. Zero-config structured output for AI agents.
+Agent-safe SSH in one cross-platform binary.
 
 [![Go](https://img.shields.io/badge/Go-1.23+-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
@@ -14,67 +12,251 @@ Single binary. Cross-platform. Zero-config structured output for AI agents.
 
 </div>
 
----
+AI agents call SSH through subprocesses. Plain `ssh` was written for terminals: prompts, progress, remote shell differences, and text output that callers often parse by guesswork.
 
-## What is this?
-
-sshq is an SSH CLI built for AI agents. When an agent calls sshq through a subprocess, it automatically gets structured JSON output — no `--json` flag needed. When a human runs it in a terminal, it shows pretty-formatted tables. This is decided by [TTY detection](docs/en/guide/agent-integration.md), not flags.
-
-Under the hood: a daemon connection pool reuses SSH sessions across calls, SFTP falls back to raw byte streams on minimal hosts, and remote shell type is auto-detected (bash, ash, powershell, cmd) so commands are wrapped correctly without the caller knowing.
-
-## Quick Start
-
-**Install:**
+sshq fixes that layer. Pipe output is JSON by default. A terminal gets readable output. Remote stdout stays remote stdout. Shell differences are handled before the caller sees them.
 
 ```bash
-go install github.com/shayuc137/sshq/cmd/sshq@latest
+# Human in a terminal: stdout is a TTY, so sshq prints text.
+sshq web-1 "hostname"
+# web-1
+
+# Agent or script: stdout is a pipe, so sshq prints a JSON envelope.
+sshq web-1 "hostname" | jq .
+# {
+#   "ok": true,
+#   "data": {
+#     "exit_code": 0,
+#     "stdout": "web-1\n",
+#     "stderr": "",
+#     "host": "web-1",
+#     "duration_ms": 42
+#   },
+#   "schema_version": 1
+# }
 ```
 
-Or download a prebuilt binary from [GitHub Releases](https://github.com/shayuc137/sshq/releases).
+## Quick start
 
-**Add a host:**
+### Install
+
+No Go or other toolchain required. Pick your platform:
 
 ```bash
-sshq config add myhost --hostname 10.0.0.1 --user root --identity ~/.ssh/id_ed25519
+# Linux amd64
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_linux_amd64.tar.gz | tar xz
+sudo mv sshq /usr/local/bin/
+
+# macOS (Apple Silicon)
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_darwin_arm64.tar.gz | tar xz
+sudo mv sshq /usr/local/bin/
+
+# macOS (Intel)
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_darwin_amd64.tar.gz | tar xz
+sudo mv sshq /usr/local/bin/
 ```
 
-**Run a command:**
+Windows: download `sshq_windows_amd64.zip` from [Releases](https://github.com/shayuc137/sshq/releases), extract, and put `sshq.exe` somewhere on PATH.
+
+If you have Go 1.23+: `go install github.com/shayuc137/sshq/cmd/sshq@latest`
+
+```bash
+sshq version
+```
+
+See the [Getting Started guide](docs/en/guide/getting-started.md) for detailed platform instructions.
+
+### Add a host
+
+```bash
+sshq config add myhost \
+  --hostname 10.0.0.1 \
+  --user root \
+  --identity ~/.ssh/id_ed25519
+```
+
+For a password-only device, keep the password out of `~/.ssh/config` and store it in the encrypted credential store:
+
+```bash
+sshq credential set myhost
+```
+
+### Trust the host key
+
+```bash
+sshq trust myhost
+sshq probe myhost
+```
+
+`trust` writes the host key to `known_hosts`. If a key changes later, sshq refuses to overwrite it unless you run `sshq trust myhost --replace` after verifying the change.
+
+### Run a command
 
 ```bash
 sshq myhost "uname -a"
 ```
 
-**Transfer a file:**
+The shortcut above is the same execution path as:
+
+```bash
+sshq exec myhost "uname -a"
+```
+
+Use `exec` when you need command-specific flags:
+
+```bash
+sshq exec --script-file ./scripts/health-check.sh myhost
+sshq exec --shell powershell win-1 "Get-ComputerInfo | Select-Object CsName,WindowsVersion"
+sshq --timeout 10s myhost "hostname"
+```
+
+### Transfer, fan out, tunnel
 
 ```bash
 sshq cp ./deploy.tar.gz myhost:/tmp/
+sshq cp myhost:/var/log/app.log ./logs/
+sshq cp web-1:/data/export.tar.gz backup-1:/srv/backups/
+
+sshq cluster exec "systemctl is-active nginx" --tag web --env production --concurrency 5
+
+sshq tunnel start bastion -L 15432:db.internal:5432
+sshq tunnel list
+sshq tunnel stop tun-1
 ```
 
-**Run across multiple hosts:**
+## What sshq does differently
+
+| Behavior | Why it matters |
+| --- | --- |
+| TTY auto-detection | Agents get JSON without passing `--json`; humans get readable terminal output without passing `--pretty`. |
+| stdout purity for `exec` | In terminal mode, process stdout is the remote stdout exactly. sshq status, progress, and diagnostics go to stderr. |
+| Daemon connection pool | Repeat calls reuse SSH sessions. If the daemon is unavailable, commands fall back to direct SSH. |
+| SFTP with raw fallback | File transfer works on normal servers and on minimal BusyBox/OpenWrt-style hosts without `sftp-server`. |
+| Remote shell detection | sshq probes bash, ash, zsh, sh, PowerShell, and cmd paths, then wraps commands with the right syntax. |
+| Server-to-server relay | `sshq cp hostA:/path hostB:/path` streams through the local sshq process without writing a local temp file. |
+| Capability policy | Command allow/deny lists, file path allowlists, tunnel forward allowlists, temporary grants, and audit logging live in one policy layer. |
+| AI skill install | `sshq skill install` installs routing instructions for Claude Code or Codex. |
+
+## Output contract
+
+sshq picks its output mode in this order:
+
+1. `--json`
+2. `--pretty`
+3. `SSHQ_OUTPUT=json`
+4. stdout TTY detection
+
+For `exec`, stdout is treated as the contract:
 
 ```bash
-sshq cluster exec --tag web "systemctl status nginx"
+# Remote stdout stays clean.
+sshq myhost "printf 'one\ntwo\n'"
+# one
+# two
+
+# sshq diagnostics stay on stderr.
+sshq -v myhost "hostname" >/tmp/remote.out 2>/tmp/sshq.log
 ```
 
-## Core Capabilities
+In JSON mode, the same guarantee moves into `data.stdout`:
 
-| Capability | What it does |
-|-----------|-------------|
-| **TTY auto-detect** | pipe → JSON, terminal → pretty. Agents get structured data with zero flags. |
-| **Connection pool** | Daemon reuses SSH sessions. Starts automatically, degrades transparently. |
-| **Shell detection** | Probes remote shell (bash/ash/powershell/cmd), wraps commands correctly. |
-| **Transfer engine** | SFTP first, raw byte stream fallback. Handles hosts without sftp-server. |
-| **Server relay** | `sshq cp host-a:/data host-b:/backup` — direct relay, no local temp file. |
-| **ProxyJump chains** | Multi-hop bastion traversal from SSH config. Just use the target alias. |
-| **Cluster exec** | Concurrent execution across hosts filtered by tag, env, or explicit list. |
-| **SSH tunnels** | Local and remote port forwarding with automatic reconnect. |
+```json
+{
+  "ok": true,
+  "data": {
+    "exit_code": 0,
+    "stdout": "one\ntwo\n",
+    "stderr": "",
+    "host": "myhost",
+    "duration_ms": 42
+  },
+  "schema_version": 1
+}
+```
+
+A successful SSH connection can still carry a failing remote command. Agents should check both `ok` and `data.exit_code`.
+
+## Security model
+
+sshq keeps secrets, permissions, and audit records outside `~/.ssh/config`.
+
+### Encrypted credentials
+
+```bash
+sshq credential set router-1
+sshq credential list
+sshq credential delete router-1
+```
+
+Passwords are encrypted with age. SSH agent and key authentication always win; stored passwords are the last fallback. There is no command that prints a stored password.
+
+For headless credential stores that use a passphrase, set `SSHQ_CREDENTIAL_PASSPHRASE` before starting sshq or the daemon.
+
+### Capability policy
+
+Policy lives in `config.toml` under the OS config directory, such as `~/.config/sshq/config.toml` on Linux.
+
+```toml
+[policy.default]
+command_whitelist = ["^hostname(\\s|$)", "^uptime(\\s|$)", "^df(\\s|$)"]
+command_blacklist = ["(?i)(^|[;&|])\\s*(rm|dd|mkfs|shutdown)\\b"]
+local_path_whitelist = ["."]
+remote_path_whitelist = ["/tmp", "/var/log"]
+local_forward_whitelist = ["localhost:*", "127.0.0.1:*", "db.internal:5432"]
+remote_forward_whitelist = ["localhost:3000", "127.0.0.1:8000-9000"]
+
+[policy.hosts.prod-db]
+mode = "override"
+command_whitelist = ["^journalctl(\\s|$)", "^systemctl\\s+status\\s"]
+command_blacklist = ["(?i)\\b(reboot|shutdown|mkfs)\\b"]
+remote_path_whitelist = ["/var/log"]
+local_forward_whitelist = ["db.internal:5432"]
+```
+
+Policy checks apply to direct CLI paths and daemon-dispatched requests. For tunnels, local forwarding checks the remote target (`remote_host:remote_port`), and remote forwarding checks the local target (`local_host:local_port`).
+
+Test a decision before running the operation:
+
+```bash
+sshq policy validate
+sshq policy check prod-db --command "journalctl -u app -n 100"
+sshq policy check prod-db --remote-path /var/log/app.log
+sshq policy check prod-db --local-forward db.internal:5432
+```
+
+Temporary grants require a terminal, expire by TTL, and never override blacklists:
+
+```bash
+sshq policy grant prod-db "^journalctl(\\s|$)" --ttl 15m
+sshq policy grant prod-db db.internal:5432 --kind local-forward --ttl 15m
+sshq policy revoke --alias prod-db
+```
+
+### Audit log
+
+```toml
+[audit]
+enabled = true
+path = "~/.config/sshq/audit.jsonl"
+max_size = "10MB"
+```
+
+Audit records are JSONL metadata for `exec`, `cp`, `tunnel`, `cluster`, and blocked policy decisions. They do not store command output, passwords, or full script contents. Script-file operations record a SHA-256 hash and byte count.
+
+```bash
+sshq audit --last 50
+sshq audit --alias prod-db --operation exec
+```
+
+When audit is enabled but the log cannot be written, sshq blocks the operation instead of silently running without an audit record.
 
 ## Architecture
 
 ```mermaid
 graph LR
     A[Agent / Human] --> B[sshq CLI]
-    B --> C{Daemon running?}
+    B --> P[Policy + Audit]
+    P --> C{Daemon running?}
     C -->|yes| D[Connection Pool]
     C -->|no| E[Direct SSH Dial]
     D --> F[SSH Sessions]
@@ -86,80 +268,74 @@ graph LR
     H -->|no| J[JSON Output]
 ```
 
-## Agent Integration
+The daemon owns pooled connections, cached remote profiles, and background tunnels. The CLI path remains usable without it.
 
-sshq is designed as a tool for AI agents (Claude Code, Cursor, Codex, etc.). The key design principle: **agents don't need special flags**.
+## Agent integration
+
+sshq is meant to be called by tools such as Claude Code, Codex, Cursor, and custom agents through ordinary subprocess APIs.
 
 ```bash
-# Agent calls via subprocess — stdout is a pipe, so output is automatically JSON:
+# Agent calls via subprocess: stdout is a pipe, so output is JSON.
 result=$(sshq myhost "df -h")
 # → {"ok":true,"data":{"exit_code":0,"stdout":"...","stderr":"","host":"myhost","duration_ms":42},"schema_version":1}
 
-# Human types in terminal — stdout is TTY, so output is pretty:
+# Human types in a terminal: stdout is a TTY, so output is readable.
 sshq myhost "df -h"
 # → Filesystem      Size  Used Avail Use% Mounted on
 #   /dev/sda1        50G   12G   35G  26% /
 ```
 
-**Install as an AI skill:**
+Install the bundled skill:
 
 ```bash
-sshq skill install                       # Claude Code (default)
-sshq skill install --target codex        # Codex
-sshq skill install --scope project       # project-level instead of user-level
+sshq skill install                       # Claude Code, user scope
+sshq skill install --codex               # Codex
+sshq skill install --project             # project-level install
+sshq skill status
 ```
 
-See [Agent Integration Guide](docs/en/guide/agent-integration.md) for details on output contracts, error handling, and the stdout purity guarantee.
-
-## Output Modes
-
-| Mode | When | Override |
-|------|------|---------|
-| **JSON** | stdout is pipe (agent) | `--json` forces JSON in terminal |
-| **Pretty** | stdout is terminal (human) | `--pretty` forces pretty in pipe |
-
-All sshq informational messages (connection status, progress, timing) go to stderr. The exec command's stdout is always an exact mirror of the remote command's stdout — no pollution, in any mode.
-
-Environment variable: `SSHQ_OUTPUT=json` forces JSON globally.
+The skill routes SSH work through sshq, loads command references only when needed, and keeps raw `ssh` / `scp` out of agent plans.
 
 ## Documentation
 
-| Resource | Description |
-|----------|-------------|
-| [Getting Started](docs/en/guide/getting-started.md) | Install, configure your first host, run your first command |
-| [Remote Execution](docs/en/guide/remote-execution.md) | exec, script-file, shell override, timeout, encoding |
-| [File Transfer](docs/en/guide/file-transfer.md) | Upload, download, relay, recursive, engine fallback |
-| [Cluster Operations](docs/en/guide/cluster-operations.md) | Multi-host exec, tag/env/hosts filtering |
-| [Tunnels](docs/en/guide/tunnels.md) | Local/remote forwarding, multi-tunnel management |
-| [Host Management](docs/en/guide/host-management.md) | Config CRUD, metadata, ProxyJump, trust |
-| [Agent Integration](docs/en/guide/agent-integration.md) | TTY detection, JSON contracts, stdout purity, skill install |
+| Resource | Use it when you need to... |
+| --- | --- |
+| [Getting Started](docs/en/guide/getting-started.md) | install sshq, add a host, trust its key, run the first command |
+| [Remote Execution](docs/en/guide/remote-execution.md) | run commands, script files, shell overrides, timeouts, Windows encoding |
+| [File Transfer](docs/en/guide/file-transfer.md) | upload, download, recursive copy, remote-to-remote relay, engine fallback |
+| [Cluster Operations](docs/en/guide/cluster-operations.md) | run one command across selected hosts with controlled concurrency |
+| [Tunnels](docs/en/guide/tunnels.md) | create local or remote port forwards and manage daemon-owned tunnels |
+| [Host Management](docs/en/guide/host-management.md) | edit SSH config, metadata, ProxyJump chains, credentials, trust keys |
+| [Security](docs/en/guide/security.md) | configure credential encryption, capability policy, temporary grants, audit logs |
+| [Agent Integration](docs/en/guide/agent-integration.md) | understand JSON envelopes, stdout purity, error handling, and skill usage |
+| [Skill package](skills/sshq/SKILL.md) | see the routing table agents use |
+| [Skill references](skills/sshq/references/) | inspect scenario-specific command references |
 
-## Project Structure
+## Project structure
 
-```
+```text
 sshq/
-├── cmd/sshq/              # Entry point
+├── cmd/sshq/              # entry point
 ├── internal/
+│   ├── audit/             # JSONL operation audit log
 │   ├── cli/               # Cobra command definitions
-│   ├── config/            # SSH config parser + metadata
-│   ├── exec/              # Remote command execution
-│   ├── output/            # Output layer (TTY detect, JSON/pretty)
-│   ├── pool/              # Connection pool (daemon)
-│   ├── remote/            # Shell detection, encoding, profile cache
-│   ├── sshclient/         # SSH dial + ProxyJump + host key
+│   ├── config/            # SSH config parser + sshq metadata
+│   ├── credential/        # encrypted password store
+│   ├── exec/              # remote command execution
+│   ├── output/            # TTY detection, JSON/pretty rendering
+│   ├── policy/            # capability policy, grants, forward/path checks
+│   ├── pool/              # connection pool daemon
+│   ├── remote/            # shell detection, encoding, profile cache
+│   ├── sshclient/         # SSH dial, ProxyJump, host key handling
 │   ├── transfer/          # SFTP + raw stream file transfer
 │   └── tunnel/            # SSH tunnel management
-├── skills/sshq/           # Claude Code skill package
-└── docs/                  # Guides and command reference
+├── skills/sshq/           # AI skill package
+└── docs/                  # guides and command references
 ```
 
 ## Contributing
 
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
-
-<a href="https://github.com/shayuc137/sshq/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=shayuc137/sshq" />
-</a>
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, workflow, tests, documentation sync, and commit message rules.
 
 ## License
 

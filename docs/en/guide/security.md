@@ -1,6 +1,10 @@
 # Security
 
-`sshq` provides three security layers: encrypted credential storage, capability policy, and audit logging. All configuration lives in `config.toml` under the OS config directory (`~/.config/sshq/` on Linux).
+`sshq` provides three security layers: encrypted credential storage, capability policy, and audit logging. All configuration lives in `config.toml` under the OS config directory:
+
+- Linux: `~/.config/sshq/`
+- macOS: `~/Library/Application Support/sshq/`
+- Windows: `%APPDATA%\sshq\`
 
 ## Password Credentials
 
@@ -65,6 +69,34 @@ command_blacklist = ["(?i)(^|[;&|])\\s*(rm|dd|mkfs|shutdown)\\b"]
 - Empty whitelist = no restriction for that dimension
 - Paths are resolved to absolute form with symlink resolution (local) and prefix-boundary matching
 
+### Forward Whitelists
+
+Tunnel forwarding is subject to the same policy framework as commands and paths:
+
+```toml
+[policy.default]
+local_forward_whitelist = ["localhost:8000-9000", "db.internal:5432"]
+remote_forward_whitelist = []
+```
+
+- `local_forward_whitelist` checks the **remote target** of `-L` tunnels (`remote_host:remote_port`)
+- `remote_forward_whitelist` checks the **local target** of `-R` tunnels (`local_host:local_port`)
+- Empty whitelist = no restriction
+
+Matching supports exact (`localhost:8080`), port wildcard (`localhost:*`), port range (`localhost:8000-9000`), and host wildcard (`*:22`).
+
+Test before opening a tunnel:
+
+```bash
+sshq policy check bastion --local-forward db.internal:5432
+```
+
+Grant temporary forward access:
+
+```bash
+sshq policy grant bastion "db.internal:5432" --kind local-forward --ttl 15m
+```
+
 ### Temporary Grants
 
 When a command is blocked, the error message includes a suggested grant command:
@@ -102,7 +134,7 @@ Audit logging records metadata about every operation (exec, cp, tunnel, cluster)
 ```toml
 [audit]
 enabled = true
-path = "~/.config/sshq/audit.log"
+path = "~/.config/sshq/audit.jsonl"
 max_size = "10MB"
 ```
 

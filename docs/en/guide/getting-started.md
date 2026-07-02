@@ -6,14 +6,12 @@ This tutorial takes you from a fresh install to a successful remote command. The
 
 You need:
 
-- Go 1.23 or newer, if you install with `go install`
 - An SSH key pair on your local machine
 - At least one reachable SSH host
 
-Check Go, your key files, and create a key if needed:
+Check your key files and create one if needed:
 
 ```bash
-go version
 ls ~/.ssh/id_ed25519 ~/.ssh/id_ed25519.pub
 ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519
 ```
@@ -25,27 +23,56 @@ Make sure the remote host accepts your public key before adding it to sshq.
 
 ## Install sshq
 
-Install with Go and make sure the Go binary directory is on `PATH`:
+Pick your platform and run the commands below. No Go or other toolchain required.
+
+**Linux (amd64):**
+
+```bash
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_linux_amd64.tar.gz | tar xz
+sudo mv sshq /usr/local/bin/
+sshq version
+```
+
+**Linux (arm64, e.g. Raspberry Pi):**
+
+```bash
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_linux_arm64.tar.gz | tar xz
+sudo mv sshq /usr/local/bin/
+sshq version
+```
+
+**macOS (Apple Silicon):**
+
+```bash
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_darwin_arm64.tar.gz | tar xz
+sudo mv sshq /usr/local/bin/
+sshq version
+```
+
+**macOS (Intel):**
+
+```bash
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_darwin_amd64.tar.gz | tar xz
+sudo mv sshq /usr/local/bin/
+sshq version
+```
+
+**Windows:**
+
+1. Go to [GitHub Releases](https://github.com/shayuc137/sshq/releases) and download `sshq_windows_amd64.zip`
+2. Extract the zip — you get `sshq.exe`
+3. Move `sshq.exe` to a folder that is already on your PATH, for example `C:\Windows\` or `C:\Users\YourName\bin\`
+4. Open a new terminal and run: `sshq version`
+
+> If you are unsure which folders are on PATH, run `echo %PATH%` in cmd or `$env:PATH -split ';'` in PowerShell to see the list. Pick any folder from that list and put `sshq.exe` there.
+
+**Alternative: install from source (requires Go 1.23+):**
 
 ```bash
 go install github.com/shayuc137/sshq/cmd/sshq@latest
-export PATH="$PATH:$(go env GOPATH)/bin"
 ```
 
-You can also download a prebuilt binary from GitHub Releases:
-
-```bash
-# Download the archive for your OS and CPU from:
-# https://github.com/shayuc137/sshq/releases
-```
-
-Place the `sshq` binary somewhere on `PATH`, such as `/usr/local/bin` on Linux or macOS.
-
-Verify the install:
-
-```bash
-sshq version
-```
+> `go install` puts the binary in `$(go env GOPATH)/bin`. If `sshq version` says "command not found", add that directory to PATH: `export PATH="$PATH:$(go env GOPATH)/bin"` (add this line to `~/.bashrc` or `~/.zshrc` to make it permanent).
 
 In a terminal this prints readable text. In an agent subprocess or script it prints a JSON envelope.
 
@@ -79,6 +106,14 @@ sshq info myhost
 
 > [!TIP]
 > Pick short, stable aliases such as `myhost`, `prod-web-1`, or `lab-router`.
+
+For password-only hosts (legacy switches, certain Windows SSH servers), store the password in the encrypted credential store instead of `~/.ssh/config`:
+
+```bash
+sshq credential set myhost
+```
+
+See the [Security guide](security.md) for details on credential encryption.
 
 ## Test Connectivity
 
@@ -173,12 +208,11 @@ SSHQ_OUTPUT=json sshq myhost "hostname"
 
 ## Next Steps
 
-- [Agent Integration](agent-integration.md)
-- [Command Reference](../commands/sshq.md)
-- [sshq exec](../commands/sshq_exec.md)
-- [sshq cp](../commands/sshq_cp.md)
-- [sshq config add](../commands/sshq_config_add.md)
-- [sshq cluster exec](../commands/sshq_cluster_exec.md)
-- [sshq tunnel](../commands/sshq_tunnel.md)
+After your first command works:
 
-After your first command works, try file transfer with `sshq cp`, multi-host execution with `sshq cluster exec`, and port forwarding with `sshq tunnel start`.
+- [Remote Execution](remote-execution.md) — script files, shell override, timeouts
+- [File Transfer](file-transfer.md) — upload, download, relay
+- [Cluster Operations](cluster-operations.md) — run commands across multiple hosts
+- [Tunnels](tunnels.md) — port forwarding
+- [Security](security.md) — credential encryption, capability policy, audit logging
+- [Agent Integration](agent-integration.md) — JSON contracts, stdout purity, skill install

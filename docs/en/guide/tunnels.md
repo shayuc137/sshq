@@ -94,6 +94,19 @@ sshq tunnel start bastion -L 8080:80
 sshq tunnel start public-vps -R 18080:3000
 ```
 
+## Forward Policy
+
+When capability policy is enabled, tunnel targets are checked against forward whitelists before opening:
+
+- `-L` (local forward): `local_forward_whitelist` checks the remote target (`remote_host:remote_port`)
+- `-R` (remote forward): `remote_forward_whitelist` checks the local target (`local_host:local_port`)
+
+```bash
+sshq policy check bastion --local-forward db.internal:5432
+```
+
+If blocked, the error includes a suggested `policy grant` command. See the [Security guide](security.md) for whitelist syntax and grant flow.
+
 ## Foreground And Background
 
 When the daemon is running, `tunnel start` registers a background tunnel and returns a tunnel ID.
