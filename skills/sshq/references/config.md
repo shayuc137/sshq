@@ -1,6 +1,6 @@
 # Configuration Management
 
-Documentation version: `sshq v0.2.0`.
+Documentation version: `sshq v0.3.0`.
 
 Commands for managing SSH host configuration and sshq metadata.
 

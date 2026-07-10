@@ -1,6 +1,6 @@
 # Windows Background Task Recipes
 
-Documentation version: `sshq v0.2.0`.
+Documentation version: `sshq v0.3.0`.
 
 Durable Windows background work using Task Scheduler.
 

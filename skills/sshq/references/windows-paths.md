@@ -1,6 +1,6 @@
 # Windows Path Recipes
 
-Documentation version: `sshq v0.2.0`.
+Documentation version: `sshq v0.3.0`.
 
 Canonical Windows path forms for remote execution and file transfer.
 
