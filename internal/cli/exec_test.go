@@ -31,6 +31,18 @@ func TestShellForExec(t *testing.T) {
 	}
 }
 
+func TestNormalizeRemoteResultDecodesWindowsOutput(t *testing.T) {
+	result := &exec.Result{
+		ExitCode: 1,
+		Stdout:   string([]byte{0xD6, 0xD0, 0xCE, 0xC4}),
+		Stderr:   string([]byte{0xB4, 0xED, 0xCE, 0xF3}),
+	}
+	normalizeRemoteResult(result, &remote.Profile{OS: remote.Windows, Encoding: "gbk"}, "powershell")
+	if result.Stdout != "中文" || result.Stderr != "错误" {
+		t.Fatalf("normalized result = stdout %q stderr %q", result.Stdout, result.Stderr)
+	}
+}
+
 func TestAppendPowerShellVariableHint(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -53,6 +53,7 @@ type TransferPayload struct {
 	LocalPath  string `json:"local_path"`
 	RemotePath string `json:"remote_path"`
 	Recursive  bool   `json:"recursive,omitempty"`
+	Mkdirs     bool   `json:"mkdirs,omitempty"`
 	Verbose    bool   `json:"verbose,omitempty"`
 }
 
@@ -62,6 +63,7 @@ type RelayPayload struct {
 	DstAlias  string `json:"dst_alias"`
 	DstPath   string `json:"dst_path"`
 	Recursive bool   `json:"recursive,omitempty"`
+	Mkdirs    bool   `json:"mkdirs,omitempty"`
 	Verbose   bool   `json:"verbose,omitempty"`
 }
 
@@ -74,10 +76,13 @@ type ProfilePayload struct {
 // Result payloads — returned inside Frame{Type:"result"}.
 
 type ProfileResult struct {
-	OS       string `json:"os"`
-	Shell    string `json:"shell"`
-	Encoding string `json:"encoding,omitempty"`
-	HomeDir  string `json:"home_dir,omitempty"`
+	OS             string `json:"os"`
+	Shell          string `json:"shell"`
+	Encoding       string `json:"encoding,omitempty"`
+	HomeDir        string `json:"home_dir,omitempty"`
+	TempDir        string `json:"temp_dir,omitempty"`
+	PowerShellPath string `json:"powershell_path,omitempty"`
+	PwshPath       string `json:"pwsh_path,omitempty"`
 }
 
 type TransferResult struct {

@@ -86,18 +86,22 @@ func TestParsePosixOutput(t *testing.T) {
 
 func TestParseWindowsOutput(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
-		wantEnc  string
-		wantHome string
-		wantTemp string
+		name           string
+		input          string
+		wantEnc        string
+		wantHome       string
+		wantTemp       string
+		wantPowerShell string
+		wantPwsh       string
 	}{
 		{
-			name:     "powershell with gbk",
-			input:    "OS=Windows\nSHELL=powershell\nHOME=C:\\Users\\admin\nTEMP=C:\\Users\\admin\\AppData\\Local\\Temp\nActive code page: 936\n",
-			wantEnc:  "gbk",
-			wantHome: "C:\\Users\\admin",
-			wantTemp: "C:\\Users\\admin\\AppData\\Local\\Temp",
+			name:           "powershell with gbk",
+			input:          "OS=Windows\nSHELL=powershell\nHOME=C:\\Users\\admin\nTEMP=C:\\Users\\admin\\AppData\\Local\\Temp\nPOWERSHELL=C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\nPWSH=C:\\Program Files\\PowerShell\\7\\pwsh.exe\nActive code page: 936\n",
+			wantEnc:        "gbk",
+			wantHome:       "C:\\Users\\admin",
+			wantTemp:       "C:\\Users\\admin\\AppData\\Local\\Temp",
+			wantPowerShell: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+			wantPwsh:       "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
 		},
 		{
 			name:    "powershell utf8",
@@ -129,6 +133,12 @@ func TestParseWindowsOutput(t *testing.T) {
 			}
 			if tt.wantTemp != "" && p.TempDir != tt.wantTemp {
 				t.Errorf("TempDir = %q, want %q", p.TempDir, tt.wantTemp)
+			}
+			if p.PowerShellPath != tt.wantPowerShell {
+				t.Errorf("PowerShellPath = %q, want %q", p.PowerShellPath, tt.wantPowerShell)
+			}
+			if p.PwshPath != tt.wantPwsh {
+				t.Errorf("PwshPath = %q, want %q", p.PwshPath, tt.wantPwsh)
 			}
 			if p.OS != Windows {
 				t.Errorf("OS = %q, want windows", p.OS)

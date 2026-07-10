@@ -566,12 +566,7 @@ func (dc *daemonContext) handleExec(conn net.Conn, raw json.RawMessage) {
 		ipc.SendError(conn, err.Error(), "")
 		return
 	}
-	if remote.NeedsTranscoding(profile) {
-		result.Stdout = remote.DecodeString(result.Stdout, profile.Encoding)
-		result.Stderr = remote.DecodeString(result.Stderr, profile.Encoding)
-	}
-	result.Stderr = exec.DecodeCLIXMLStderr(result.Stderr)
-	result.Stderr = appendPowerShellVariableHint(result.Stderr, shell, result.ExitCode)
+	normalizeRemoteResult(result, profile, shell)
 	auditResult := audit.ResultSuccess
 	if result.ExitCode != 0 {
 		auditResult = audit.ResultError

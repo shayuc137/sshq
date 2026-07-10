@@ -98,11 +98,12 @@ func extractBashCommands(t *testing.T, path string) []documentedCommand {
 	scanner := bufio.NewScanner(f)
 	for lineNo := 1; scanner.Scan(); lineNo++ {
 		trimmed := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(trimmed, "```") {
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
 			if inBash {
 				inBash = false
 			} else {
-				inBash = strings.TrimSpace(strings.TrimPrefix(trimmed, "```")) == "bash"
+				fence := strings.TrimPrefix(strings.TrimPrefix(trimmed, "```"), "~~~")
+				inBash = strings.TrimSpace(fence) == "bash"
 			}
 			continue
 		}

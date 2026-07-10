@@ -11,7 +11,7 @@ import (
 	"github.com/shayuc137/sshq/internal/sshclient"
 )
 
-func RunRelay(ctx context.Context, srcClient, dstClient *sshclient.Client, srcPath, dstPath string, srcProfile, dstProfile *remote.Profile, info func(string), progress ProgressFunc) (*Result, error) {
+func RunRelay(ctx context.Context, srcClient, dstClient *sshclient.Client, srcPath, dstPath string, srcProfile, dstProfile *remote.Profile, info func(string), progress ProgressFunc, options ...EngineOption) (*Result, error) {
 	start := time.Now()
 
 	srcEngine, err := NewEngine(srcClient, srcProfile, func(msg string) {
@@ -28,7 +28,7 @@ func RunRelay(ctx context.Context, srcClient, dstClient *sshclient.Client, srcPa
 		if info != nil {
 			info("destination: " + msg)
 		}
-	})
+	}, options...)
 	if err != nil {
 		return nil, fmt.Errorf("destination engine: %w", err)
 	}
@@ -78,7 +78,7 @@ func RunRelay(ctx context.Context, srcClient, dstClient *sshclient.Client, srcPa
 	}, nil
 }
 
-func RunRelayRecursive(ctx context.Context, srcClient, dstClient *sshclient.Client, srcDir, dstDir string, srcProfile, dstProfile *remote.Profile, info func(string), progress ProgressFunc) (*Result, error) {
+func RunRelayRecursive(ctx context.Context, srcClient, dstClient *sshclient.Client, srcDir, dstDir string, srcProfile, dstProfile *remote.Profile, info func(string), progress ProgressFunc, options ...EngineOption) (*Result, error) {
 	start := time.Now()
 
 	srcEngine, err := NewEngine(srcClient, srcProfile, func(msg string) {
@@ -95,11 +95,14 @@ func RunRelayRecursive(ctx context.Context, srcClient, dstClient *sshclient.Clie
 		if info != nil {
 			info("destination: " + msg)
 		}
-	})
+	}, options...)
 	if err != nil {
 		return nil, fmt.Errorf("destination engine: %w", err)
 	}
 	defer dstEngine.Close()
+	if err := dstEngine.PrepareRecursiveDestination(ctx, dstDir); err != nil {
+		return nil, fmt.Errorf("prepare destination: %w", err)
+	}
 
 	files, err := listRemoteFiles(srcClient, srcDir)
 	if err != nil {

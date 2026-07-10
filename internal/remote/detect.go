@@ -12,7 +12,7 @@ import (
 
 const detectPOSIX = `echo "OS=$(uname -s)" && echo "SHELL=$(basename "$SHELL" 2>/dev/null || readlink /proc/$$/exe 2>/dev/null || echo sh)" && echo "HOME=$HOME"`
 
-const detectWindows = `echo "OS=Windows" ; echo "SHELL=powershell" ; echo "HOME=$env:USERPROFILE" ; echo "TEMP=$env:TEMP" ; chcp 2>$null`
+const detectWindows = `$powershell = (Get-Command powershell.exe -ErrorAction SilentlyContinue).Source ; $pwsh = (Get-Command pwsh.exe -ErrorAction SilentlyContinue).Source ; echo "OS=Windows" ; echo "SHELL=powershell" ; echo "HOME=$env:USERPROFILE" ; echo "TEMP=$env:TEMP" ; echo "POWERSHELL=$powershell" ; echo "PWSH=$pwsh" ; chcp 2>$null`
 
 func Detect(ctx context.Context, client *sshclient.Client) (*Profile, error) {
 	p, err := detectPosix(ctx, client)
@@ -107,6 +107,10 @@ func parseWindowsOutput(out string) (*Profile, error) {
 				p.HomeDir = v
 			case "TEMP":
 				p.TempDir = v
+			case "POWERSHELL":
+				p.PowerShellPath = v
+			case "PWSH":
+				p.PwshPath = v
 			}
 		}
 		if cp := parseCodePage(line); cp != "" {

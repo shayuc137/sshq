@@ -44,6 +44,7 @@ Copy files using alias:path syntax to determine direction:
 **Flags:**
 
 ```
+      --mkdirs      create missing remote destination parent directories
       --no-daemon   skip daemon, connect directly
   -r, --recursive   copy directories recursively
 ```

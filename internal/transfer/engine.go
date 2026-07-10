@@ -35,14 +35,31 @@ type Engine interface {
 	Download(ctx context.Context, remotePath, localPath string, progress ProgressFunc) (*Result, error)
 	UploadRecursive(ctx context.Context, localDir, remoteDir string, progress ProgressFunc) (*Result, error)
 	DownloadRecursive(ctx context.Context, remoteDir, localDir string, progress ProgressFunc) (*Result, error)
+	PrepareRecursiveDestination(ctx context.Context, remoteDir string) error
 	OpenRead(ctx context.Context, remotePath string) (io.ReadCloser, int64, error)
 	OpenWrite(ctx context.Context, remotePath string) (io.WriteCloser, func() error, func(), error)
 	Close() error
 	Name() string
 }
 
-func NewEngine(client *sshclient.Client, profile *remote.Profile, info func(string)) (Engine, error) {
-	eng, err := newSFTPEngine(client)
+type EngineOption func(*engineOptions)
+
+type engineOptions struct {
+	mkdirs  bool
+	windows bool
+}
+
+func WithMkdirs() EngineOption {
+	return func(opts *engineOptions) { opts.mkdirs = true }
+}
+
+func NewEngine(client *sshclient.Client, profile *remote.Profile, info func(string), options ...EngineOption) (Engine, error) {
+	opts := engineOptions{windows: profile != nil && profile.IsWindows()}
+	for _, option := range options {
+		option(&opts)
+	}
+
+	eng, err := newSFTPEngine(client, opts)
 	if err == nil {
 		return eng, nil
 	}
@@ -52,7 +69,7 @@ func NewEngine(client *sshclient.Client, profile *remote.Profile, info func(stri
 	if info != nil {
 		info("sftp unavailable, using raw stream")
 	}
-	return newRawEngine(client), nil
+	return newRawEngine(client, opts), nil
 }
 
 func formatDuration(d time.Duration) string {

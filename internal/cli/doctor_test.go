@@ -248,6 +248,26 @@ func TestDoctorPrettyUsesOrderedStatusSymbols(t *testing.T) {
 	}
 }
 
+func TestDoctorPrettySurfacesWindowsExecutablePaths(t *testing.T) {
+	result := doctorResult{
+		Alias:    "win",
+		Resolved: doctorResolved{Hostname: "192.0.2.20", User: "administrator", Port: "22"},
+		Checks:   newDoctorChecks(),
+		Profile: &remote.Profile{
+			OS:             remote.Windows,
+			Shell:          remote.PowerShell,
+			PowerShellPath: `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`,
+			PwshPath:       `C:\Program Files\PowerShell\7\pwsh.exe`,
+		},
+	}
+	pretty := result.Pretty()
+	for _, want := range []string{"powershell_path=C:", "pwsh_path=C:"} {
+		if !strings.Contains(pretty, want) {
+			t.Fatalf("doctor output missing %q: %s", want, pretty)
+		}
+	}
+}
+
 func TestDoctorCommandRendersSuccessEnvelopeBeforeExitOne(t *testing.T) {
 	dir := t.TempDir()
 	store := configStoreForDoctorTest(t, dir)

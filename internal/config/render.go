@@ -26,6 +26,43 @@ type HostDetail Host
 
 func (hd HostDetail) Pretty() string { return RenderInfoPretty(Host(hd)) }
 
+type HostVerification struct {
+	Alias        string            `json:"alias"`
+	HostName     string            `json:"hostname"`
+	User         string            `json:"user"`
+	Port         string            `json:"port"`
+	IdentityFile string            `json:"identity_file"`
+	ProxyJump    string            `json:"proxy_jump"`
+	Metadata     map[string]string `json:"metadata,omitempty"`
+	Next         string            `json:"next"`
+}
+
+func (v HostVerification) Pretty() string {
+	host := Host{
+		Alias:        v.Alias,
+		HostName:     v.HostName,
+		User:         v.User,
+		Port:         v.Port,
+		IdentityFile: v.IdentityFile,
+		ProxyJump:    v.ProxyJump,
+		Metadata:     v.Metadata,
+	}
+	return strings.TrimRight(RenderInfoPretty(host), "\n") + "\nnext: " + v.Next
+}
+
+func NewHostVerification(host Host, next string) HostVerification {
+	return HostVerification{
+		Alias:        host.Alias,
+		HostName:     host.HostName,
+		User:         host.User,
+		Port:         host.Port,
+		IdentityFile: host.IdentityFile,
+		ProxyJump:    host.ProxyJump,
+		Metadata:     host.Metadata,
+		Next:         next,
+	}
+}
+
 func RenderListPretty(hosts []Host) string {
 	if len(hosts) == 0 {
 		return "No hosts configured.\n"

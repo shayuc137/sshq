@@ -88,6 +88,24 @@ var skillGroups = []struct {
 		cmds:     []string{"ls", "search", "info", "probe", "doctor", "trust", "credential", "credential set", "credential delete", "credential list", "daemon", "daemon start", "daemon stop", "daemon status", "version", "skill", "skill install", "skill export", "skill status"},
 		appendix: discoveryAppendix,
 	},
+	{
+		file:     "windows-paths.md",
+		title:    "Windows Path Recipes",
+		intro:    "Canonical Windows path forms for remote execution and file transfer.",
+		appendix: windowsPathRecipes,
+	},
+	{
+		file:     "windows-background.md",
+		title:    "Windows Background Task Recipes",
+		intro:    "Durable Windows background work using Task Scheduler.",
+		appendix: windowsBackgroundRecipes,
+	},
+	{
+		file:     "remote-windows-support.md",
+		title:    "Remote Windows Support Recipe",
+		intro:    "A complete temporary-support flow from WireGuard reachability through cleanup.",
+		appendix: remoteWindowsSupportRecipe,
+	},
 }
 
 func genSkillDocs(root *cobra.Command, dir string) error {
@@ -352,6 +370,123 @@ const execTransferAppendix = "---\n" +
 	"- exec: checked against `command_whitelist` / `command_blacklist`\n" +
 	"- cp: local and remote paths checked against `local_path_whitelist` / `remote_path_whitelist`\n" +
 	"- `--script-file`: audit records SHA-256 hash and byte count, not the script content\n"
+
+const windowsPathRecipes = `---
+
+## Canonical path form
+
+Use forward slashes in Windows remote paths. This keeps the alias:path boundary unambiguous and works with the SFTP path model:
+
+~~~text
+company-win:C:/Users/support/Desktop/report.txt
+company-win:C:/Program Files/Support Tool/config.json
+~~~
+
+Quote the complete endpoint when a path contains spaces. Add --mkdirs when the remote parent directory may not exist:
+
+~~~bash
+sshq cp --mkdirs ./support.exe 'company-win:C:/Program Files/Support Tool/support.exe'
+sshq cp 'company-win:C:/Program Files/Support Tool/support.log' './support logs/'
+~~~
+
+A local Windows drive path such as C:/Temp/input.txt remains local; a remote Windows path always includes the alias prefix:
+
+~~~bash
+sshq cp 'C:/Temp/input.txt' 'company-win:C:/Users/support/Desktop/input.txt'
+~~~
+
+For complex PowerShell expressions or paths containing PowerShell variables, put the script in a local .ps1 file:
+
+~~~bash
+sshq exec company-win --script-file ./inspect-paths.ps1 --shell powershell
+~~~
+`
+
+const windowsBackgroundRecipes = `---
+
+## Prefer Task Scheduler
+
+Use a scheduled task for work that must survive the SSH session. Start-Process can remain tied to the session/job object and provides weaker query and cleanup behavior. Task Scheduler gives explicit create, query, and delete operations.
+
+Create a startup task that runs as SYSTEM:
+
+~~~bash
+sshq exec company-win 'schtasks /Create /TN "sshq-support" /SC ONSTART /RU SYSTEM /TR "C:\Program Files\Support Tool\support.exe" /F'
+~~~
+
+Query its definition and latest result:
+
+~~~bash
+sshq exec company-win 'schtasks /Query /TN "sshq-support" /V /FO LIST'
+~~~
+
+Delete it during cleanup:
+
+~~~bash
+sshq exec company-win 'schtasks /Delete /TN "sshq-support" /F'
+~~~
+
+For commands with PowerShell variables, multiple actions, or nested quoting, write a .ps1 file and execute it with --script-file rather than expanding the one-line command.
+`
+
+const remoteWindowsSupportRecipe = `---
+
+## 1. Add temporary WireGuard reachability
+
+Allocate one peer address and route only that address. The hub-side shape is:
+
+~~~text
+[Peer]
+PublicKey = <windows-peer-public-key>
+AllowedIPs = 10.0.0.4/32
+~~~
+
+Install the matching peer configuration on Windows, bring up the tunnel, and confirm the support machine can reach the assigned address before changing SSH configuration.
+
+## 2. Enable OpenSSH Server on Windows
+
+Run these commands in an elevated PowerShell console on the Windows machine:
+
+~~~powershell
+Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+Set-Service -Name sshd -StartupType Automatic
+Start-Service sshd
+New-NetFirewallRule -Name sshq-temp-sshd -DisplayName 'sshq temporary OpenSSH' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 -RemoteAddress 10.0.0.0/24
+~~~
+
+## 3. Install a temporary support key
+
+Create a dedicated key locally, then append its public key to the target user's %USERPROFILE%/.ssh/authorized_keys. Restrict the .ssh directory and file to that user and SYSTEM; Windows OpenSSH rejects overly broad ACLs.
+
+## 4. Register and diagnose the host
+
+~~~bash
+sshq config add support-win --hostname 10.0.0.4 --user support --identity ~/.ssh/support-win
+sshq doctor support-win
+~~~
+
+Read the resolved alias, hostname, user, port, identity file, and ProxyJump values from config add; continue only after doctor passes the connection checks.
+
+## 5. Execute and transfer
+
+~~~bash
+sshq exec support-win --script-file ./diagnose.ps1 --shell powershell
+sshq cp --mkdirs ./support.exe 'support-win:C:/Program Files/Support Tool/support.exe'
+sshq cp 'support-win:C:/ProgramData/Support Tool/diagnostics.zip' ./diagnostics.zip
+~~~
+
+## 6. Clean up
+
+Remove temporary artifacts and scheduled tasks while the connection still works, then remove the sshq alias, the authorized key line, the temporary firewall rule, and the WireGuard peer:
+
+~~~bash
+sshq exec support-win 'schtasks /Delete /TN "sshq-support" /F'
+sshq exec support-win 'powershell -NoProfile -Command "Remove-Item -LiteralPath ''C:/Program Files/Support Tool'' -Recurse -Force"'
+sshq config remove support-win
+~~~
+
+Finally remove sshq-temp-sshd if it was created only for the support window, and delete the peer from both WireGuard endpoints.
+`
 
 const clusterTunnelAppendix = "---\n" +
 	"\n## Agent notes\n\n" +

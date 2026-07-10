@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/pkg/sftp"
@@ -16,15 +17,17 @@ import (
 const chunkSize = 32 * 1024
 
 type sftpEngine struct {
-	client *sftp.Client
+	client  *sftp.Client
+	mkdirs  bool
+	windows bool
 }
 
-func newSFTPEngine(sshClient *sshclient.Client) (*sftpEngine, error) {
+func newSFTPEngine(sshClient *sshclient.Client, opts engineOptions) (*sftpEngine, error) {
 	c, err := sftp.NewClient(sshClient.Client)
 	if err != nil {
 		return nil, err
 	}
-	return &sftpEngine{client: c}, nil
+	return &sftpEngine{client: c, mkdirs: opts.mkdirs, windows: opts.windows}, nil
 }
 
 func (e *sftpEngine) Name() string { return "sftp" }
@@ -50,11 +53,12 @@ func (e *sftpEngine) Upload(ctx context.Context, localPath, remotePath string, p
 		return nil, fmt.Errorf("%q is a directory, use --recursive", localPath)
 	}
 
-	remotePath = resolveRemoteDir(e, remotePath, filepath.Base(localPath))
+	remotePath = e.resolveRemotePath(remotePath, filepath.Base(localPath))
 	tmpPath := remotePath + ".sshq.tmp"
 
-	remoteDir := path.Dir(remotePath)
-	e.client.MkdirAll(remoteDir)
+	if err := e.prepareRemoteParent(remotePath); err != nil {
+		return nil, err
+	}
 
 	remote, err := e.client.Create(tmpPath)
 	if err != nil {
@@ -88,6 +92,7 @@ func (e *sftpEngine) Upload(ctx context.Context, localPath, remotePath string, p
 
 func (e *sftpEngine) Download(ctx context.Context, remotePath, localPath string, progress ProgressFunc) (*Result, error) {
 	start := time.Now()
+	remotePath = e.normalizeRemotePath(remotePath)
 
 	remote, err := e.client.Open(remotePath)
 	if err != nil {
@@ -142,6 +147,10 @@ func (e *sftpEngine) Download(ctx context.Context, remotePath, localPath string,
 
 func (e *sftpEngine) UploadRecursive(ctx context.Context, localDir, remoteDir string, progress ProgressFunc) (*Result, error) {
 	start := time.Now()
+	remoteDir = e.normalizeRemotePath(remoteDir)
+	if err := e.PrepareRecursiveDestination(ctx, remoteDir); err != nil {
+		return nil, err
+	}
 	var totalSize int64
 	var totalFiles int
 
@@ -189,6 +198,7 @@ func (e *sftpEngine) UploadRecursive(ctx context.Context, localDir, remoteDir st
 
 func (e *sftpEngine) DownloadRecursive(ctx context.Context, remoteDir, localDir string, progress ProgressFunc) (*Result, error) {
 	start := time.Now()
+	remoteDir = e.normalizeRemotePath(remoteDir)
 	var totalSize int64
 	var totalFiles int
 
@@ -231,7 +241,22 @@ func (e *sftpEngine) DownloadRecursive(ctx context.Context, remoteDir, localDir 
 	}, nil
 }
 
+func (e *sftpEngine) PrepareRecursiveDestination(_ context.Context, remoteDir string) error {
+	remoteDir = strings.TrimRight(e.normalizeRemotePath(remoteDir), "/")
+	if err := e.prepareRemoteParent(remoteDir); err != nil {
+		return err
+	}
+	if err := e.client.MkdirAll(remoteDir); err != nil {
+		return fmt.Errorf("create remote destination directory %s: %w", remoteDir, err)
+	}
+	// Once the requested root is admitted, directories beneath it are part of
+	// the recursive copy rather than user-requested parent creation.
+	e.mkdirs = true
+	return nil
+}
+
 func (e *sftpEngine) OpenRead(_ context.Context, remotePath string) (io.ReadCloser, int64, error) {
+	remotePath = e.normalizeRemotePath(remotePath)
 	f, err := e.client.Open(remotePath)
 	if err != nil {
 		return nil, 0, err
@@ -245,8 +270,10 @@ func (e *sftpEngine) OpenRead(_ context.Context, remotePath string) (io.ReadClos
 }
 
 func (e *sftpEngine) OpenWrite(_ context.Context, remotePath string) (io.WriteCloser, func() error, func(), error) {
-	remoteDir := path.Dir(remotePath)
-	e.client.MkdirAll(remoteDir)
+	remotePath = e.normalizeRemotePath(remotePath)
+	if err := e.prepareRemoteParent(remotePath); err != nil {
+		return nil, nil, nil, err
+	}
 
 	tmpPath := remotePath + ".sshq.tmp"
 	f, err := e.client.Create(tmpPath)
@@ -303,12 +330,51 @@ func (e *sftpEngine) atomicRename(src, dst string) error {
 	return e.client.Rename(src, dst)
 }
 
-func resolveRemoteDir(e *sftpEngine, remotePath, basename string) string {
+func (e *sftpEngine) resolveRemotePath(remotePath, basename string) string {
+	remotePath = e.normalizeRemotePath(remotePath)
+	if strings.HasSuffix(remotePath, "/") {
+		return path.Join(remotePath, basename)
+	}
 	stat, err := e.client.Stat(remotePath)
 	if err == nil && stat.IsDir() {
 		return path.Join(remotePath, basename)
 	}
 	return remotePath
+}
+
+func (e *sftpEngine) normalizeRemotePath(remotePath string) string {
+	if e.windows {
+		return strings.ReplaceAll(remotePath, `\`, "/")
+	}
+	return remotePath
+}
+
+func (e *sftpEngine) prepareRemoteParent(remotePath string) error {
+	return prepareSFTPRemoteParent(remotePath, e.mkdirs, e.client.Stat, e.client.MkdirAll)
+}
+
+func prepareSFTPRemoteParent(remotePath string, mkdirs bool, stat func(string) (os.FileInfo, error), mkdirAll func(string) error) error {
+	remoteDir := path.Dir(remotePath)
+	if remoteDir == "." || remoteDir == "/" {
+		return nil
+	}
+	if mkdirs {
+		if err := mkdirAll(remoteDir); err != nil {
+			return fmt.Errorf("create remote parent directory %s: %w", remoteDir, err)
+		}
+		return nil
+	}
+	info, err := stat(remoteDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &RemoteParentMissingError{Path: remoteDir}
+		}
+		return fmt.Errorf("stat remote parent directory %s: %w", remoteDir, err)
+	}
+	if !info.IsDir() {
+		return &RemoteParentMissingError{Path: remoteDir}
+	}
+	return nil
 }
 
 func resolveLocalDir(localPath, basename string) string {

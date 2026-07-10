@@ -32,12 +32,14 @@ const (
 )
 
 type Profile struct {
-	OS         OS     `json:"os"`
-	Shell      Shell  `json:"shell"`
-	Encoding   string `json:"encoding,omitempty"`
-	HomeDir    string `json:"home_dir,omitempty"`
-	TempDir    string `json:"temp_dir,omitempty"`
-	DetectedAt int64  `json:"detected_at"`
+	OS             OS     `json:"os"`
+	Shell          Shell  `json:"shell"`
+	Encoding       string `json:"encoding,omitempty"`
+	HomeDir        string `json:"home_dir,omitempty"`
+	TempDir        string `json:"temp_dir,omitempty"`
+	PowerShellPath string `json:"powershell_path,omitempty"`
+	PwshPath       string `json:"pwsh_path,omitempty"`
+	DetectedAt     int64  `json:"detected_at"`
 }
 
 func (p *Profile) IsPOSIX() bool {
@@ -94,6 +96,12 @@ func RenderProfileCompact(p *Profile) string {
 	if p.Encoding != "" {
 		parts = append(parts, "encoding="+p.Encoding)
 	}
+	if p.PowerShellPath != "" {
+		parts = append(parts, "powershell_path="+p.PowerShellPath)
+	}
+	if p.PwshPath != "" {
+		parts = append(parts, "pwsh_path="+p.PwshPath)
+	}
 	return strings.Join(parts, " ")
 }
 
@@ -112,6 +120,12 @@ func RenderProfilePretty(p *Profile) string {
 	}
 	if p.TempDir != "" {
 		fmt.Fprintf(&b, "RemoteTemp:   %s\n", p.TempDir)
+	}
+	if p.PowerShellPath != "" {
+		fmt.Fprintf(&b, "PowerShell:   %s\n", p.PowerShellPath)
+	}
+	if p.PwshPath != "" {
+		fmt.Fprintf(&b, "Pwsh:         %s\n", p.PwshPath)
 	}
 	return b.String()
 }

@@ -37,7 +37,7 @@ func TestSkillExportWritesEmbeddedFiles(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("skill export failed: %v", err)
 	}
-	if !strings.Contains(out.String(), "exported 6 files to "+dir) {
+	if !strings.Contains(out.String(), "exported 9 files to "+dir) {
 		t.Fatalf("export output = %q", out.String())
 	}
 
@@ -48,6 +48,9 @@ func TestSkillExportWritesEmbeddedFiles(t *testing.T) {
 		filepath.Join("references", "cluster-tunnel.md"),
 		filepath.Join("references", "policy.md"),
 		filepath.Join("references", "discovery.md"),
+		filepath.Join("references", "windows-paths.md"),
+		filepath.Join("references", "windows-background.md"),
+		filepath.Join("references", "remote-windows-support.md"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
 			t.Fatalf("exported file %s missing: %v", rel, err)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -15,10 +16,15 @@ import (
 
 type rawEngine struct {
 	client *sshclient.Client
+	mkdirs bool
 }
 
-func newRawEngine(client *sshclient.Client) *rawEngine {
-	return &rawEngine{client: client}
+func newRawEngine(client *sshclient.Client, opts ...engineOptions) *rawEngine {
+	e := &rawEngine{client: client}
+	if len(opts) > 0 {
+		e.mkdirs = opts[0].mkdirs
+	}
+	return e
 }
 
 func (e *rawEngine) Name() string { return "raw" }
@@ -41,10 +47,14 @@ func (e *rawEngine) Upload(ctx context.Context, localPath, remotePath string, pr
 		return nil, fmt.Errorf("%q is a directory, use --recursive", localPath)
 	}
 
-	if remotePath[len(remotePath)-1] == '/' {
+	if strings.HasSuffix(remotePath, "/") {
 		remotePath += filepath.Base(localPath)
 	}
 	tmpPath := remotePath + ".sshq.tmp"
+	remoteDir := path.Dir(remotePath)
+	if err := e.prepareRemoteParent(remoteDir); err != nil {
+		return nil, err
+	}
 
 	session, err := e.client.NewSession()
 	if err != nil {
@@ -57,8 +67,7 @@ func (e *rawEngine) Upload(ctx context.Context, localPath, remotePath string, pr
 		return nil, fmt.Errorf("stdin pipe: %w", err)
 	}
 
-	remoteDir := remotePath[:strings.LastIndex(remotePath, "/")]
-	cmd := fmt.Sprintf("mkdir -p '%s' && cat > '%s'", shellEscape(remoteDir), shellEscape(tmpPath))
+	cmd := rawWriteCommand(remoteDir, tmpPath, e.mkdirs)
 	if err := session.Start(cmd); err != nil {
 		session.Close()
 		return nil, fmt.Errorf("start remote write: %w", err)
@@ -174,6 +183,9 @@ func (e *rawEngine) Download(ctx context.Context, remotePath, localPath string, 
 
 func (e *rawEngine) UploadRecursive(ctx context.Context, localDir, remoteDir string, progress ProgressFunc) (*Result, error) {
 	start := time.Now()
+	if err := e.PrepareRecursiveDestination(ctx, remoteDir); err != nil {
+		return nil, err
+	}
 	var totalSize int64
 	var totalFiles int
 
@@ -184,13 +196,15 @@ func (e *rawEngine) UploadRecursive(ctx context.Context, localDir, remoteDir str
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if info.IsDir() {
-			return nil
-		}
-
 		rel, err := filepath.Rel(localDir, localPath)
 		if err != nil {
 			return err
+		}
+		if info.IsDir() {
+			if rel == "." {
+				return nil
+			}
+			return e.remoteMkdirAll(remoteDir + "/" + filepath.ToSlash(rel))
 		}
 		remotePath := remoteDir + "/" + filepath.ToSlash(rel)
 
@@ -252,6 +266,18 @@ func (e *rawEngine) DownloadRecursive(ctx context.Context, remoteDir, localDir s
 	}, nil
 }
 
+func (e *rawEngine) PrepareRecursiveDestination(_ context.Context, remoteDir string) error {
+	remoteDir = strings.TrimRight(remoteDir, "/")
+	if err := e.prepareRemoteParent(path.Dir(remoteDir)); err != nil {
+		return err
+	}
+	if err := e.remoteMkdirAll(remoteDir); err != nil {
+		return fmt.Errorf("create remote destination directory %s: %w", remoteDir, err)
+	}
+	e.mkdirs = true
+	return nil
+}
+
 func (e *rawEngine) OpenRead(_ context.Context, remotePath string) (io.ReadCloser, int64, error) {
 	size, _ := e.remoteFileSize(remotePath)
 
@@ -277,7 +303,10 @@ func (e *rawEngine) OpenRead(_ context.Context, remotePath string) (io.ReadClose
 
 func (e *rawEngine) OpenWrite(_ context.Context, remotePath string) (io.WriteCloser, func() error, func(), error) {
 	tmpPath := remotePath + ".sshq.tmp"
-	remoteDir := remotePath[:strings.LastIndex(remotePath, "/")]
+	remoteDir := path.Dir(remotePath)
+	if err := e.prepareRemoteParent(remoteDir); err != nil {
+		return nil, nil, nil, err
+	}
 
 	session, err := e.client.NewSession()
 	if err != nil {
@@ -290,7 +319,7 @@ func (e *rawEngine) OpenWrite(_ context.Context, remotePath string) (io.WriteClo
 		return nil, nil, nil, err
 	}
 
-	cmd := fmt.Sprintf("mkdir -p '%s' && cat > '%s'", shellEscape(remoteDir), shellEscape(tmpPath))
+	cmd := rawWriteCommand(remoteDir, tmpPath, e.mkdirs)
 	if err := session.Start(cmd); err != nil {
 		session.Close()
 		return nil, nil, nil, err
@@ -321,6 +350,47 @@ func (e *rawEngine) remoteRename(src, dst string) error {
 	}
 	defer session.Close()
 	return session.Run(fmt.Sprintf("mv -f '%s' '%s'", shellEscape(src), shellEscape(dst)))
+}
+
+func (e *rawEngine) prepareRemoteParent(remoteDir string) error {
+	if remoteDir == "." || remoteDir == "/" {
+		return nil
+	}
+	session, err := e.client.NewSession()
+	if err != nil {
+		return err
+	}
+	defer session.Close()
+	if e.mkdirs {
+		if err := session.Run(fmt.Sprintf("mkdir -p '%s'", shellEscape(remoteDir))); err != nil {
+			return fmt.Errorf("create remote parent directory %s: %w", remoteDir, err)
+		}
+		return nil
+	}
+	if err := session.Run(fmt.Sprintf("test -d '%s'", shellEscape(remoteDir))); err != nil {
+		return &RemoteParentMissingError{Path: remoteDir}
+	}
+	return nil
+}
+
+func (e *rawEngine) remoteMkdirAll(remoteDir string) error {
+	if remoteDir == "." || remoteDir == "/" {
+		return nil
+	}
+	session, err := e.client.NewSession()
+	if err != nil {
+		return err
+	}
+	defer session.Close()
+	return session.Run(fmt.Sprintf("mkdir -p '%s'", shellEscape(remoteDir)))
+}
+
+func rawWriteCommand(remoteDir, tmpPath string, mkdirs bool) string {
+	write := fmt.Sprintf("cat > '%s'", shellEscape(tmpPath))
+	if !mkdirs || remoteDir == "." || remoteDir == "/" {
+		return write
+	}
+	return fmt.Sprintf("mkdir -p '%s' && %s", shellEscape(remoteDir), write)
 }
 
 func (e *rawEngine) remoteCleanup(path string) {

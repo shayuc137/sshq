@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -136,12 +137,7 @@ func (dc *daemonContext) handleScript(conn net.Conn, raw json.RawMessage) {
 		ipc.SendError(conn, err.Error(), "")
 		return
 	}
-	if remote.NeedsTranscoding(profile) {
-		result.Stdout = remote.DecodeString(result.Stdout, profile.Encoding)
-		result.Stderr = remote.DecodeString(result.Stderr, profile.Encoding)
-	}
-	result.Stderr = exec.DecodeCLIXMLStderr(result.Stderr)
-	result.Stderr = appendPowerShellVariableHint(result.Stderr, shell, result.ExitCode)
+	normalizeRemoteResult(result, profile, shell)
 
 	auditResult := audit.ResultSuccess
 	if result.ExitCode != 0 {
@@ -191,7 +187,7 @@ func (dc *daemonContext) handleTransfer(conn net.Conn, raw json.RawMessage) {
 		ipc.Send(conn, ipc.Frame{Type: "stderr", Data: msg + "\n"})
 	}
 
-	engine, err := transfer.NewEngine(client, profile, infoFn)
+	engine, err := transfer.NewEngine(client, profile, infoFn, transferEngineOptions(payload.Mkdirs)...)
 	if err != nil {
 		entry := audit.TransferEntry(alias, direction, localPath, remotePath, audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDaemon)
 		if !dc.sendAuditError(conn, entry, err) {
@@ -239,7 +235,12 @@ func (dc *daemonContext) handleTransfer(conn net.Conn, raw json.RawMessage) {
 		if !dc.sendAuditError(conn, entry, err) {
 			return
 		}
-		ipc.SendError(conn, err.Error(), "")
+		action := ""
+		var missingParent *transfer.RemoteParentMissingError
+		if errors.As(err, &missingParent) {
+			action = cpMkdirsAction(parsedArgsFromTransferPayload(payload), payload.Recursive)
+		}
+		ipc.SendError(conn, err.Error(), action)
 		return
 	}
 
@@ -313,9 +314,9 @@ func (dc *daemonContext) handleRelay(conn net.Conn, raw json.RawMessage) {
 	var err error
 
 	if payload.Recursive {
-		result, err = transfer.RunRelayRecursive(ctx, srcClient, dstClient, payload.SrcPath, payload.DstPath, srcProfile, dstProfile, infoFn, progressFn)
+		result, err = transfer.RunRelayRecursive(ctx, srcClient, dstClient, payload.SrcPath, payload.DstPath, srcProfile, dstProfile, infoFn, progressFn, transferEngineOptions(payload.Mkdirs)...)
 	} else {
-		result, err = transfer.RunRelay(ctx, srcClient, dstClient, payload.SrcPath, payload.DstPath, srcProfile, dstProfile, infoFn, progressFn)
+		result, err = transfer.RunRelay(ctx, srcClient, dstClient, payload.SrcPath, payload.DstPath, srcProfile, dstProfile, infoFn, progressFn, transferEngineOptions(payload.Mkdirs)...)
 	}
 
 	if err != nil {
@@ -323,7 +324,12 @@ func (dc *daemonContext) handleRelay(conn net.Conn, raw json.RawMessage) {
 		if !dc.sendAuditError(conn, entry, err) {
 			return
 		}
-		ipc.SendError(conn, err.Error(), "")
+		action := ""
+		var missingParent *transfer.RemoteParentMissingError
+		if errors.As(err, &missingParent) {
+			action = cpMkdirsAction(parsedArgsFromRelayPayload(payload), payload.Recursive)
+		}
+		ipc.SendError(conn, err.Error(), action)
 		return
 	}
 	sendDaemonVerbose(conn, payload.Verbose, "transfer engine: %s", result.Engine)
@@ -358,10 +364,13 @@ func (dc *daemonContext) handleProfile(conn net.Conn, raw json.RawMessage) {
 		if cached, _ := dc.cache.Get(host.HostName, host.Port); cached != nil {
 			sendDaemonVerbose(conn, payload.Verbose, "%s", verboseProfile(cached))
 			result := ipc.ProfileResult{
-				OS:       string(cached.OS),
-				Shell:    string(cached.Shell),
-				Encoding: cached.Encoding,
-				HomeDir:  cached.HomeDir,
+				OS:             string(cached.OS),
+				Shell:          string(cached.Shell),
+				Encoding:       cached.Encoding,
+				HomeDir:        cached.HomeDir,
+				TempDir:        cached.TempDir,
+				PowerShellPath: cached.PowerShellPath,
+				PwshPath:       cached.PwshPath,
 			}
 			frame, _ := ipc.MakeResultFrame(result)
 			ipc.Send(conn, frame)
@@ -393,10 +402,13 @@ func (dc *daemonContext) handleProfile(conn net.Conn, raw json.RawMessage) {
 	sendDaemonVerbose(conn, payload.Verbose, "%s", verboseProfile(p))
 
 	result := ipc.ProfileResult{
-		OS:       string(p.OS),
-		Shell:    string(p.Shell),
-		Encoding: p.Encoding,
-		HomeDir:  p.HomeDir,
+		OS:             string(p.OS),
+		Shell:          string(p.Shell),
+		Encoding:       p.Encoding,
+		HomeDir:        p.HomeDir,
+		TempDir:        p.TempDir,
+		PowerShellPath: p.PowerShellPath,
+		PwshPath:       p.PwshPath,
 	}
 	frame, _ := ipc.MakeResultFrame(result)
 	ipc.Send(conn, frame)

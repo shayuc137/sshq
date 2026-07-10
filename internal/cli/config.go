@@ -75,8 +75,7 @@ func newConfigAddCommand() *cobra.Command {
 				return output.Errorf("save failed: "+err.Error(), "")
 			}
 
-			w.Success(fmt.Sprintf("added %s (%s)", alias, hostname))
-			return nil
+			return renderConfigVerification(w, store, alias)
 		},
 	}
 
@@ -123,11 +122,19 @@ Examples:
 				return output.Errorf("save failed: "+err.Error(), "")
 			}
 
-			w.Success(fmt.Sprintf("set %s.%s = %s", alias, key, value))
-			return nil
+			return renderConfigVerification(w, store, alias)
 		},
 	}
 	return cmd
+}
+
+func renderConfigVerification(w *output.Writer, store *config.Store, alias string) error {
+	host, err := store.Get(alias)
+	if err != nil {
+		return output.Errorf("resolve saved host: "+err.Error(), "sshq doctor "+alias)
+	}
+	w.Render(config.NewHostVerification(host, "sshq doctor "+alias))
+	return nil
 }
 
 func newConfigRemoveCommand() *cobra.Command {

@@ -3,7 +3,9 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/shayuc137/sshq/internal/audit"
@@ -38,6 +40,7 @@ func newCpCommand() *cobra.Command {
 
 			w := writerFrom(cmd.Context())
 			recursive, _ := cmd.Flags().GetBool("recursive")
+			mkdirs, _ := cmd.Flags().GetBool("mkdirs")
 			noDaemon, _ := cmd.Flags().GetBool("no-daemon")
 			timeout, _ := cmd.Flags().GetDuration("timeout")
 
@@ -53,14 +56,14 @@ func newCpCommand() *cobra.Command {
 			if !noDaemon && ipc.IsRunning() {
 				switch parsed.Direction {
 				case transfer.Upload, transfer.Download:
-					env, _ := ipc.MakeEnvelope("transfer", transferPayload(parsed, recursive, w.IsVerbose()))
+					env, _ := ipc.MakeEnvelope("transfer", transferPayload(parsed, recursive, mkdirs, w.IsVerbose()))
 					return daemonDispatch(env,
 						func(conn net.Conn) error {
 							return recvTransferFrames(w, conn)
 						},
 						func(reason string) error {
 							w.Info(reason + ", falling back to direct connection")
-							return cpTransferDirect(ctx, w, store, parsed, recursive, progressFn)
+							return cpTransferDirect(ctx, w, store, parsed, recursive, mkdirs, progressFn)
 						},
 					)
 				case transfer.Relay:
@@ -70,6 +73,7 @@ func newCpCommand() *cobra.Command {
 						DstAlias:  parsed.Dst.Alias,
 						DstPath:   parsed.Dst.Path,
 						Recursive: recursive,
+						Mkdirs:    mkdirs,
 						Verbose:   w.IsVerbose(),
 					})
 					return daemonDispatch(env,
@@ -78,7 +82,7 @@ func newCpCommand() *cobra.Command {
 						},
 						func(reason string) error {
 							w.Info(reason + ", falling back to direct connection")
-							return cpRelayDirect(ctx, w, store, parsed, recursive, progressFn)
+							return cpRelayDirect(ctx, w, store, parsed, recursive, mkdirs, progressFn)
 						},
 					)
 				}
@@ -86,22 +90,23 @@ func newCpCommand() *cobra.Command {
 
 			switch parsed.Direction {
 			case transfer.Upload, transfer.Download:
-				return cpTransferDirect(ctx, w, store, parsed, recursive, progressFn)
+				return cpTransferDirect(ctx, w, store, parsed, recursive, mkdirs, progressFn)
 			case transfer.Relay:
-				return cpRelayDirect(ctx, w, store, parsed, recursive, progressFn)
+				return cpRelayDirect(ctx, w, store, parsed, recursive, mkdirs, progressFn)
 			}
 			return nil
 		},
 	}
 
 	cmd.Flags().BoolP("recursive", "r", false, "copy directories recursively")
+	cmd.Flags().Bool("mkdirs", false, "create missing remote destination parent directories")
 	cmd.Flags().Bool("no-daemon", false, "skip daemon, connect directly")
 	return cmd
 }
 
 // --- daemon paths ---
 
-func transferPayload(parsed transfer.ParsedArgs, recursive, verbose bool) ipc.TransferPayload {
+func transferPayload(parsed transfer.ParsedArgs, recursive, mkdirs, verbose bool) ipc.TransferPayload {
 	alias := parsed.Src.Alias
 	localPath := parsed.Src.Path
 	remotePath := parsed.Dst.Path
@@ -125,6 +130,7 @@ func transferPayload(parsed transfer.ParsedArgs, recursive, verbose bool) ipc.Tr
 		LocalPath:  localPath,
 		RemotePath: remotePath,
 		Recursive:  recursive,
+		Mkdirs:     mkdirs,
 		Verbose:    verbose,
 	}
 }
@@ -170,7 +176,7 @@ func recvTransferFrames(w *output.Writer, conn net.Conn) error {
 
 // --- direct paths (fallback) ---
 
-func cpTransferDirect(ctx context.Context, w *output.Writer, store *config.Store, parsed transfer.ParsedArgs, recursive bool, progress transfer.ProgressFunc) error {
+func cpTransferDirect(ctx context.Context, w *output.Writer, store *config.Store, parsed transfer.ParsedArgs, recursive, mkdirs bool, progress transfer.ProgressFunc) error {
 	if err := checkPolicyTransfer(ctx, parsed); err != nil {
 		return err
 	}
@@ -217,7 +223,7 @@ func cpTransferDirect(ctx context.Context, w *output.Writer, store *config.Store
 	}
 	w.Verbose(verboseProfile(profile))
 
-	engine, err := transfer.NewEngine(client, profile, func(msg string) { w.Info(msg) })
+	engine, err := transfer.NewEngine(client, profile, func(msg string) { w.Info(msg) }, transferEngineOptions(mkdirs)...)
 	if err != nil {
 		entry := audit.TransferEntry(alias, direction, localPath, remotePath, audit.ResultError, time.Since(auditStart).Milliseconds(), audit.SourceDirect)
 		if auditErr := recordAuditError(ctx, entry, err); auditErr != nil {
@@ -253,6 +259,10 @@ func cpTransferDirect(ctx context.Context, w *output.Writer, store *config.Store
 		if ctx.Err() != nil {
 			return output.Errorf("transfer cancelled", "remote temp file cleaned up")
 		}
+		var missingParent *transfer.RemoteParentMissingError
+		if errors.As(err, &missingParent) {
+			return output.Errorf(err.Error(), cpMkdirsAction(parsed, recursive))
+		}
 		return output.Errorf(err.Error(), "")
 	}
 
@@ -263,7 +273,7 @@ func cpTransferDirect(ctx context.Context, w *output.Writer, store *config.Store
 	return nil
 }
 
-func cpRelayDirect(ctx context.Context, w *output.Writer, store *config.Store, parsed transfer.ParsedArgs, recursive bool, progress transfer.ProgressFunc) error {
+func cpRelayDirect(ctx context.Context, w *output.Writer, store *config.Store, parsed transfer.ParsedArgs, recursive, mkdirs bool, progress transfer.ProgressFunc) error {
 	if err := checkPolicyTransfer(ctx, parsed); err != nil {
 		return err
 	}
@@ -347,9 +357,9 @@ func cpRelayDirect(ctx context.Context, w *output.Writer, store *config.Store, p
 
 	var result *transfer.Result
 	if recursive {
-		result, err = transfer.RunRelayRecursive(ctx, srcClient, dstClient, parsed.Src.Path, parsed.Dst.Path, srcProfile, dstProfile, infoFn, progress)
+		result, err = transfer.RunRelayRecursive(ctx, srcClient, dstClient, parsed.Src.Path, parsed.Dst.Path, srcProfile, dstProfile, infoFn, progress, transferEngineOptions(mkdirs)...)
 	} else {
-		result, err = transfer.RunRelay(ctx, srcClient, dstClient, parsed.Src.Path, parsed.Dst.Path, srcProfile, dstProfile, infoFn, progress)
+		result, err = transfer.RunRelay(ctx, srcClient, dstClient, parsed.Src.Path, parsed.Dst.Path, srcProfile, dstProfile, infoFn, progress, transferEngineOptions(mkdirs)...)
 	}
 
 	if err != nil {
@@ -360,6 +370,10 @@ func cpRelayDirect(ctx context.Context, w *output.Writer, store *config.Store, p
 		if ctx.Err() != nil {
 			return output.Errorf("relay cancelled", "remote temp files cleaned up")
 		}
+		var missingParent *transfer.RemoteParentMissingError
+		if errors.As(err, &missingParent) {
+			return output.Errorf(err.Error(), cpMkdirsAction(parsed, recursive))
+		}
 		return output.Errorf(err.Error(), "")
 	}
 
@@ -369,6 +383,58 @@ func cpRelayDirect(ctx context.Context, w *output.Writer, store *config.Store, p
 	w.Render(result)
 	w.Verbose("transfer engine: " + result.Engine)
 	return nil
+}
+
+func transferEngineOptions(mkdirs bool) []transfer.EngineOption {
+	if mkdirs {
+		return []transfer.EngineOption{transfer.WithMkdirs()}
+	}
+	return nil
+}
+
+func cpMkdirsAction(parsed transfer.ParsedArgs, recursive bool) string {
+	args := []string{"sshq", "cp", "--mkdirs"}
+	if recursive {
+		args = append(args, "--recursive")
+	}
+	args = append(args, formatTransferEndpoint(parsed.Src), formatTransferEndpoint(parsed.Dst))
+	for i := range args {
+		args[i] = quoteCommandArg(args[i])
+	}
+	return strings.Join(args, " ")
+}
+
+func formatTransferEndpoint(endpoint transfer.Endpoint) string {
+	if endpoint.Alias == "" {
+		return endpoint.Path
+	}
+	return endpoint.Alias + ":" + endpoint.Path
+}
+
+func parsedArgsFromTransferPayload(payload ipc.TransferPayload) transfer.ParsedArgs {
+	local := transfer.Endpoint{Path: payload.LocalPath}
+	remoteEndpoint := transfer.Endpoint{Alias: payload.Alias, Path: payload.RemotePath}
+	if payload.Direction == "download" {
+		return transfer.ParsedArgs{Direction: transfer.Download, Src: remoteEndpoint, Dst: local}
+	}
+	return transfer.ParsedArgs{Direction: transfer.Upload, Src: local, Dst: remoteEndpoint}
+}
+
+func parsedArgsFromRelayPayload(payload ipc.RelayPayload) transfer.ParsedArgs {
+	return transfer.ParsedArgs{
+		Direction: transfer.Relay,
+		Src:       transfer.Endpoint{Alias: payload.SrcAlias, Path: payload.SrcPath},
+		Dst:       transfer.Endpoint{Alias: payload.DstAlias, Path: payload.DstPath},
+	}
+}
+
+func quoteCommandArg(arg string) string {
+	if arg != "" && strings.IndexFunc(arg, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-._/:~", r))
+	}) == -1 {
+		return arg
+	}
+	return "'" + strings.ReplaceAll(arg, "'", "'\\''") + "'"
 }
 
 func transferProgress(w *output.Writer) transfer.ProgressFunc {

@@ -37,6 +37,25 @@ func TestCacheLoadCorruptFileWarnsAndRebuilds(t *testing.T) {
 	}
 }
 
+func TestCacheLoadsLegacyProfileWithoutExecutablePaths(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "profiles.json")
+	data := `{"host.example:22":{"os":"windows","shell":"powershell","temp_dir":"C:\\Temp","detected_at":4102444800}}`
+	if err := os.WriteFile(path, []byte(data), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cache, err := NewCache(24*time.Hour, WithCachePath(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, ok := cache.Get("host.example", "22")
+	if !ok || profile.TempDir != `C:\Temp` {
+		t.Fatalf("legacy profile = %+v, ok=%v", profile, ok)
+	}
+	if profile.PowerShellPath != "" || profile.PwshPath != "" {
+		t.Fatalf("legacy executable paths should be empty: %+v", profile)
+	}
+}
+
 func TestCachePathEnvOverridesDefault(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "env-profiles.json")
 	t.Setenv(CachePathEnv, path)

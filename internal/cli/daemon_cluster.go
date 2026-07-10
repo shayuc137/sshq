@@ -114,7 +114,10 @@ func (dc *daemonContext) handleClusterExec(conn net.Conn, raw json.RawMessage) {
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
 
-			result, err := exec.RunBuffered(ctx, client, payload.Command)
+			profile := dc.getProfile(ctx, client, host.HostName, host.Port)
+			sendDaemonVerboseLocked(conn, &mu, payload.Verbose, "%s", verboseProfile(profile))
+			shell := shellForExec(profile, "")
+			result, err := exec.RunBufferedWithShell(ctx, client, payload.Command, shell)
 			if err != nil {
 				mu.Lock()
 				failed++
@@ -131,6 +134,7 @@ func (dc *daemonContext) handleClusterExec(conn net.Conn, raw json.RawMessage) {
 				sendClusterFrame(conn, &mu, ipc.ClusterFrame{Alias: alias, Type: "error", Hint: err.Error()})
 				return
 			}
+			normalizeRemoteResult(result, profile, shell)
 
 			auditResult := audit.ResultSuccess
 			if result.ExitCode != 0 {

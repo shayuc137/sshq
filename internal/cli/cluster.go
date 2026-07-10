@@ -15,6 +15,7 @@ import (
 	"github.com/shayuc137/sshq/internal/exec"
 	"github.com/shayuc137/sshq/internal/ipc"
 	"github.com/shayuc137/sshq/internal/output"
+	"github.com/shayuc137/sshq/internal/remote"
 	"github.com/shayuc137/sshq/internal/sshclient"
 	"github.com/spf13/cobra"
 )
@@ -58,6 +59,11 @@ func (cr clusterResult) Pretty() string {
 		for _, line := range strings.Split(r.Stdout, "\n") {
 			if line != "" {
 				fmt.Fprintf(&b, "[%s] %s\n", r.Alias, line)
+			}
+		}
+		for _, line := range strings.Split(r.Stderr, "\n") {
+			if line != "" {
+				fmt.Fprintf(&b, "[%s] stderr: %s\n", r.Alias, line)
 			}
 		}
 		if r.ExitCode != 0 {
@@ -317,13 +323,16 @@ func clusterExecDirectCLI(cmd *cobra.Command, w *output.Writer, store *config.St
 			}
 			defer client.Close()
 
-			result, err := exec.RunBuffered(ctx, client, command)
+			profile, _ := remote.GetProfile(ctx, client, profileCacheFrom(ctx), host.HostName, host.Port)
+			shell := shellForExec(profile, "")
+			result, err := exec.RunBufferedWithShell(ctx, client, command, shell)
 			if err != nil {
 				mu.Lock()
 				results = append(results, clusterHostResult{Alias: alias, Error: err.Error()})
 				mu.Unlock()
 				return
 			}
+			normalizeRemoteResult(result, profile, shell)
 
 			mu.Lock()
 			results = append(results, clusterHostResult{

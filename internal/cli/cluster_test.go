@@ -118,6 +118,16 @@ func TestRecvClusterFramesMultiHostJSON(t *testing.T) {
 	}
 }
 
+func TestClusterPrettyIncludesRemoteStderr(t *testing.T) {
+	result := clusterResult{
+		Results: []clusterHostResult{{Alias: "win", Stderr: "找不到命令", ExitCode: 1}},
+		Summary: ipc.ClusterSummary{Total: 1, Failed: 1},
+	}
+	if got := result.Pretty(); !strings.Contains(got, "[win] stderr: 找不到命令") {
+		t.Fatalf("pretty output omitted stderr: %q", got)
+	}
+}
+
 func TestRecvClusterFramesNonZeroExitJSON(t *testing.T) {
 	out, _, err := runRecvCluster(t, true,
 		clusterFrame(t, ipc.ClusterFrame{Alias: "web1", Type: "exit", Code: 0}),

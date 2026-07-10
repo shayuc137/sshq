@@ -183,12 +183,7 @@ func execScriptDirect(cmd *cobra.Command, w *output.Writer, alias string, script
 		}
 		return output.Errorf(err.Error(), "")
 	}
-	if remote.NeedsTranscoding(profile) {
-		result.Stdout = remote.DecodeString(result.Stdout, profile.Encoding)
-		result.Stderr = remote.DecodeString(result.Stderr, profile.Encoding)
-	}
-	result.Stderr = exec.DecodeCLIXMLStderr(result.Stderr)
-	result.Stderr = appendPowerShellVariableHint(result.Stderr, shell, result.ExitCode)
+	normalizeRemoteResult(result, profile, shell)
 	auditResult := audit.ResultSuccess
 	if result.ExitCode != 0 {
 		auditResult = audit.ResultError
@@ -314,12 +309,7 @@ func execDirect(cmd *cobra.Command, w *output.Writer, alias, command string) err
 		}
 		return output.Errorf(err.Error(), "")
 	}
-	if remote.NeedsTranscoding(profile) {
-		result.Stdout = remote.DecodeString(result.Stdout, profile.Encoding)
-		result.Stderr = remote.DecodeString(result.Stderr, profile.Encoding)
-	}
-	result.Stderr = exec.DecodeCLIXMLStderr(result.Stderr)
-	result.Stderr = appendPowerShellVariableHint(result.Stderr, shell, result.ExitCode)
+	normalizeRemoteResult(result, profile, shell)
 	auditResult := audit.ResultSuccess
 	if result.ExitCode != 0 {
 		auditResult = audit.ResultError
@@ -353,6 +343,15 @@ func shellForExec(profile *remote.Profile, override string) string {
 		return ""
 	}
 	return string(profile.Shell)
+}
+
+func normalizeRemoteResult(result *exec.Result, profile *remote.Profile, shell string) {
+	if remote.NeedsTranscoding(profile) {
+		result.Stdout = remote.DecodeString(result.Stdout, profile.Encoding)
+		result.Stderr = remote.DecodeString(result.Stderr, profile.Encoding)
+	}
+	result.Stderr = exec.DecodeCLIXMLStderr(result.Stderr)
+	result.Stderr = appendPowerShellVariableHint(result.Stderr, shell, result.ExitCode)
 }
 
 const powerShellVariableHint = "if your command contained PowerShell $variables, the local shell may have expanded them — use --script-file"
