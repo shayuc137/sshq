@@ -1,6 +1,18 @@
 package remote
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/shayuc137/sshq/internal/powershell"
+)
+
+func TestWindowsProbeUsesExplicitPowerShellInterpreter(t *testing.T) {
+	command := windowsProbeCommand()
+	if !strings.HasPrefix(command, powershell.Prefix+" -EncodedCommand ") {
+		t.Fatalf("Windows probe is not safe for a cmd.exe default shell: %q", command)
+	}
+}
 
 func TestParsePosixOutput(t *testing.T) {
 	tests := []struct {

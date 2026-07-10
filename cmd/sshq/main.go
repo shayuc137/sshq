@@ -35,6 +35,7 @@ func main() {
 		var cmdErr *output.CmdError
 		if errors.As(err, &cmdErr) {
 			w.Error(cmdErr)
+			os.Exit(cmdErr.ProcessExitCode())
 		} else {
 			w.Error(output.Errorf(err.Error(), ""))
 		}

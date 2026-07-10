@@ -85,7 +85,7 @@ var skillGroups = []struct {
 		file:     "discovery.md",
 		title:    "Discovery & Daemon",
 		intro:    "Commands for listing, searching, inspecting hosts, credentials, and managing the daemon.",
-		cmds:     []string{"ls", "search", "info", "probe", "doctor", "trust", "credential", "credential set", "credential delete", "credential list", "daemon", "daemon start", "daemon stop", "daemon status", "version", "skill", "skill install", "skill update", "skill export", "skill status"},
+		cmds:     []string{"ls", "search", "info", "probe", "doctor", "trust", "credential", "credential set", "credential delete", "credential list", "daemon", "daemon start", "daemon stop", "daemon status", "version", "update", "skill", "skill install", "skill update", "skill export", "skill status"},
 		appendix: discoveryAppendix,
 	},
 	{
@@ -536,6 +536,9 @@ const discoveryAppendix = "---\n" +
 	"- `credential list`: only shows aliases, never prints passwords\n\n" +
 	"### daemon status output\n\n" +
 	"Returns `{running, uptime_seconds, connections: [{alias, host, idle}]}`.\n\n" +
+	"### update exit codes\n\n" +
+	"`update --check` returns exit 0 when current, exit 1 when an update is available, and exit 2 when the check fails. " +
+	"In JSON mode, inspect `data.update_available`; top-level `exit_code` remains reserved for remote command results.\n\n" +
 	"### skill commands\n\n" +
 	"- `skill install`: installs sshq skill to Claude Code (`--codex` for Codex, `--project` for project-level)\n" +
 	"- `skill update`: refreshes every existing installation in place and skips targets that are not installed\n" +

@@ -7,12 +7,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shayuc137/sshq/internal/powershell"
 	"github.com/shayuc137/sshq/internal/sshclient"
 )
 
 const detectPOSIX = `echo "OS=$(uname -s)" && echo "SHELL=$(basename "$SHELL" 2>/dev/null || readlink /proc/$$/exe 2>/dev/null || echo sh)" && echo "HOME=$HOME"`
 
-const detectWindows = `$powershell = (Get-Command powershell.exe -ErrorAction SilentlyContinue).Source ; $pwsh = (Get-Command pwsh.exe -ErrorAction SilentlyContinue).Source ; echo "OS=Windows" ; echo "SHELL=powershell" ; echo "HOME=$env:USERPROFILE" ; echo "TEMP=$env:TEMP" ; echo "POWERSHELL=$powershell" ; echo "PWSH=$pwsh" ; chcp 2>$null`
+const detectWindowsScript = `$powershell = (Get-Command powershell.exe -ErrorAction SilentlyContinue).Source ; $pwsh = (Get-Command pwsh.exe -ErrorAction SilentlyContinue).Source ; echo "OS=Windows" ; echo "SHELL=powershell" ; echo "HOME=$env:USERPROFILE" ; echo "TEMP=$env:TEMP" ; echo "POWERSHELL=$powershell" ; echo "PWSH=$pwsh" ; chcp 2>$null`
 
 func Detect(ctx context.Context, client *sshclient.Client) (*Profile, error) {
 	p, err := detectPosix(ctx, client)
@@ -31,11 +32,15 @@ func detectPosix(ctx context.Context, client *sshclient.Client) (*Profile, error
 }
 
 func detectWin(ctx context.Context, client *sshclient.Client) (*Profile, error) {
-	out, err := runProbe(ctx, client, detectWindows)
+	out, err := runProbe(ctx, client, windowsProbeCommand())
 	if err != nil {
 		return nil, fmt.Errorf("windows detect failed: %w", err)
 	}
 	return parseWindowsOutput(out)
+}
+
+func windowsProbeCommand() string {
+	return powershell.EncodedCommand([]byte(detectWindowsScript))
 }
 
 func runProbe(ctx context.Context, client *sshclient.Client, command string) (string, error) {
@@ -50,6 +55,9 @@ func runProbe(ctx context.Context, client *sshclient.Client, command string) (st
 	go func() {
 		out, err := session.CombinedOutput(command)
 		if err != nil {
+			if detail := strings.TrimSpace(string(out)); detail != "" {
+				err = fmt.Errorf("%w: %s", err, detail)
+			}
 			errCh <- err
 			return
 		}

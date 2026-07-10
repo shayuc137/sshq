@@ -4,15 +4,14 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 	"time"
-	"unicode/utf16"
 
+	"github.com/shayuc137/sshq/internal/powershell"
 	"github.com/shayuc137/sshq/internal/remote"
 	"github.com/shayuc137/sshq/internal/sshclient"
 	"github.com/shayuc137/sshq/internal/transfer"
@@ -21,7 +20,7 @@ import (
 
 const (
 	powerShellInlineLimit = 8 * 1024
-	powerShellPrefix      = "powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass"
+	powerShellPrefix      = powershell.Prefix
 )
 
 type scriptOptions struct {
@@ -280,17 +279,7 @@ func runPowerShellScriptBuffered(ctx context.Context, script []byte, opts script
 }
 
 func powerShellEncodedCommand(script []byte) string {
-	// Same-line prefix (not a newline) keeps user script line numbers intact
-	// in remote error messages. Without this, PowerShell 5.1 serializes its
-	// progress stream as CLIXML noise on stderr for -EncodedCommand runs.
-	prefixed := append([]byte("$ProgressPreference='SilentlyContinue'; "), script...)
-	runes := utf16.Encode([]rune(string(prefixed)))
-	raw := make([]byte, len(runes)*2)
-	for i, codeUnit := range runes {
-		raw[i*2] = byte(codeUnit)
-		raw[i*2+1] = byte(codeUnit >> 8)
-	}
-	return powerShellPrefix + " -EncodedCommand " + base64.StdEncoding.EncodeToString(raw)
+	return powershell.EncodedCommand(script)
 }
 
 func powerShellTempPath(profile *remote.Profile) (string, error) {

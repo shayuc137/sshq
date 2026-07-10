@@ -242,6 +242,7 @@ type CmdError struct {
 	Hint    string
 	Action  string
 	Details map[string]any
+	code    int
 }
 
 func (e *CmdError) Error() string {
@@ -253,6 +254,20 @@ func (e *CmdError) Error() string {
 
 func Errorf(hint, action string) *CmdError {
 	return &CmdError{Hint: hint, Action: action}
+}
+
+// WithExitCode assigns a process exit code while preserving 1 as the default
+// for existing command errors.
+func (e *CmdError) WithExitCode(code int) *CmdError {
+	e.code = code
+	return e
+}
+
+func (e *CmdError) ProcessExitCode() int {
+	if e.code > 0 {
+		return e.code
+	}
+	return 1
 }
 
 func (e *CmdError) WithDetails(details map[string]any) *CmdError {

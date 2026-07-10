@@ -109,6 +109,7 @@ func NewRootCommand() *cobra.Command {
 
 	cmd.AddCommand(
 		newVersionCommand(),
+		newUpdateCommand(),
 		newLsCommand(),
 		newSearchCommand(),
 		newInfoCommand(),
@@ -133,7 +134,10 @@ func NewRootCommand() *cobra.Command {
 
 func skipAuditLoggerInit(cmd *cobra.Command) bool {
 	path := cmd.CommandPath()
-	return strings.HasPrefix(path, "sshq daemon") || strings.HasPrefix(path, "sshq audit")
+	return path == "sshq update" ||
+		strings.HasPrefix(path, "sshq skill") ||
+		strings.HasPrefix(path, "sshq daemon") ||
+		strings.HasPrefix(path, "sshq audit")
 }
 
 func runRootCommand(cmd *cobra.Command, args []string) error {

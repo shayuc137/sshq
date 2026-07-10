@@ -380,6 +380,7 @@ func TestSkillOutdatedReminderMarkerWriteFailureDoesNotBlockCommand(t *testing.T
 func TestSkillOutdatedReminderExemptCommands(t *testing.T) {
 	tests := []string{
 		"sshq version",
+		"sshq update",
 		"sshq skill",
 		"sshq skill status",
 		"sshq daemon",
@@ -389,7 +390,7 @@ func TestSkillOutdatedReminderExemptCommands(t *testing.T) {
 		t.Run(commandPath, func(t *testing.T) {
 			cmd := &cobra.Command{Use: strings.TrimPrefix(commandPath, "sshq ")}
 			root := &cobra.Command{Use: "sshq"}
-			if commandPath == "sshq version" || commandPath == "sshq skill" || commandPath == "sshq daemon" {
+			if commandPath == "sshq version" || commandPath == "sshq update" || commandPath == "sshq skill" || commandPath == "sshq daemon" {
 				root.AddCommand(cmd)
 			} else {
 				parts := strings.Split(strings.TrimPrefix(commandPath, "sshq "), " ")

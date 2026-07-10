@@ -488,7 +488,7 @@ func warnIfSkillOutdated(cmd *cobra.Command, w *output.Writer) {
 
 func skipSkillOutdatedReminder(cmd *cobra.Command) bool {
 	path := cmd.CommandPath()
-	return path == "sshq version" ||
+	return path == "sshq version" || path == "sshq update" ||
 		strings.HasPrefix(path, "sshq skill") ||
 		strings.HasPrefix(path, "sshq daemon")
 }

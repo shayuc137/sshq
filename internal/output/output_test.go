@@ -412,3 +412,12 @@ func TestDetectEnvJSONMode(t *testing.T) {
 		}
 	}
 }
+
+func TestCmdErrorProcessExitCode(t *testing.T) {
+	if got := Errorf("failed", "").ProcessExitCode(); got != 1 {
+		t.Fatalf("default exit code = %d, want 1", got)
+	}
+	if got := Errorf("failed", "").WithExitCode(2).ProcessExitCode(); got != 2 {
+		t.Fatalf("custom exit code = %d, want 2", got)
+	}
+}
