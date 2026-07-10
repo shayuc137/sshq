@@ -25,6 +25,7 @@ sshq web-1 "hostname"
 sshq web-1 "hostname" | jq .
 # {
 #   "ok": true,
+#   "exit_code": 0,
 #   "data": {
 #     "exit_code": 0,
 #     "stdout": "web-1\n",
@@ -32,7 +33,7 @@ sshq web-1 "hostname" | jq .
 #     "host": "web-1",
 #     "duration_ms": 42
 #   },
-#   "schema_version": 1
+#   "schema_version": 2
 # }
 ```
 
@@ -132,7 +133,8 @@ sshq tunnel stop tun-1
 | stdout purity for `exec` | stdout is exactly the remote stdout. sshq's own status, progress, and diagnostics go to stderr. |
 | Daemon connection pool | Repeat calls reuse SSH sessions. If the daemon is unavailable, commands fall back to direct SSH. |
 | SFTP with raw fallback | File transfer works on normal servers and on minimal BusyBox/OpenWrt-style hosts without `sftp-server`. |
-| Remote shell detection | sshq probes bash, ash, zsh, sh, PowerShell, and cmd paths, then wraps commands with the right syntax. |
+| Remote shell detection | sshq probes bash, ash, zsh, sh, PowerShell, and cmd paths, then wraps commands with the right syntax. PowerShell scripts run through `-EncodedCommand` for reliable multi-line and CJK support. |
+| One-step diagnostics | `sshq doctor <alias>` runs seven ordered checks (config through shell detection) and returns the first failure with a directly executable `next_action`. |
 | Server-to-server relay | `sshq cp hostA:/path hostB:/path` streams through the local sshq process without writing a local temp file. |
 | Capability policy | Command allow/deny lists, file path allowlists, tunnel forward allowlists, temporary grants, and audit logging live in one policy layer. |
 | AI skill install | `sshq skill install` installs routing instructions for Claude Code or Codex. |
@@ -158,6 +160,7 @@ In JSON mode, remote output lands in `data.stdout`:
 ```json
 {
   "ok": true,
+  "exit_code": 0,
   "data": {
     "exit_code": 0,
     "stdout": "one\ntwo\n",
@@ -165,11 +168,11 @@ In JSON mode, remote output lands in `data.stdout`:
     "host": "myhost",
     "duration_ms": 42
   },
-  "schema_version": 1
+  "schema_version": 2
 }
 ```
 
-A successful SSH connection does not mean the remote command succeeded — check both `ok` and `data.exit_code`.
+`ok: true` means the sshq call completed, but the remote command may still have failed — always check the top-level `exit_code` for the remote result.
 
 ## Security model
 
@@ -272,13 +275,15 @@ Claude Code, Codex, Cursor, or any tool that can run a subprocess can call sshq 
 ```bash
 # Agent calls via subprocess: stdout is a pipe, so output is JSON.
 result=$(sshq myhost "df -h")
-# → {"ok":true,"data":{"exit_code":0,"stdout":"...","stderr":"","host":"myhost","duration_ms":42},"schema_version":1}
+# → {"ok":true,"exit_code":0,"data":{"exit_code":0,"stdout":"...","stderr":"","host":"myhost","duration_ms":42},"schema_version":2}
 
 # Human types in a terminal: stdout is a TTY, so output is readable.
 sshq myhost "df -h"
 # → Filesystem      Size  Used Avail Use% Mounted on
 #   /dev/sda1        50G   12G   35G  26% /
 ```
+
+`ok: true` confirms the sshq call completed. The remote command result is in the top-level `exit_code` — a non-zero value means the remote process failed, even when `ok` is `true`.
 
 Install the bundled skill:
 

@@ -152,9 +152,68 @@ sshq credential delete router-1
 
 For headless environments (daemon, agent pipe), set `SSHQ_CREDENTIAL_PASSPHRASE` in the environment before starting commands. See the [Security guide](security.md) for the full credential and policy configuration.
 
+## Diagnose with doctor
+
+`sshq doctor <alias>` runs seven checks in order — config validity, identity file, ProxyJump resolution, TCP reachability, host key, authentication, and shell detection. It stops at the first failure and returns a `next_action` you can run directly.
+
+```bash
+sshq doctor api-prod
+```
+
+All checks pass:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "alias": "api-prod",
+    "resolved": {
+      "hostname": "10.0.1.100",
+      "port": "22",
+      "user": "deploy",
+      "proxy_jump": "bastion",
+      "identity_file": "~/.ssh/prod_ed25519"
+    },
+    "checks": {
+      "config_valid": true,
+      "identity_file_exists": true,
+      "proxy_jump_exists": true,
+      "tcp_reachable": true,
+      "host_key_known": true,
+      "auth_ok": true,
+      "shell_detected": true
+    },
+    "profile": {
+      "os": "linux",
+      "shell": "bash",
+      "home_dir": "/home/deploy",
+      "detected_at": 1783615160
+    }
+  },
+  "schema_version": 2
+}
+```
+
+A failure — host key not in `known_hosts`:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "alias": "api-prod",
+    "failed_check": "host_key_known",
+    "hint": "host key is not present in known_hosts",
+    "next_action": "sshq trust api-prod"
+  },
+  "schema_version": 2
+}
+```
+
+The `next_action` is the exact command to fix the problem. After running it, re-run `doctor` to confirm the remaining checks pass. Checks after the failure point are marked `"skipped"`. An identity file that was not configured shows as `null` rather than `false`.
+
 ## Probe Connectivity
 
-Use `probe` for TCP reachability checks.
+Use `probe` for TCP reachability checks. By default, `probe` follows the full SSH configuration path, including any configured `ProxyJump`.
 
 ```bash
 sshq probe api-prod
@@ -162,13 +221,39 @@ sshq probe api-prod --port 2222
 sshq probe --all
 ```
 
+The result includes a `probe_path` field that indicates how the connection was made — `"via-proxy"` when a ProxyJump was used, `"direct"` otherwise:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "alias": "api-prod",
+    "host": "10.0.1.100",
+    "port": "22",
+    "proxy_jump": "bastion",
+    "probe_path": "via-proxy",
+    "reachable": true,
+    "latency_ms": 277
+  },
+  "schema_version": 2
+}
+```
+
+Use `--direct` to skip the ProxyJump and test raw TCP reachability to the target:
+
+```bash
+sshq probe api-prod --direct
+```
+
+This is useful for diagnosing whether a host is unreachable because of a proxy problem or because the target port itself is down.
+
 Refresh the cached remote profile after a successful TCP check:
 
 ```bash
 sshq probe api-prod --refresh-profile
 ```
 
-Profile detection connects over SSH and records OS, shell, encoding, and home directory details when available.
+Profile detection connects over SSH and records OS, shell, encoding, and home directory details. On Windows hosts, this step also discovers whether `powershell.exe` or `pwsh` is available.
 
 ## Trust Host Keys
 

@@ -59,6 +59,29 @@ During transfer, progress is written to stderr and the final result is written t
 
 `sshq` writes to a temporary path first and renames it after the copy succeeds. This avoids leaving a partially written final file when a transfer is cancelled or fails.
 
+## Create Missing Directories
+
+Use `--mkdirs` to create remote parent directories that don't exist yet:
+
+```bash
+sshq cp --mkdirs ./release.tar.gz web-1:/srv/app/releases/v2.1.0/release.tar.gz
+```
+
+Without `--mkdirs`, copying to a path whose parent directory doesn't exist returns an error with the missing path and a suggested command:
+
+```json
+{
+  "ok": false,
+  "error": {
+    "hint": "remote destination parent directory does not exist: /srv/app/releases/v2.1.0",
+    "action": "sshq cp --mkdirs ./release.tar.gz web-1:/srv/app/releases/v2.1.0/release.tar.gz"
+  },
+  "schema_version": 2
+}
+```
+
+The `action` field contains the exact retry command with `--mkdirs` added.
+
 ## Copy Directories
 
 Use `-r` or `--recursive` for directories:

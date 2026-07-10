@@ -152,9 +152,68 @@ sshq credential delete router-1
 
 无终端环境（daemon、agent 管道）下使用凭据库时，在启动命令前设置 `SSHQ_CREDENTIAL_PASSPHRASE` 环境变量。完整的凭据和策略配置见[安全指南](security.md)。
 
+## 一步诊断
+
+`sshq doctor <alias>` 按顺序执行七项检查——配置有效性、密钥文件、`ProxyJump` 解析、TCP 可达性、主机密钥、认证和 shell 探测。遇到第一个失败就停下来，返回可以直接执行的 `next_action`。
+
+```bash
+sshq doctor api-prod
+```
+
+全部通过：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "alias": "api-prod",
+    "resolved": {
+      "hostname": "10.0.1.100",
+      "port": "22",
+      "user": "deploy",
+      "proxy_jump": "bastion",
+      "identity_file": "~/.ssh/prod_ed25519"
+    },
+    "checks": {
+      "config_valid": true,
+      "identity_file_exists": true,
+      "proxy_jump_exists": true,
+      "tcp_reachable": true,
+      "host_key_known": true,
+      "auth_ok": true,
+      "shell_detected": true
+    },
+    "profile": {
+      "os": "linux",
+      "shell": "bash",
+      "home_dir": "/home/deploy",
+      "detected_at": 1783615160
+    }
+  },
+  "schema_version": 2
+}
+```
+
+检出问题——主机密钥不在 `known_hosts` 中：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "alias": "api-prod",
+    "failed_check": "host_key_known",
+    "hint": "host key is not present in known_hosts",
+    "next_action": "sshq trust api-prod"
+  },
+  "schema_version": 2
+}
+```
+
+`next_action` 就是修复问题的命令。执行后再跑一次 `doctor` 确认后续检查通过。失败点之后的检查会标记为 `"skipped"`。未配置的密钥文件显示为 `null`。
+
 ## 检查连通性
 
-使用 `probe` 做 TCP 可达性检查。
+使用 `probe` 做 TCP 可达性检查。默认情况下 `probe` 会走完整的 SSH 配置路径，包括已配置的 `ProxyJump`。
 
 ```bash
 sshq probe api-prod
@@ -162,13 +221,39 @@ sshq probe api-prod --port 2222
 sshq probe --all
 ```
 
+结果中的 `probe_path` 字段说明连接方式——通过跳板时为 `"via-proxy"`，直连时为 `"direct"`：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "alias": "api-prod",
+    "host": "10.0.1.100",
+    "port": "22",
+    "proxy_jump": "bastion",
+    "probe_path": "via-proxy",
+    "reachable": true,
+    "latency_ms": 277
+  },
+  "schema_version": 2
+}
+```
+
+使用 `--direct` 跳过 `ProxyJump`，直接测试目标的 TCP 可达性：
+
+```bash
+sshq probe api-prod --direct
+```
+
+这在排查问题时很有用——可以区分故障出在跳板还是目标端口本身。
+
 TCP 检查成功后刷新远端 profile 缓存：
 
 ```bash
 sshq probe api-prod --refresh-profile
 ```
 
-profile 探测会通过 SSH 连接获取系统、shell、编码和家目录等信息。
+profile 探测会通过 SSH 连接获取系统、shell、编码和家目录等信息。在 Windows 主机上，这一步还会探测 `powershell.exe` 或 `pwsh` 的可用路径。
 
 ## 信任主机密钥
 

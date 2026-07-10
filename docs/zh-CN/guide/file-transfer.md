@@ -59,6 +59,29 @@ sshq cp web-1:/var/log/app.log ./logs/
 
 `sshq` 会先写入临时路径，复制成功后再重命名。传输被取消或失败时，最终文件路径不会留下半写入内容。
 
+## 自动创建目录
+
+使用 `--mkdirs` 可以自动创建远端不存在的父目录：
+
+```bash
+sshq cp --mkdirs ./release.tar.gz web-1:/srv/app/releases/v2.1.0/release.tar.gz
+```
+
+省略 `--mkdirs` 时，如果目标路径的父目录不存在，会返回错误并附带建议命令：
+
+```json
+{
+  "ok": false,
+  "error": {
+    "hint": "remote destination parent directory does not exist: /srv/app/releases/v2.1.0",
+    "action": "sshq cp --mkdirs ./release.tar.gz web-1:/srv/app/releases/v2.1.0/release.tar.gz"
+  },
+  "schema_version": 2
+}
+```
+
+`action` 字段包含加上 `--mkdirs` 后的完整重试命令。
+
 ## 复制目录
 
 目录传输使用 `-r` 或 `--recursive`：

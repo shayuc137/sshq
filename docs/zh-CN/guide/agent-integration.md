@@ -41,7 +41,7 @@ result=$(sshq myhost "hostname")
 ```
 
 ```json
-{"ok":true,"data":{"exit_code":0,"stdout":"myhost\n","stderr":"","host":"myhost","duration_ms":42},"schema_version":1}
+{"ok":true,"exit_code":0,"data":{"exit_code":0,"stdout":"myhost\n","stderr":"","host":"myhost","duration_ms":42},"schema_version":2}
 ```
 
 需要时强制指定模式：
@@ -61,16 +61,16 @@ sshq --pretty myhost "hostname" | tee output.txt
 远程命令成功结果：
 
 ```json
-{"ok":true,"data":{"exit_code":0,"stdout":"myhost\n","stderr":"","host":"myhost","duration_ms":42},"schema_version":1}
+{"ok":true,"exit_code":0,"data":{"exit_code":0,"stdout":"myhost\n","stderr":"","host":"myhost","duration_ms":42},"schema_version":2}
 ```
 
 错误结果：
 
 ```json
-{"ok":false,"error":{"hint":"host key unknown for myhost (10.0.0.1:22)","action":"run: sshq trust myhost"},"schema_version":1}
+{"ok":false,"error":{"hint":"host key unknown for myhost (10.0.0.1:22)","action":"sshq trust myhost"},"schema_version":2}
 ```
 
-`agent` 调用方应先判断 `ok`。对于 `exec`，还要继续检查 `data.exit_code`。
+调用方应先判断 `ok`。对于 `exec`，还必须检查顶层 `exit_code`——详见下方[正确读取 exit_code](#正确读取-exit_code) 章节。
 
 ## 标准输出纯净性保证
 
@@ -91,27 +91,64 @@ sshq --pretty myhost "hostname" | tee output.txt
 sshq --json exec myhost "uname -a"
 ```
 
-`data` 对象结构如下：
+`exec` 的完整信封结构：
 
 ```json
 {
+  "ok": true,
   "exit_code": 0,
-  "stdout": "Linux myhost 6.8.0\n",
-  "stderr": "",
-  "host": "myhost",
-  "duration_ms": 42
+  "data": {
+    "exit_code": 0,
+    "stdout": "Linux myhost 6.8.0\n",
+    "stderr": "",
+    "host": "myhost",
+    "duration_ms": 42
+  },
+  "schema_version": 2
 }
 ```
 
 | 字段 | 含义 |
 |------|------|
-| `exit_code` | 远端进程退出码 |
-| `stdout` | 精确保留的远端标准输出 |
-| `stderr` | 远端标准错误 |
-| `host` | `sshq` 主机别名 |
-| `duration_ms` | 远端命令耗时，单位为毫秒 |
+| 顶层 `exit_code` | 远端进程退出码，调用方应读取这个字段 |
+| `data.exit_code` | 相同值，保留以兼容旧解析器 |
+| `data.stdout` | 精确保留的远端标准输出 |
+| `data.stderr` | 远端标准错误 |
+| `data.host` | `sshq` 主机别名 |
+| `data.duration_ms` | 远端命令耗时，单位为毫秒 |
 
-`exit_code` 为 `0` 表示远端进程成功。`exit_code` 为非零表示远端进程失败，即使 `sshq` 已经成功连接并捕获输出。
+## 正确读取 exit_code
+
+`ok: true` 表示 sshq 调用本身完成了——连接成功、命令已执行、输出已捕获。这并不代表远端命令成功。远端命令的结果在顶层 `exit_code` 里。
+
+一个远端命令以退出码 2 失败的示例：
+
+```json
+{"ok":true,"exit_code":2,"data":{"exit_code":2,"stdout":"","stderr":"ls: cannot access '/nonexistent': No such file or directory\n","host":"myhost","duration_ms":112},"schema_version":2}
+```
+
+这个响应里 `ok` 为 `true`，`exit_code` 为 `2`。sshq 调用本身没问题，但远端 `ls` 命令失败了。如果只看 `ok: true` 就认为成功，会漏掉这个错误。
+
+正确的检查方式：
+
+```bash
+json=$(sshq myhost "test -f /etc/os-release")
+printf '%s' "$json" | jq -e '.ok == true and .exit_code == 0'
+```
+
+当 `ok` 为 `false` 时，响应里是 `error` 对象而非 `data`，且没有顶层 `exit_code`：
+
+```json
+{"ok":false,"error":{"hint":"host \"myhost\" not found","action":"run 'sshq ls' to see available hosts"},"schema_version":2}
+```
+
+汇总：
+
+| `ok` | `exit_code` | 含义 |
+|------|-------------|------|
+| `true` | `0` | 远端命令成功 |
+| `true` | 非零 | 远端命令失败（sshq 调用本身正常） |
+| `false` | 不存在 | sshq 层面失败，查看 `error.hint` |
 
 ## 带建议动作的错误
 
@@ -125,7 +162,7 @@ Error: host key unknown for myhost (10.0.0.1:22)
 `JSON` 错误携带相同信息：
 
 ```json
-{"ok":false,"error":{"hint":"host key unknown for myhost (10.0.0.1:22)","action":"run: sshq trust myhost"},"schema_version":1}
+{"ok":false,"error":{"hint":"host key unknown for myhost (10.0.0.1:22)","action":"sshq trust myhost"},"schema_version":2}
 ```
 
 常见建议动作包括：
@@ -173,7 +210,7 @@ sshq exec --script-file /tmp/check-system.sh myhost
 
 ```bash
 json=$(sshq myhost "test -f /etc/os-release")
-printf '%s' "$json" | jq -e '.ok == true and .data.exit_code == 0'
+printf '%s' "$json" | jq -e '.ok == true and .exit_code == 0'
 ```
 
 使用这些参数让自动化更可预测：

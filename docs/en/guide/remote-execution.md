@@ -82,13 +82,16 @@ sshq exec --script-file ./scripts/diagnostics.sh web-1
 sshq exec --shell powershell --script-file ./scripts/diagnostics.ps1 win-1
 ```
 
-`sshq` reads the local file and sends its bytes to the remote interpreter through stdin. The script file does not need to exist on the remote host, and it does not need executable permissions.
+`sshq` reads the local file and sends it to the remote interpreter. The script does not need to exist on the remote host, and it does not need executable permissions.
 
-For POSIX shells, `sshq` starts an interpreter such as `sh -s`, `bash -s`, `ash -s`, or `zsh -s`. For PowerShell, it starts:
+For POSIX shells (`bash`, `ash`, `sh`, `zsh`), `sshq` pipes the script through stdin to the corresponding interpreter (e.g. `bash -s`).
 
-```text
-powershell -NoProfile -NonInteractive -Command -
-```
+For PowerShell, `sshq` uses a two-tier approach for reliable execution:
+
+- Scripts up to 8 KiB are base64-encoded as UTF-16LE and run through `powershell -EncodedCommand`. This handles multi-line blocks, here-strings, and CJK characters without quoting issues.
+- Scripts larger than 8 KiB are uploaded as a UTF-8-with-BOM temporary `.ps1` file, executed with `powershell -File`, then cleaned up automatically.
+
+Both paths use `-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass`, so scripts run in a clean environment regardless of the remote user's PowerShell profile.
 
 Run a local health-check script:
 

@@ -82,13 +82,16 @@ sshq exec --script-file ./scripts/diagnostics.sh web-1
 sshq exec --shell powershell --script-file ./scripts/diagnostics.ps1 win-1
 ```
 
-`sshq` 会读取本地文件，并把文件字节通过 `stdin` 发给远端解释器。脚本文件不需要提前存在于远端，也不需要可执行权限。
+`sshq` 会读取本地文件并发送到远端解释器。脚本不需要提前存在于远端，也不需要可执行权限。
 
-对 `POSIX` 类 `shell`，`sshq` 会启动 `sh -s`、`bash -s`、`ash -s` 或 `zsh -s`。对 `PowerShell`，`sshq` 会启动：
+对 POSIX shell（`bash`、`ash`、`sh`、`zsh`），`sshq` 通过 `stdin` 管道把脚本发给对应的解释器（例如 `bash -s`）。
 
-```text
-powershell -NoProfile -NonInteractive -Command -
-```
+对 `PowerShell`，`sshq` 使用两级执行策略来保证稳定性：
+
+- 8 KiB 以内的脚本会按 UTF-16LE 编码后 base64 传输，通过 `powershell -EncodedCommand` 执行。多行块、here-string 和中文字符都不会有引号问题。
+- 超过 8 KiB 的脚本会先上传为 UTF-8 BOM 临时 `.ps1` 文件，用 `powershell -File` 执行，完成后自动清理。
+
+两条路径都使用 `-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass`，脚本在干净环境中执行，不受远端用户的 `PowerShell` profile 影响。
 
 运行本地健康检查脚本：
 

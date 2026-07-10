@@ -170,7 +170,7 @@ sshq --json myhost "hostname"
 Example JSON output:
 
 ```json
-{"ok":true,"data":{"exit_code":0,"stdout":"myhost\n","stderr":"","host":"myhost","duration_ms":42},"schema_version":1}
+{"ok":true,"exit_code":0,"data":{"exit_code":0,"stdout":"myhost\n","stderr":"","host":"myhost","duration_ms":42},"schema_version":2}
 ```
 
 ## Understand Output Modes

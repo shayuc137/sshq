@@ -41,7 +41,7 @@ result=$(sshq myhost "hostname")
 ```
 
 ```json
-{"ok":true,"data":{"exit_code":0,"stdout":"myhost\n","stderr":"","host":"myhost","duration_ms":42},"schema_version":1}
+{"ok":true,"exit_code":0,"data":{"exit_code":0,"stdout":"myhost\n","stderr":"","host":"myhost","duration_ms":42},"schema_version":2}
 ```
 
 Force either mode when needed:
@@ -61,16 +61,16 @@ Every JSON response is a single envelope with `schema_version`.
 Remote command success:
 
 ```json
-{"ok":true,"data":{"exit_code":0,"stdout":"myhost\n","stderr":"","host":"myhost","duration_ms":42},"schema_version":1}
+{"ok":true,"exit_code":0,"data":{"exit_code":0,"stdout":"myhost\n","stderr":"","host":"myhost","duration_ms":42},"schema_version":2}
 ```
 
 Error:
 
 ```json
-{"ok":false,"error":{"hint":"host key unknown for myhost (10.0.0.1:22)","action":"run: sshq trust myhost"},"schema_version":1}
+{"ok":false,"error":{"hint":"host key unknown for myhost (10.0.0.1:22)","action":"sshq trust myhost"},"schema_version":2}
 ```
 
-Agent callers should branch on `ok` first. For `exec`, they should also inspect `data.exit_code`.
+Agent callers should branch on `ok` first. For `exec`, they must also check the top-level `exit_code` — see [Reading exit_code Correctly](#reading-exit_code-correctly) below.
 
 ## stdout Purity Guarantee
 
@@ -91,27 +91,64 @@ Use `--json` when you want the structured result in a terminal:
 sshq --json exec myhost "uname -a"
 ```
 
-The `data` object has this shape:
+The full envelope for a successful exec:
 
 ```json
 {
+  "ok": true,
   "exit_code": 0,
-  "stdout": "Linux myhost 6.8.0\n",
-  "stderr": "",
-  "host": "myhost",
-  "duration_ms": 42
+  "data": {
+    "exit_code": 0,
+    "stdout": "Linux myhost 6.8.0\n",
+    "stderr": "",
+    "host": "myhost",
+    "duration_ms": 42
+  },
+  "schema_version": 2
 }
 ```
 
 | Field | Meaning |
 |-------|---------|
-| `exit_code` | Remote process exit code |
-| `stdout` | Remote stdout, preserved exactly |
-| `stderr` | Remote stderr |
-| `host` | sshq host alias |
-| `duration_ms` | Remote command duration in milliseconds |
+| top-level `exit_code` | Remote process exit code — the field agents should read |
+| `data.exit_code` | Same value, kept for compatibility |
+| `data.stdout` | Remote stdout, preserved exactly |
+| `data.stderr` | Remote stderr |
+| `data.host` | sshq host alias |
+| `data.duration_ms` | Remote command duration in milliseconds |
 
-An `exit_code` of `0` means the remote process succeeded. A non-zero `exit_code` means the remote process failed, even if sshq connected and captured output.
+## Reading exit_code Correctly
+
+`ok: true` means the sshq call itself completed — it connected, ran the command, and captured output. It does not mean the remote command succeeded. The remote result is in the top-level `exit_code`.
+
+A remote command that fails with exit code 2:
+
+```json
+{"ok":true,"exit_code":2,"data":{"exit_code":2,"stdout":"","stderr":"ls: cannot access '/nonexistent': No such file or directory\n","host":"myhost","duration_ms":112},"schema_version":2}
+```
+
+This response has `ok: true` and `exit_code: 2`. The sshq call worked, but the remote `ls` failed. An agent that treats `ok: true` as success would miss the error.
+
+The correct check:
+
+```bash
+json=$(sshq myhost "test -f /etc/os-release")
+printf '%s' "$json" | jq -e '.ok == true and .exit_code == 0'
+```
+
+When `ok` is `false`, the response carries an `error` object instead of `data`, and there is no top-level `exit_code`:
+
+```json
+{"ok":false,"error":{"hint":"host \"myhost\" not found","action":"run 'sshq ls' to see available hosts"},"schema_version":2}
+```
+
+Summary:
+
+| `ok` | `exit_code` | Meaning |
+|------|-------------|---------|
+| `true` | `0` | Remote command succeeded |
+| `true` | non-zero | Remote command failed (sshq call was fine) |
+| `false` | absent | sshq-level failure — see `error.hint` |
 
 ## Suggested Error Actions
 
@@ -125,7 +162,7 @@ Error: host key unknown for myhost (10.0.0.1:22)
 JSON errors carry the same information:
 
 ```json
-{"ok":false,"error":{"hint":"host key unknown for myhost (10.0.0.1:22)","action":"run: sshq trust myhost"},"schema_version":1}
+{"ok":false,"error":{"hint":"host key unknown for myhost (10.0.0.1:22)","action":"sshq trust myhost"},"schema_version":2}
 ```
 
 Common actions include:
@@ -173,7 +210,7 @@ Check both the envelope and the remote exit code:
 
 ```bash
 json=$(sshq myhost "test -f /etc/os-release")
-printf '%s' "$json" | jq -e '.ok == true and .data.exit_code == 0'
+printf '%s' "$json" | jq -e '.ok == true and .exit_code == 0'
 ```
 
 Use these flags for predictable automation:

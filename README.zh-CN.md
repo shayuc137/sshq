@@ -25,6 +25,7 @@ sshq web-1 "hostname"
 sshq web-1 "hostname" | jq .
 # {
 #   "ok": true,
+#   "exit_code": 0,
 #   "data": {
 #     "exit_code": 0,
 #     "stdout": "web-1\n",
@@ -32,7 +33,7 @@ sshq web-1 "hostname" | jq .
 #     "host": "web-1",
 #     "duration_ms": 42
 #   },
-#   "schema_version": 1
+#   "schema_version": 2
 # }
 ```
 
@@ -132,7 +133,8 @@ sshq tunnel stop tun-1
 | stdout 干净 | `exec` 的 stdout 就是远端 stdout，sshq 自己的信息全走 stderr |
 | 连接池 | daemon 后台复用 SSH 会话，没有 daemon 时自动直连，不影响使用 |
 | 传输降级 | 有 SFTP 就用 SFTP，没有（比如 OpenWrt）就走原始字节流 |
-| shell 适配 | 自动探测远端 bash/ash/PowerShell/cmd，用对应语法包装命令 |
+| shell 适配 | 自动探测远端 bash/ash/PowerShell/cmd，用对应语法包装命令。PowerShell 脚本走 `-EncodedCommand` 执行，多行和中文稳定可靠 |
+| 一步诊断 | `sshq doctor <alias>` 按顺序跑七项检查（从配置到 shell 探测），返回第一个失败点和可直接执行的 `next_action` |
 | 服务器中转 | `sshq cp hostA:/path hostB:/path` 直接流式中转，不落本地 |
 | 安全策略 | 命令黑白名单、路径白名单、隧道转发白名单、临时授权、审计日志 |
 | skill 安装 | `sshq skill install` 一键安装到 Claude Code 或 Codex |
@@ -158,6 +160,7 @@ JSON 模式下，同样的保证体现在 `data.stdout`：
 ```json
 {
   "ok": true,
+  "exit_code": 0,
   "data": {
     "exit_code": 0,
     "stdout": "one\ntwo\n",
@@ -165,11 +168,11 @@ JSON 模式下，同样的保证体现在 `data.stdout`：
     "host": "myhost",
     "duration_ms": 42
   },
-  "schema_version": 1
+  "schema_version": 2
 }
 ```
 
-SSH 连上了不等于远端命令跑成功了——agent 要同时看 `ok` 和 `data.exit_code`。
+`ok: true` 表示 sshq 调用本身完成了，远端命令的执行结果要看顶层 `exit_code`——非零值表示远端进程失败，即使 `ok` 为 `true`。
 
 ## 安全模型
 
@@ -272,13 +275,15 @@ Claude Code、Codex、Cursor 这类工具可以直接通过子进程调用 sshq�
 ```bash
 # Agent 通过子进程调用：stdout 是管道，所以输出 JSON。
 result=$(sshq myhost "df -h")
-# → {"ok":true,"data":{"exit_code":0,"stdout":"...","stderr":"","host":"myhost","duration_ms":42},"schema_version":1}
+# → {"ok":true,"exit_code":0,"data":{"exit_code":0,"stdout":"...","stderr":"","host":"myhost","duration_ms":42},"schema_version":2}
 
 # 人在终端里输入：stdout 是 TTY，所以输出易读文本。
 sshq myhost "df -h"
 # → Filesystem      Size  Used Avail Use% Mounted on
 #   /dev/sda1        50G   12G   35G  26% /
 ```
+
+`ok: true` 表示 sshq 调用完成。远端命令的结果在顶层 `exit_code` 里——非零值意味着远端进程失败，即便 `ok` 为 `true`。
 
 安装内置 skill：
 
