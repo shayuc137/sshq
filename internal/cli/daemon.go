@@ -570,6 +570,8 @@ func (dc *daemonContext) handleExec(conn net.Conn, raw json.RawMessage) {
 		result.Stdout = remote.DecodeString(result.Stdout, profile.Encoding)
 		result.Stderr = remote.DecodeString(result.Stderr, profile.Encoding)
 	}
+	result.Stderr = exec.DecodeCLIXMLStderr(result.Stderr)
+	result.Stderr = appendPowerShellVariableHint(result.Stderr, shell, result.ExitCode)
 	auditResult := audit.ResultSuccess
 	if result.ExitCode != 0 {
 		auditResult = audit.ResultError

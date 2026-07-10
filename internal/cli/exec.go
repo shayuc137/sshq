@@ -22,7 +22,8 @@ func newExecCommand() *cobra.Command {
 		Use:   "exec <alias> <command...>",
 		Short: "Execute a command on a remote host",
 		Example: `sshq exec myhost "uname -a"
-sshq exec myhost --script-file ./deploy.sh --shell bash --no-daemon`,
+sshq exec myhost --script-file ./deploy.sh --shell bash --no-daemon
+sshq exec windows-host --script-file ./diagnose.ps1 --shell powershell`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runExecCommand(cmd, args)
@@ -35,7 +36,7 @@ sshq exec myhost --script-file ./deploy.sh --shell bash --no-daemon`,
 
 func registerExecFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("no-daemon", false, "skip daemon, connect directly")
-	cmd.Flags().String("script-file", "", "execute a local script file on the remote host via stdin")
+	cmd.Flags().String("script-file", "", "execute a local script file on the remote host")
 	cmd.Flags().String("shell", "", "override detected remote shell type (bash/ash/zsh/sh/powershell)")
 }
 
@@ -171,7 +172,10 @@ func execScriptDirect(cmd *cobra.Command, w *output.Writer, alias string, script
 	w.Info("executing script via " + shell + "...")
 
 	start := time.Now()
-	result, err := exec.RunScriptBuffered(ctx, client, script, shell)
+	result, err := exec.RunScriptBuffered(ctx, client, script, shell,
+		exec.WithRemoteProfile(profile),
+		exec.WithScriptVerbose(w.Verbose),
+	)
 	durationMs := time.Since(start).Milliseconds()
 	if err != nil {
 		if auditErr := recordAudit(ctx, audit.ScriptErrorEntry(alias, script, audit.ResultError, durationMs, audit.SourceDirect, err)); auditErr != nil {
@@ -183,6 +187,8 @@ func execScriptDirect(cmd *cobra.Command, w *output.Writer, alias string, script
 		result.Stdout = remote.DecodeString(result.Stdout, profile.Encoding)
 		result.Stderr = remote.DecodeString(result.Stderr, profile.Encoding)
 	}
+	result.Stderr = exec.DecodeCLIXMLStderr(result.Stderr)
+	result.Stderr = appendPowerShellVariableHint(result.Stderr, shell, result.ExitCode)
 	auditResult := audit.ResultSuccess
 	if result.ExitCode != 0 {
 		auditResult = audit.ResultError
@@ -312,6 +318,8 @@ func execDirect(cmd *cobra.Command, w *output.Writer, alias, command string) err
 		result.Stdout = remote.DecodeString(result.Stdout, profile.Encoding)
 		result.Stderr = remote.DecodeString(result.Stderr, profile.Encoding)
 	}
+	result.Stderr = exec.DecodeCLIXMLStderr(result.Stderr)
+	result.Stderr = appendPowerShellVariableHint(result.Stderr, shell, result.ExitCode)
 	auditResult := audit.ResultSuccess
 	if result.ExitCode != 0 {
 		auditResult = audit.ResultError
@@ -345,6 +353,32 @@ func shellForExec(profile *remote.Profile, override string) string {
 		return ""
 	}
 	return string(profile.Shell)
+}
+
+const powerShellVariableHint = "if your command contained PowerShell $variables, the local shell may have expanded them — use --script-file"
+
+func appendPowerShellVariableHint(stderr, shell string, exitCode int) string {
+	if exitCode == 0 || !isPowerShellShell(shell) || strings.Contains(stderr, powerShellVariableHint) {
+		return stderr
+	}
+	for _, marker := range []string{"ParserError", "TerminatorExpectedAtEndOfString", "Variable is not set"} {
+		if strings.Contains(stderr, marker) {
+			if stderr != "" && !strings.HasSuffix(stderr, "\n") {
+				stderr += "\n"
+			}
+			return stderr + powerShellVariableHint + "\n"
+		}
+	}
+	return stderr
+}
+
+func isPowerShellShell(shell string) bool {
+	switch strings.ToLower(strings.TrimSpace(shell)) {
+	case "powershell", "powershell.exe", "pwsh", "pwsh.exe":
+		return true
+	default:
+		return false
+	}
 }
 
 func timeoutContext(parent context.Context, d time.Duration) (context.Context, func()) {

@@ -31,6 +31,35 @@ func TestShellForExec(t *testing.T) {
 	}
 }
 
+func TestAppendPowerShellVariableHint(t *testing.T) {
+	tests := []struct {
+		name     string
+		stderr   string
+		shell    string
+		exitCode int
+		wantHint bool
+	}{
+		{name: "parser error", stderr: "ParserError: unexpected token\n", shell: "powershell", exitCode: 1, wantHint: true},
+		{name: "terminator error via pwsh", stderr: "FullyQualifiedErrorId: TerminatorExpectedAtEndOfString", shell: "pwsh.exe", exitCode: 1, wantHint: true},
+		{name: "strict variable error", stderr: "Variable is not set.", shell: "powershell", exitCode: 1, wantHint: true},
+		{name: "successful command", stderr: "ParserError appears in user output", shell: "powershell", exitCode: 0},
+		{name: "different shell", stderr: "ParserError: unexpected token", shell: "bash", exitCode: 1},
+		{name: "unrelated error", stderr: "Access is denied", shell: "powershell", exitCode: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := appendPowerShellVariableHint(tt.stderr, tt.shell, tt.exitCode)
+			if hasHint := strings.Contains(got, powerShellVariableHint); hasHint != tt.wantHint {
+				t.Fatalf("stderr = %q, hint=%v, want %v", got, hasHint, tt.wantHint)
+			}
+			if !strings.HasPrefix(got, tt.stderr) {
+				t.Fatalf("original stderr changed: got %q, want prefix %q", got, tt.stderr)
+			}
+		})
+	}
+}
+
 func TestRootShortcutRequiresConfiguredAlias(t *testing.T) {
 	cmd, _, _ := rootCommandForTest(t, "rn")
 	cmd.SetArgs([]string{"rn"})

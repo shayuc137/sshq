@@ -330,6 +330,11 @@ const execTransferAppendix = "---\n" +
 	"The same value remains in `data.exit_code` for compatibility.\n\n" +
 	"Wrong: treat `{\"ok\":true,\"exit_code\":3,...}` as remote command success.\n\n" +
 	"Correct: treat `ok:true` as a completed sshq call, then read top-level `exit_code`; `3` means the remote command failed with exit code 3.\n\n" +
+	"### PowerShell script files\n\n" +
+	"For complex Windows commands, prefer `--script-file <path> --shell powershell`; this avoids local-shell expansion of PowerShell `$variables` and nested quoting. " +
+	"Scripts up to 8 KiB run as `powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand <base64(UTF-16LE(script))>`. " +
+	"Larger scripts automatically use upload-run: sshq uploads a UTF-8-with-BOM temporary `.ps1`, executes it with the same flags plus `-File`, then removes the remote file. " +
+	"The bash, ash, sh, and zsh script paths continue to execute through stdin.\n\n" +
 	"### cp output contract\n\n" +
 	"| Field | Type | Description |\n" +
 	"|-------|------|-------------|\n" +

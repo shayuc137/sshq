@@ -121,7 +121,12 @@ func (dc *daemonContext) handleScript(conn net.Conn, raw json.RawMessage) {
 	sendDaemonVerbose(conn, payload.Verbose, "shell selected: %s", shell)
 
 	start := time.Now()
-	result, err := exec.RunScriptBuffered(ctx, client, payload.Script, shell)
+	result, err := exec.RunScriptBuffered(ctx, client, payload.Script, shell,
+		exec.WithRemoteProfile(profile),
+		exec.WithScriptVerbose(func(msg string) {
+			sendDaemonVerbose(conn, payload.Verbose, "%s", msg)
+		}),
+	)
 	durationMs := time.Since(start).Milliseconds()
 	if err != nil {
 		entry := audit.ScriptErrorEntry(payload.Alias, payload.Script, audit.ResultError, durationMs, audit.SourceDaemon, err)
@@ -135,6 +140,8 @@ func (dc *daemonContext) handleScript(conn net.Conn, raw json.RawMessage) {
 		result.Stdout = remote.DecodeString(result.Stdout, profile.Encoding)
 		result.Stderr = remote.DecodeString(result.Stderr, profile.Encoding)
 	}
+	result.Stderr = exec.DecodeCLIXMLStderr(result.Stderr)
+	result.Stderr = appendPowerShellVariableHint(result.Stderr, shell, result.ExitCode)
 
 	auditResult := audit.ResultSuccess
 	if result.ExitCode != 0 {

@@ -36,6 +36,7 @@ type Profile struct {
 	Shell      Shell  `json:"shell"`
 	Encoding   string `json:"encoding,omitempty"`
 	HomeDir    string `json:"home_dir,omitempty"`
+	TempDir    string `json:"temp_dir,omitempty"`
 	DetectedAt int64  `json:"detected_at"`
 }
 
@@ -75,7 +76,7 @@ func (p *Profile) InterpreterCmd() string {
 	case Sh:
 		return "sh -s"
 	case PowerShell:
-		return "powershell -NoProfile -NonInteractive -Command -"
+		return "powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand"
 	default:
 		return "sh -s"
 	}
@@ -108,6 +109,9 @@ func RenderProfilePretty(p *Profile) string {
 	}
 	if p.HomeDir != "" {
 		fmt.Fprintf(&b, "RemoteHome:   %s\n", p.HomeDir)
+	}
+	if p.TempDir != "" {
+		fmt.Fprintf(&b, "RemoteTemp:   %s\n", p.TempDir)
 	}
 	return b.String()
 }

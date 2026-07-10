@@ -90,12 +90,14 @@ func TestParseWindowsOutput(t *testing.T) {
 		input    string
 		wantEnc  string
 		wantHome string
+		wantTemp string
 	}{
 		{
 			name:     "powershell with gbk",
-			input:    "OS=Windows\nSHELL=powershell\nHOME=C:\\Users\\admin\nActive code page: 936\n",
+			input:    "OS=Windows\nSHELL=powershell\nHOME=C:\\Users\\admin\nTEMP=C:\\Users\\admin\\AppData\\Local\\Temp\nActive code page: 936\n",
 			wantEnc:  "gbk",
 			wantHome: "C:\\Users\\admin",
+			wantTemp: "C:\\Users\\admin\\AppData\\Local\\Temp",
 		},
 		{
 			name:    "powershell utf8",
@@ -124,6 +126,9 @@ func TestParseWindowsOutput(t *testing.T) {
 			}
 			if tt.wantHome != "" && p.HomeDir != tt.wantHome {
 				t.Errorf("HomeDir = %q, want %q", p.HomeDir, tt.wantHome)
+			}
+			if tt.wantTemp != "" && p.TempDir != tt.wantTemp {
+				t.Errorf("TempDir = %q, want %q", p.TempDir, tt.wantTemp)
 			}
 			if p.OS != Windows {
 				t.Errorf("OS = %q, want windows", p.OS)
@@ -229,7 +234,7 @@ func TestProfileMethods(t *testing.T) {
 	if !win.IsWindows() {
 		t.Error("Windows should be Windows")
 	}
-	if win.InterpreterCmd() != "powershell -NoProfile -NonInteractive -Command -" {
+	if win.InterpreterCmd() != "powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand" {
 		t.Errorf("InterpreterCmd = %q", win.InterpreterCmd())
 	}
 	if !win.NeedsStdinInjection() {
