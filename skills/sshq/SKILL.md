@@ -98,7 +98,7 @@ Human convenience — agents use `sshq exec`: people may run `sshq <alias> "<cmd
 
 Flags: `--timeout <dur>`, `--no-daemon`, `--script-file <path>`, `--shell <bash|ash|powershell|cmd>`.
 
-`--script-file` sends a local script via stdin and executes it in the detected remote shell, handling encoding for Windows targets automatically.
+For complex Windows commands, prefer `--script-file <path> --shell powershell`. sshq runs PowerShell scripts up to 8 KiB with `-EncodedCommand` using a UTF-16LE payload; larger scripts automatically upload a UTF-8-with-BOM temporary `.ps1`, run it with `-File`, and remove it. Bash, ash, sh, and zsh scripts continue to execute through stdin.
 
 ## cp
 

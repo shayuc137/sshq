@@ -19,13 +19,14 @@ Execute a command on a remote host
 ```bash
 sshq exec myhost "uname -a"
 sshq exec myhost --script-file ./deploy.sh --shell bash --no-daemon
+sshq exec windows-host --script-file ./diagnose.ps1 --shell powershell
 ```
 
 **Flags:**
 
 ```
       --no-daemon            skip daemon, connect directly
-      --script-file string   execute a local script file on the remote host via stdin
+      --script-file string   execute a local script file on the remote host
       --shell string         override detected remote shell type (bash/ash/zsh/sh/powershell)
 ```
 
@@ -68,6 +69,10 @@ In pretty mode, process stdout is the remote stdout exactly — sshq never write
 Wrong: treat `{"ok":true,"exit_code":3,...}` as remote command success.
 
 Correct: treat `ok:true` as a completed sshq call, then read top-level `exit_code`; `3` means the remote command failed with exit code 3.
+
+### PowerShell script files
+
+For complex Windows commands, prefer `--script-file <path> --shell powershell`; this avoids local-shell expansion of PowerShell `$variables` and nested quoting. Scripts up to 8 KiB run as `powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand <base64(UTF-16LE(script))>`. Larger scripts automatically use upload-run: sshq uploads a UTF-8-with-BOM temporary `.ps1`, executes it with the same flags plus `-File`, then removes the remote file. The bash, ash, sh, and zsh script paths continue to execute through stdin.
 
 ### cp output contract
 
