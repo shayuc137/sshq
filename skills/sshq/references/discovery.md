@@ -151,9 +151,9 @@ Install the embedded sshq skill
 **Flags:**
 
 ```
-      --codex          install for Codex instead of Claude Code
-      --dry-run        print file paths without writing
-      --scope string   install scope: user or project (default "user")
+      --codex     install for Codex instead of Claude Code
+      --dry-run   print file paths without writing
+      --project   install at project level instead of user level
 ```
 
 ### sshq skill export
