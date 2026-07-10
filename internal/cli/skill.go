@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	sshqexec "github.com/shayuc137/sshq/internal/exec"
 	"github.com/shayuc137/sshq/internal/output"
 	"github.com/shayuc137/sshq/internal/version"
 	sshqskill "github.com/shayuc137/sshq/skills/sshq"
@@ -20,6 +21,9 @@ const (
 
 	skillTargetClaude = "claude"
 	skillTargetCodex  = "codex"
+
+	skillReminderMarkerPathEnv = "SSHQ_SKILL_REMINDER_MARKER"
+	skillReminderMarkerName    = "skill-update-reminder"
 )
 
 func newSkillCommand() *cobra.Command {
@@ -33,6 +37,7 @@ func newSkillCommand() *cobra.Command {
 	}
 	cmd.AddCommand(
 		newSkillInstallCommand(),
+		newSkillUpdateCommand(),
 		newSkillExportCommand(),
 		newSkillStatusCommand(),
 	)
@@ -69,6 +74,7 @@ func newSkillInstallCommand() *cobra.Command {
 				w.Render(skillDryRunResult{Files: files})
 				return nil
 			}
+			clearSkillReminderMarker()
 			w.Render(skillWriteSummary{Action: "installed", FileCount: len(files), Directory: dir})
 			return nil
 		},
@@ -77,6 +83,53 @@ func newSkillInstallCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.codex, "codex", false, "install for Codex instead of Claude Code")
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print file paths without writing")
 	return cmd
+}
+
+func newSkillUpdateCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "update",
+		Short: "Update all installed sshq skills",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			status, err := inspectSkillInstallations()
+			if err != nil {
+				return err
+			}
+
+			result := skillUpdateResult{
+				CurrentVersion: status.CurrentVersion,
+				Updates:        []skillUpdateStatus{},
+			}
+			failed := false
+			for _, installation := range status.Installations {
+				fromVersion := installation.SSHQVersion
+				if fromVersion == "" {
+					fromVersion = "unknown"
+				}
+				update := skillUpdateStatus{
+					Target:      installation.Target,
+					Scope:       installation.Scope,
+					Path:        installation.Path,
+					FromVersion: fromVersion,
+					ToVersion:   status.CurrentVersion,
+				}
+				if _, err := writeEmbeddedSkill(installation.Path, false); err != nil {
+					update.Error = err.Error()
+					failed = true
+				} else {
+					update.Updated = true
+				}
+				result.Updates = append(result.Updates, update)
+			}
+
+			writerFrom(cmd.Context()).Render(result)
+			if failed {
+				return &sshqexec.ExitError{Code: 1}
+			}
+			clearSkillReminderMarker()
+			return nil
+		},
+	}
 }
 
 func newSkillExportCommand() *cobra.Command {
@@ -134,6 +187,38 @@ func (s skillWriteSummary) Pretty() string {
 
 type skillDryRunResult struct {
 	Files []string `json:"files"`
+}
+
+type skillUpdateResult struct {
+	CurrentVersion string              `json:"current_version"`
+	Updates        []skillUpdateStatus `json:"updates"`
+}
+
+func (r skillUpdateResult) Pretty() string {
+	if len(r.Updates) == 0 {
+		return "no sshq skill installations found; nothing to update"
+	}
+
+	var b strings.Builder
+	for _, update := range r.Updates {
+		state := "updated"
+		if update.Error != "" {
+			state = "failed: " + update.Error
+		}
+		fmt.Fprintf(&b, "%s %s | %s -> %s | %s | %s\n",
+			update.Target, update.Scope, update.FromVersion, update.ToVersion, state, update.Path)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+type skillUpdateStatus struct {
+	Target      string `json:"target"`
+	Scope       string `json:"scope"`
+	Path        string `json:"path"`
+	FromVersion string `json:"from_version"`
+	ToVersion   string `json:"to_version"`
+	Updated     bool   `json:"updated"`
+	Error       string `json:"error,omitempty"`
 }
 
 func (r skillDryRunResult) Pretty() string {
@@ -369,4 +454,80 @@ func parseSkillVersion(content string) (string, bool) {
 
 func currentSkillVersion() string {
 	return version.Number()
+}
+
+func warnIfSkillOutdated(cmd *cobra.Command, w *output.Writer) {
+	if skipSkillOutdatedReminder(cmd) {
+		return
+	}
+
+	status, err := inspectSkillInstallations()
+	if err != nil || len(status.Installations) == 0 {
+		return
+	}
+
+	outdated := make([]string, 0, len(status.Installations))
+	for _, installation := range status.Installations {
+		if installation.MatchesCurrent {
+			continue
+		}
+		installedVersion := installation.SSHQVersion
+		if installedVersion == "" {
+			installedVersion = "unknown"
+		}
+		outdated = append(outdated, installation.Target+" "+installedVersion)
+	}
+	if len(outdated) == 0 || skillReminderAlreadyShown(status.CurrentVersion) {
+		return
+	}
+
+	w.Info(fmt.Sprintf("skill outdated: %s (binary %s) — run 'sshq skill update'",
+		strings.Join(outdated, ", "), status.CurrentVersion))
+	writeSkillReminderMarker(status.CurrentVersion)
+}
+
+func skipSkillOutdatedReminder(cmd *cobra.Command) bool {
+	path := cmd.CommandPath()
+	return path == "sshq version" ||
+		strings.HasPrefix(path, "sshq skill") ||
+		strings.HasPrefix(path, "sshq daemon")
+}
+
+func skillReminderAlreadyShown(currentVersion string) bool {
+	path, err := skillReminderMarkerPath()
+	if err != nil {
+		return false
+	}
+	data, err := os.ReadFile(path)
+	return err == nil && strings.TrimSpace(string(data)) == currentVersion
+}
+
+func writeSkillReminderMarker(currentVersion string) {
+	path, err := skillReminderMarkerPath()
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return
+	}
+	_ = os.WriteFile(path, []byte(currentVersion+"\n"), 0644)
+}
+
+func clearSkillReminderMarker() {
+	path, err := skillReminderMarkerPath()
+	if err != nil {
+		return
+	}
+	_ = os.Remove(path)
+}
+
+func skillReminderMarkerPath() (string, error) {
+	if path := os.Getenv(skillReminderMarkerPathEnv); path != "" {
+		return path, nil
+	}
+	base, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "sshq", "cache", skillReminderMarkerName), nil
 }

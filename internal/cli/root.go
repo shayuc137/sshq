@@ -47,6 +47,7 @@ func NewRootCommand() *cobra.Command {
 
 			w := output.New(cmd.OutOrStdout(), cmd.ErrOrStderr(), opts...)
 			ctx := withWriter(cmd.Context(), w)
+			warnIfSkillOutdated(cmd, w)
 
 			cfgPath, _ := cmd.Flags().GetString("config")
 			store, err := config.LoadDefault(cfgPath)

@@ -167,6 +167,14 @@ Install the embedded sshq skill
       --project   install at project level instead of user level
 ```
 
+### sshq skill update
+
+```
+sshq skill update
+```
+
+Update all installed sshq skills
+
 ### sshq skill export
 
 ```
@@ -210,6 +218,9 @@ Returns `{running, uptime_seconds, connections: [{alias, host, idle}]}`.
 
 ### skill commands
 
-- `skill install`: installs sshq skill to Claude Code (`--target codex` for Codex, `--scope project` for project-level)
+- `skill install`: installs sshq skill to Claude Code (`--codex` for Codex, `--project` for project-level)
+- `skill update`: refreshes every existing installation in place and skips targets that are not installed
 - `skill status`: shows install location and version
-- `skill export`: prints skill files to stdout (for manual installation)
+- `skill export`: writes embedded skill files to a selected directory
+
+When an installed skill differs from the running binary, sshq prints a deduplicated stderr reminder to run `sshq skill update`.

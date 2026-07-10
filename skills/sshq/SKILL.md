@@ -80,6 +80,7 @@ When a command is blocked by policy, relay the error and suggested `sshq policy 
 | Query audit log | `sshq audit --last 50` |
 | Trust host key | `sshq trust <alias>` |
 | Install skill | `sshq skill install` |
+| Update installed skills | `sshq skill update` |
 | Skill status | `sshq skill status` |
 
 ## exec

@@ -85,7 +85,7 @@ var skillGroups = []struct {
 		file:     "discovery.md",
 		title:    "Discovery & Daemon",
 		intro:    "Commands for listing, searching, inspecting hosts, credentials, and managing the daemon.",
-		cmds:     []string{"ls", "search", "info", "probe", "doctor", "trust", "credential", "credential set", "credential delete", "credential list", "daemon", "daemon start", "daemon stop", "daemon status", "version", "skill", "skill install", "skill export", "skill status"},
+		cmds:     []string{"ls", "search", "info", "probe", "doctor", "trust", "credential", "credential set", "credential delete", "credential list", "daemon", "daemon start", "daemon stop", "daemon status", "version", "skill", "skill install", "skill update", "skill export", "skill status"},
 		appendix: discoveryAppendix,
 	},
 	{
@@ -537,9 +537,11 @@ const discoveryAppendix = "---\n" +
 	"### daemon status output\n\n" +
 	"Returns `{running, uptime_seconds, connections: [{alias, host, idle}]}`.\n\n" +
 	"### skill commands\n\n" +
-	"- `skill install`: installs sshq skill to Claude Code (`--target codex` for Codex, `--scope project` for project-level)\n" +
+	"- `skill install`: installs sshq skill to Claude Code (`--codex` for Codex, `--project` for project-level)\n" +
+	"- `skill update`: refreshes every existing installation in place and skips targets that are not installed\n" +
 	"- `skill status`: shows install location and version\n" +
-	"- `skill export`: prints skill files to stdout (for manual installation)\n"
+	"- `skill export`: writes embedded skill files to a selected directory\n\n" +
+	"When an installed skill differs from the running binary, sshq prints a deduplicated stderr reminder to run `sshq skill update`.\n"
 
 const configMetadataRef = "---\n" +
 	"\n## sshq metadata format\n\n" +
