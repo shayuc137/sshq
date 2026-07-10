@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -90,7 +91,7 @@ func TestSkillInstallProjectOverwrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read installed skill: %v", err)
 	}
-	if !strings.Contains(string(data), `sshq_version: "0.2.0"`) {
+	if !strings.Contains(string(data), fmt.Sprintf("sshq_version: %q", currentSkillVersion())) {
 		t.Fatalf("installed skill was not overwritten with embedded content: %q", string(data))
 	}
 }
@@ -137,7 +138,7 @@ func TestSkillStatusReportsInstalledVersions(t *testing.T) {
 	if !env.OK {
 		t.Fatalf("status envelope ok=false: %+v", env)
 	}
-	if env.Data.CurrentVersion != "0.2.0" {
+	if env.Data.CurrentVersion != currentSkillVersion() {
 		t.Fatalf("current version = %q", env.Data.CurrentVersion)
 	}
 	if len(env.Data.Installations) != 2 {
@@ -146,7 +147,7 @@ func TestSkillStatusReportsInstalledVersions(t *testing.T) {
 
 	found := map[string]bool{}
 	for _, inst := range env.Data.Installations {
-		if inst.SSHQVersion != "0.2.0" || !inst.MatchesCurrent {
+		if inst.SSHQVersion != currentSkillVersion() || !inst.MatchesCurrent {
 			t.Fatalf("installation mismatch: %+v", inst)
 		}
 		found[inst.Target+"-"+inst.Scope] = true
@@ -287,14 +288,14 @@ func TestSkillOutdatedReminderIsDeduplicatedAndKeepsJSONStdoutClean(t *testing.T
 	}
 
 	originalVersion := version.Version
-	version.Version = "0.3.0"
+	version.Version = "99.99.99"
 	t.Cleanup(func() { version.Version = originalVersion })
 	cmd, _, errOut = rootCommandForTest(t)
 	cmd.SetArgs([]string{"--pretty", "ls"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("ls after binary upgrade failed: %v", err)
 	}
-	if !strings.Contains(errOut.String(), "(binary 0.3.0)") {
+	if !strings.Contains(errOut.String(), "(binary 99.99.99)") {
 		t.Fatalf("new binary version did not remind again: %q", errOut.String())
 	}
 }
