@@ -28,7 +28,7 @@ Pick your platform and run the commands below. No Go or other toolchain required
 **Linux (amd64):**
 
 ```bash
-curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_linux_amd64.tar.gz | tar xz
+curl -L https://github.com/shayuc137/sshq/releases/download/v0.3.0/sshq_0.3.0_linux_amd64.tar.gz | tar xz
 sudo mv sshq /usr/local/bin/
 sshq version
 ```
@@ -36,7 +36,7 @@ sshq version
 **Linux (arm64, e.g. Raspberry Pi):**
 
 ```bash
-curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_linux_arm64.tar.gz | tar xz
+curl -L https://github.com/shayuc137/sshq/releases/download/v0.3.0/sshq_0.3.0_linux_arm64.tar.gz | tar xz
 sudo mv sshq /usr/local/bin/
 sshq version
 ```
@@ -44,7 +44,7 @@ sshq version
 **macOS (Apple Silicon):**
 
 ```bash
-curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_darwin_arm64.tar.gz | tar xz
+curl -L https://github.com/shayuc137/sshq/releases/download/v0.3.0/sshq_0.3.0_darwin_arm64.tar.gz | tar xz
 sudo mv sshq /usr/local/bin/
 sshq version
 ```
@@ -52,14 +52,14 @@ sshq version
 **macOS (Intel):**
 
 ```bash
-curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_darwin_amd64.tar.gz | tar xz
+curl -L https://github.com/shayuc137/sshq/releases/download/v0.3.0/sshq_0.3.0_darwin_amd64.tar.gz | tar xz
 sudo mv sshq /usr/local/bin/
 sshq version
 ```
 
 **Windows:**
 
-1. Go to [GitHub Releases](https://github.com/shayuc137/sshq/releases) and download `sshq_windows_amd64.zip`
+1. Go to [GitHub Releases](https://github.com/shayuc137/sshq/releases) and download `sshq_0.3.0_windows_amd64.zip`
 2. Extract the zip — you get `sshq.exe`
 3. Move `sshq.exe` to a folder that is already on your PATH, for example `C:\Windows\` or `C:\Users\YourName\bin\`
 4. Open a new terminal and run: `sshq version`

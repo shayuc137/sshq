@@ -41,23 +41,23 @@ sshq web-1 "hostname" | jq .
 
 ### Install
 
-No Go or other toolchain required. Pick your platform:
+No Go or other toolchain required. Release assets are versioned — the commands below use v0.3.0; check [Releases](https://github.com/shayuc137/sshq/releases/latest) for the current version:
 
 ```bash
 # Linux amd64
-curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_linux_amd64.tar.gz | tar xz
+curl -L https://github.com/shayuc137/sshq/releases/download/v0.3.0/sshq_0.3.0_linux_amd64.tar.gz | tar xz
 sudo mv sshq /usr/local/bin/
 
 # macOS (Apple Silicon)
-curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_darwin_arm64.tar.gz | tar xz
+curl -L https://github.com/shayuc137/sshq/releases/download/v0.3.0/sshq_0.3.0_darwin_arm64.tar.gz | tar xz
 sudo mv sshq /usr/local/bin/
 
 # macOS (Intel)
-curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_darwin_amd64.tar.gz | tar xz
+curl -L https://github.com/shayuc137/sshq/releases/download/v0.3.0/sshq_0.3.0_darwin_amd64.tar.gz | tar xz
 sudo mv sshq /usr/local/bin/
 ```
 
-Windows: download `sshq_windows_amd64.zip` from [Releases](https://github.com/shayuc137/sshq/releases), extract, and put `sshq.exe` somewhere on PATH.
+Windows: download `sshq_0.3.0_windows_amd64.zip` from [Releases](https://github.com/shayuc137/sshq/releases), extract, and put `sshq.exe` somewhere on PATH.
 
 If you have Go 1.23+: `go install github.com/shayuc137/sshq/cmd/sshq@latest`
 
@@ -66,6 +66,25 @@ sshq version
 ```
 
 See the [Getting Started guide](docs/en/guide/getting-started.md) for detailed platform instructions.
+
+### Upgrade
+
+Update the binary the same way you installed it:
+
+```bash
+# go install users
+go install github.com/shayuc137/sshq/cmd/sshq@latest
+
+# release binary users: download the new asset and replace the old binary
+```
+
+Then refresh the installed agent skills:
+
+```bash
+sshq skill update
+```
+
+If you forget, sshq notices on its own — the first command run with a newer binary prints a one-time reminder on stderr.
 
 ### Add a host
 
