@@ -41,23 +41,23 @@ sshq web-1 "hostname" | jq .
 
 ### 安装
 
-不需要安装 Go 或其他工具链。发布产物文件名带版本号——下面的命令以 v0.3.0 为例，最新版本号见 [Releases](https://github.com/shayuc137/sshq/releases/latest)：
+不需要安装 Go 或其他工具链。以下稳定下载地址会始终指向最新版本：
 
 ```bash
 # Linux amd64
-curl -L https://github.com/shayuc137/sshq/releases/download/v0.3.0/sshq_0.3.0_linux_amd64.tar.gz | tar xz
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_linux_amd64.tar.gz | tar xz
 sudo mv sshq /usr/local/bin/
 
 # macOS (Apple Silicon)
-curl -L https://github.com/shayuc137/sshq/releases/download/v0.3.0/sshq_0.3.0_darwin_arm64.tar.gz | tar xz
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_darwin_arm64.tar.gz | tar xz
 sudo mv sshq /usr/local/bin/
 
 # macOS (Intel)
-curl -L https://github.com/shayuc137/sshq/releases/download/v0.3.0/sshq_0.3.0_darwin_amd64.tar.gz | tar xz
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_darwin_amd64.tar.gz | tar xz
 sudo mv sshq /usr/local/bin/
 ```
 
-Windows：从 [Releases](https://github.com/shayuc137/sshq/releases) 下载 `sshq_0.3.0_windows_amd64.zip`，解压后把 `sshq.exe` 放到 PATH 中的文件夹。
+Windows：下载 [`sshq_windows_amd64.zip`](https://github.com/shayuc137/sshq/releases/latest/download/sshq_windows_amd64.zip)，解压后把 `sshq.exe` 放到 PATH 中的文件夹。
 
 有 Go 1.23+ 的话：`go install github.com/shayuc137/sshq/cmd/sshq@latest`
 
@@ -69,22 +69,19 @@ sshq version
 
 ### 升级
 
-按安装时的方式更新二进制：
+一条命令更新发布版二进制和全部已安装的 agent skill：
 
 ```bash
-# go install 用户
-go install github.com/shayuc137/sshq/cmd/sshq@latest
-
-# 发布包用户：下载新版产物，替换旧的二进制
+sshq update
 ```
 
-然后刷新已安装的 agent skill：
+只更新现有 skill 安装时使用：
 
 ```bash
 sshq skill update
 ```
 
-忘了也没关系——用新二进制运行任何命令时，sshq 会在标准错误里提醒一次。
+源码安装仍可使用 `go install github.com/shayuc137/sshq/cmd/sshq@latest`，随后运行 `sshq skill update`。
 
 ### 添加主机
 

@@ -1,13 +1,13 @@
 ---
 name: sshq
 description: "CRITICAL: This skill MUST be used for ALL SSH operations. NEVER use bash 'ssh' or 'scp' commands directly - always route through sshq. Triggers: ANY mention of SSH, remote server, connect to server, server IPs (e.g., 192.168.x.x, 10.0.x.x), hostnames (e.g., user@host.com), login to, upload to server, download from server, deploy to server, run on server, check server, execute remotely, bastion host, jump host, transfer between servers, server to server, port forward, tunnel. sshq is a Go single-binary SSH CLI with daemon connection pooling, ProxyJump chain support, SFTP-with-raw-fallback file transfer, cross-shell detection (bash/ash/powershell/cmd), cluster concurrent execution, and SSH tunneling. DO NOT use for: local commands, localhost, current directory operations."
-sshq_version: "0.3.0"
+sshq_version: "0.3.1"
 keywords: SSH,sshq,remote,server,connect,upload,download,deploy,execute,transfer,tunnel,port-forward,jump-host,cluster,probe,doctor
 ---
 
 # sshq — SSH Routing Skill
 
-Documentation version: `sshq v0.3.0`.
+Documentation version: `sshq v0.3.1`.
 
 All SSH operations route through `sshq`. Never shell out to `ssh` or `scp` directly.
 
@@ -80,6 +80,7 @@ When a command is blocked by policy, relay the error and suggested `sshq policy 
 | Query audit log | `sshq audit --last 50` |
 | Trust host key | `sshq trust <alias>` |
 | Install skill | `sshq skill install` |
+| Update sshq and skills | `sshq update` |
 | Update installed skills | `sshq skill update` |
 | Skill status | `sshq skill status` |
 

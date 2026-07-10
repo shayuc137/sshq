@@ -1,6 +1,6 @@
 # Discovery & Daemon
 
-Documentation version: `sshq v0.3.0`.
+Documentation version: `sshq v0.3.1`.
 
 Commands for listing, searching, inspecting hosts, credentials, and managing the daemon.
 
@@ -143,6 +143,20 @@ sshq version
 
 Print version information
 
+## sshq update
+
+```
+sshq update [flags]
+```
+
+Update sshq and all installed AI skills
+
+**Flags:**
+
+```
+      --check   check for an update without installing it
+```
+
 ## sshq skill
 
 ```
@@ -215,6 +229,10 @@ Show installed sshq skill versions
 ### daemon status output
 
 Returns `{running, uptime_seconds, connections: [{alias, host, idle}]}`.
+
+### update exit codes
+
+`update --check` returns exit 0 when current, exit 1 when an update is available, and exit 2 when the check fails. In JSON mode, inspect `data.update_available`; top-level `exit_code` remains reserved for remote command results.
 
 ### skill commands
 

@@ -28,7 +28,7 @@ ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519
 **Linux (amd64)：**
 
 ```bash
-curl -L https://github.com/shayuc137/sshq/releases/download/v0.3.0/sshq_0.3.0_linux_amd64.tar.gz | tar xz
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_linux_amd64.tar.gz | tar xz
 sudo mv sshq /usr/local/bin/
 sshq version
 ```
@@ -36,7 +36,7 @@ sshq version
 **Linux (arm64，如树莓派)：**
 
 ```bash
-curl -L https://github.com/shayuc137/sshq/releases/download/v0.3.0/sshq_0.3.0_linux_arm64.tar.gz | tar xz
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_linux_arm64.tar.gz | tar xz
 sudo mv sshq /usr/local/bin/
 sshq version
 ```
@@ -44,7 +44,7 @@ sshq version
 **macOS (Apple Silicon)：**
 
 ```bash
-curl -L https://github.com/shayuc137/sshq/releases/download/v0.3.0/sshq_0.3.0_darwin_arm64.tar.gz | tar xz
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_darwin_arm64.tar.gz | tar xz
 sudo mv sshq /usr/local/bin/
 sshq version
 ```
@@ -52,14 +52,14 @@ sshq version
 **macOS (Intel)：**
 
 ```bash
-curl -L https://github.com/shayuc137/sshq/releases/download/v0.3.0/sshq_0.3.0_darwin_amd64.tar.gz | tar xz
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_darwin_amd64.tar.gz | tar xz
 sudo mv sshq /usr/local/bin/
 sshq version
 ```
 
 **Windows：**
 
-1. 打开 [GitHub Releases](https://github.com/shayuc137/sshq/releases)，下载 `sshq_0.3.0_windows_amd64.zip`
+1. 下载 [`sshq_windows_amd64.zip`](https://github.com/shayuc137/sshq/releases/latest/download/sshq_windows_amd64.zip)
 2. 解压得到 `sshq.exe`
 3. 把 `sshq.exe` 移到一个已在 PATH 中的文件夹，比如 `C:\Windows\` 或 `C:\Users\你的用户名\bin\`
 4. 打开新终端，运行 `sshq version`

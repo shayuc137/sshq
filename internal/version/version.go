@@ -8,7 +8,7 @@ import (
 )
 
 var (
-	Version = "0.3.0"
+	Version = "0.3.1"
 	Commit  = ""
 	Date    = ""
 )
@@ -18,7 +18,7 @@ func init() {
 	if !ok {
 		return
 	}
-	// go install @v0.2.0 sets a clean semver tag; local builds produce (devel) or pseudo-versions.
+	// go install @vX.Y.Z sets a clean semver tag; local builds produce (devel) or pseudo-versions.
 	if v := info.Main.Version; isRelease(v) {
 		Version = v
 	}

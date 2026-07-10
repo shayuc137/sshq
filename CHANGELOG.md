@@ -1,5 +1,44 @@
 # Changelog
 
+## v0.3.1 (2026-07-10)
+
+### Self-update
+
+- Added `sshq update` to explicitly update the release binary and every installed AI skill.
+- Added `sshq update --check` with stable process exits: `0` when current, `1` when an update is available, and `2` on operational failure.
+- Release downloads require the matching `checksums.txt` entry and SHA-256 verification before archive extraction or binary replacement.
+- Binary replacement uses a same-directory staged file, backup, atomic rename, and rollback; permission failures preserve the verified binary and print an English recovery action.
+- GoReleaser now publishes stable asset aliases such as `sshq_linux_amd64.tar.gz` alongside versioned archives.
+
+### Windows reliability
+
+- Fixed Windows profile detection when OpenSSH uses its default `cmd.exe` shell by invoking PowerShell explicitly with a shared UTF-16LE encoded payload.
+- Added real Windows updater coverage for replacing a running executable and cleaning the retained `.old` file on the next update.
+
+### Documentation
+
+- README and getting-started installation links now use permanent `releases/latest/download` asset names.
+- Skill routing and generated command references document the new update workflow and exit-code contract.
+
+## v0.3.0 (2026-07-10)
+
+### Agent and connection ergonomics
+
+- Added `sshq doctor` for one-command checks of configuration, identity, ProxyJump, TCP, host key, authentication, and remote shell detection.
+- Unified probe, trust, and exec connection paths so ProxyJump behavior is consistent.
+- Added top-level remote `exit_code` to the schema-v2 JSON envelope while retaining the field inside `data` for compatibility.
+- Made shortcut execution share the canonical exec flags and added command-tree documentation contract tests.
+
+### Windows support
+
+- Stabilized PowerShell `--script-file` with UTF-16LE `-EncodedCommand` for small scripts and upload-run cleanup for larger scripts.
+- Added PowerShell 7 path detection, `cp --mkdirs`, Windows cluster output encoding fixes, and Windows support recipes.
+
+### Skill maintenance
+
+- Added `sshq skill update` and outdated-skill reminders.
+- Added automatic VCS version discovery and a `--version` flag.
+
 ## v0.2.0 (2026-07-02)
 
 ### Security layer
