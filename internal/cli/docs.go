@@ -85,7 +85,7 @@ var skillGroups = []struct {
 		file:     "discovery.md",
 		title:    "Discovery & Daemon",
 		intro:    "Commands for listing, searching, inspecting hosts, credentials, and managing the daemon.",
-		cmds:     []string{"ls", "search", "info", "probe", "trust", "credential", "credential set", "credential delete", "credential list", "daemon", "daemon start", "daemon stop", "daemon status", "version", "skill", "skill install", "skill export", "skill status"},
+		cmds:     []string{"ls", "search", "info", "probe", "doctor", "trust", "credential", "credential set", "credential delete", "credential list", "daemon", "daemon start", "daemon stop", "daemon status", "version", "skill", "skill install", "skill export", "skill status"},
 		appendix: discoveryAppendix,
 	},
 }
@@ -385,6 +385,10 @@ const policyAppendix = "---\n" +
 
 const discoveryAppendix = "---\n" +
 	"\n## Agent notes\n\n" +
+	"### doctor output contract\n\n" +
+	"`doctor <alias>` runs ordered configuration, identity file, ProxyJump, TCP, host key, authentication, and shell checks. " +
+	"Later checks are `\"skipped\"` after a failed prerequisite; an unconfigured identity file is `null`. " +
+	"A completed diagnosis returns `ok:true`, uses exit 0 when every applicable check passes and exit 1 when any check fails, and provides `next_action` only when the command is executable in the current state.\n\n" +
 	"### Security-sensitive commands\n\n" +
 	"- `trust --replace`: overwrites a known host key — ask user first (possible MITM)\n" +
 	"- `credential set`: requires TTY for password input — relay to user\n" +
@@ -429,4 +433,5 @@ const configMetadataRef = "---\n" +
 	"sshq config set myhost identityfile ~/.ssh/deploy_key\n" +
 	"sshq config set myhost proxyjump bastion\n" +
 	"```\n\n" +
+	"After `config add` or connection-related `config set` changes, run `sshq doctor myhost` to verify the fully resolved configuration and connection path.\n\n" +
 	"**ProxyJump:** Configure in `~/.ssh/config` using standard `ProxyJump` directive. sshq resolves multi-hop chains automatically — just use the target alias.\n"

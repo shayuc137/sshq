@@ -106,4 +106,6 @@ sshq config set myhost identityfile ~/.ssh/deploy_key
 sshq config set myhost proxyjump bastion
 ```
 
+After `config add` or connection-related `config set` changes, run `sshq doctor myhost` to verify the fully resolved configuration and connection path.
+
 **ProxyJump:** Configure in `~/.ssh/config` using standard `ProxyJump` directive. sshq resolves multi-hop chains automatically — just use the target alias.

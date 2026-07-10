@@ -47,6 +47,14 @@ Check TCP connectivity to a host
       --refresh-profile   detect and cache remote OS/shell profile
 ```
 
+## sshq doctor
+
+```
+sshq doctor <alias>
+```
+
+Diagnose SSH configuration and connectivity
+
 ## sshq trust
 
 ```
@@ -184,6 +192,10 @@ Show installed sshq skill versions
 ---
 
 ## Agent notes
+
+### doctor output contract
+
+`doctor <alias>` runs ordered configuration, identity file, ProxyJump, TCP, host key, authentication, and shell checks. Later checks are `"skipped"` after a failed prerequisite; an unconfigured identity file is `null`. A completed diagnosis returns `ok:true`, uses exit 0 when every applicable check passes and exit 1 when any check fails, and provides `next_action` only when the command is executable in the current state.
 
 ### Security-sensitive commands
 

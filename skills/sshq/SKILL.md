@@ -2,7 +2,7 @@
 name: sshq
 description: "CRITICAL: This skill MUST be used for ALL SSH operations. NEVER use bash 'ssh' or 'scp' commands directly - always route through sshq. Triggers: ANY mention of SSH, remote server, connect to server, server IPs (e.g., 192.168.x.x, 10.0.x.x), hostnames (e.g., user@host.com), login to, upload to server, download from server, deploy to server, run on server, check server, execute remotely, bastion host, jump host, transfer between servers, server to server, port forward, tunnel. sshq is a Go single-binary SSH CLI with daemon connection pooling, ProxyJump chain support, SFTP-with-raw-fallback file transfer, cross-shell detection (bash/ash/powershell/cmd), cluster concurrent execution, and SSH tunneling. DO NOT use for: local commands, localhost, current directory operations."
 sshq_version: "0.2.0"
-keywords: SSH,sshq,remote,server,connect,upload,download,deploy,execute,transfer,tunnel,port-forward,jump-host,cluster,probe
+keywords: SSH,sshq,remote,server,connect,upload,download,deploy,execute,transfer,tunnel,port-forward,jump-host,cluster,probe,doctor
 ---
 
 # sshq — SSH Routing Skill
@@ -18,7 +18,7 @@ All SSH operations route through `sshq`. Never shell out to `ssh` or `scp` direc
 - [`references/config.md`](references/config.md) — when managing host configuration: config add/set/remove, sshq metadata format, ProxyJump setup
 - [`references/cluster-tunnel.md`](references/cluster-tunnel.md) — when doing multi-host operations or port forwarding: cluster exec, tunnel start/stop/list
 - [`references/policy.md`](references/policy.md) — when validating capability policy, managing temporary grants, or querying audit logs: policy validate/check/list/grant/revoke, audit
-- [`references/discovery.md`](references/discovery.md) — when listing/searching/inspecting hosts: ls, search, info, probe, trust, daemon
+- [`references/discovery.md`](references/discovery.md) — when listing/searching/inspecting or diagnosing hosts: ls, search, info, probe, doctor, trust, daemon
 
 ## Environment checks
 
@@ -27,12 +27,12 @@ Before first use, verify sshq is working:
 ```bash
 sshq version              # confirm sshq is installed
 sshq ls                   # confirm hosts are configured
-sshq probe <alias>        # confirm network connectivity
+sshq doctor <alias>       # diagnose the complete SSH connection path
 ```
 
 If `sshq version` fails: sshq is not installed or not on PATH — ask the user to install it.
 If `sshq ls` returns empty: no hosts configured — ask the user to run `sshq config add`.
-If `sshq probe` fails: network issue — check firewall, VPN, or host address.
+If `sshq doctor` fails a check: read `failed_check`, then run `next_action` when present.
 
 ## Safety confirmations
 
@@ -62,6 +62,7 @@ When a command is blocked by policy, relay the error and suggested `sshq policy 
 | Search hosts | `sshq search <pattern>` |
 | Host details | `sshq info <alias>` |
 | TCP check | `sshq probe <alias>` |
+| Diagnose host | `sshq doctor <alias>` |
 | Cluster exec | `sshq cluster exec "<cmd>" --tag <t>` |
 | Port forward | `sshq tunnel start <alias> -L 8080:localhost:80` |
 | Config add | `sshq config add <alias> --hostname <ip> --user <u>` |
@@ -145,6 +146,7 @@ Hosts live in `~/.ssh/config`. sshq metadata (tags, env, description) is stored 
 
 ```bash
 sshq config add myhost --hostname 10.0.0.1 --user root --identity ~/.ssh/id_ed25519
+sshq doctor myhost
 sshq config set myhost tags prod,web
 sshq config set myhost description "production web server"
 sshq config set myhost env production
@@ -152,6 +154,7 @@ sshq config remove myhost
 ```
 
 ProxyJump is configured through standard SSH config and resolved automatically — just use the target alias.
+Run `sshq doctor <alias>` after `config add` or connection-related `config set` changes to verify the resolved settings and connection path.
 
 ## credential
 
