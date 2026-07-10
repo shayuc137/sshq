@@ -104,6 +104,7 @@ func NewRootCommand() *cobra.Command {
 	cmd.PersistentFlags().String("config", "", "SSH config file path")
 	cmd.PersistentFlags().BoolP("verbose", "v", false, "verbose output")
 	cmd.PersistentFlags().Duration("timeout", 30*time.Second, "operation timeout")
+	registerExecFlags(cmd)
 
 	cmd.AddCommand(
 		newVersionCommand(),

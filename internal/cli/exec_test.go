@@ -41,6 +41,45 @@ func TestRootShortcutRequiresConfiguredAlias(t *testing.T) {
 	}
 }
 
+func TestRootShortcutSupportsExecFlags(t *testing.T) {
+	missingScript := filepath.Join(t.TempDir(), "missing.sh")
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "canonical",
+			args: []string{"exec", "rn", "echo ok", "--script-file", missingScript, "--shell", "bash", "--no-daemon"},
+		},
+		{
+			name: "shortcut",
+			args: []string{"rn", "echo ok", "--script-file", missingScript, "--shell", "bash", "--no-daemon"},
+		},
+	}
+
+	var wantHint string
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd, _, _ := rootCommandForTest(t, "rn")
+			cmd.SetArgs(tt.args)
+
+			err := cmd.Execute()
+			var cmdErr *output.CmdError
+			if !errors.As(err, &cmdErr) {
+				t.Fatalf("expected output.CmdError, got %v", err)
+			}
+			if !strings.Contains(cmdErr.Hint, "read script file") {
+				t.Fatalf("hint = %q, want read script file", cmdErr.Hint)
+			}
+			if wantHint == "" {
+				wantHint = cmdErr.Hint
+			} else if cmdErr.Hint != wantHint {
+				t.Fatalf("shortcut hint = %q, want canonical hint %q", cmdErr.Hint, wantHint)
+			}
+		})
+	}
+}
+
 func TestRootCommandPrefersExistingSubcommand(t *testing.T) {
 	cmd, out, _ := rootCommandForTest(t, "version")
 	cmd.SetArgs([]string{"--pretty", "version"})

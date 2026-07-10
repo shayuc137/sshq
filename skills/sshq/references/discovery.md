@@ -1,5 +1,7 @@
 # Discovery & Daemon
 
+Documentation version: `sshq v0.2.0`.
+
 Commands for listing, searching, inspecting hosts, credentials, and managing the daemon.
 
 Auto-generated from `sshq docs --skill`. Do not edit manually.

@@ -21,16 +21,22 @@ func newExecCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "exec <alias> <command...>",
 		Short: "Execute a command on a remote host",
-		Args:  cobra.MinimumNArgs(1),
+		Example: `sshq exec myhost "uname -a"
+sshq exec myhost --script-file ./deploy.sh --shell bash --no-daemon`,
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runExecCommand(cmd, args)
 		},
 	}
 
+	registerExecFlags(cmd)
+	return cmd
+}
+
+func registerExecFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("no-daemon", false, "skip daemon, connect directly")
 	cmd.Flags().String("script-file", "", "execute a local script file on the remote host via stdin")
 	cmd.Flags().String("shell", "", "override detected remote shell type (bash/ash/zsh/sh/powershell)")
-	return cmd
 }
 
 func runExecCommand(cmd *cobra.Command, args []string) error {

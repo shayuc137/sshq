@@ -18,6 +18,9 @@ func TestStringAddsSingleVPrefix(t *testing.T) {
 	if got := Map()["version"]; got != "0.1.0" {
 		t.Fatalf("Map version = %q, want 0.1.0", got)
 	}
+	if got := Number(); got != "0.1.0" {
+		t.Fatalf("Number = %q, want 0.1.0", got)
+	}
 }
 
 func TestStringOmitsUnknownFields(t *testing.T) {
@@ -47,16 +50,16 @@ func TestStringOmitsUnknownFields(t *testing.T) {
 
 func TestParsePseudoVersion(t *testing.T) {
 	tests := []struct {
-		in       string
-		hash     string
-		date     string
-		ok       bool
+		in   string
+		hash string
+		date string
+		ok   bool
 	}{
 		{"v0.2.1-0.20260710023504-abcdef123456", "abcdef123456", "2026-07-10T02:35:04Z", true},
 		{"v0.3.0-beta.1.0.20260701120000-1234567890ab", "1234567890ab", "2026-07-01T12:00:00Z", true},
 		{"v0.2.0", "", "", false},
 		{"(devel)", "", "", false},
-		{"v0.3.0-beta.1", "", "", false},                       // prerelease tag, last part not a hash
+		{"v0.3.0-beta.1", "", "", false},                        // prerelease tag, last part not a hash
 		{"v0.2.1-0.20260710023504-ABCDEF123456", "", "", false}, // uppercase never appears in pseudo-version hashes
 		{"", "", "", false},
 	}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/shayuc137/sshq/internal/exec"
 	"github.com/shayuc137/sshq/internal/output"
+	"github.com/shayuc137/sshq/internal/version"
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
 )
@@ -95,6 +96,7 @@ func genSkillDocs(root *cobra.Command, dir string) error {
 	for _, g := range skillGroups {
 		var b strings.Builder
 		fmt.Fprintf(&b, "# %s\n\n", g.title)
+		fmt.Fprintf(&b, "Documentation version: `sshq v%s`.\n\n", version.Number())
 		fmt.Fprintf(&b, "%s\n\n", g.intro)
 		b.WriteString("Auto-generated from `sshq docs --skill`. Do not edit manually.\n\n")
 
@@ -337,7 +339,7 @@ const execTransferAppendix = "---\n" +
 	"### Exit behavior\n\n" +
 	"- Exit 0: operation succeeded (for exec, remote exit code is in `data.exit_code`)\n" +
 	"- Exit 1: connection failure, policy block, or local error\n" +
-	"- Exit N (exec only): matches remote exit code when using `sshq <alias> \"cmd\"` shortcut\n\n" +
+	"- Exit N (exec only): matches the remote exit code from `sshq exec <alias> \"cmd\"`\n\n" +
 	"### Security\n\n" +
 	"- exec: checked against `command_whitelist` / `command_blacklist`\n" +
 	"- cp: local and remote paths checked against `local_path_whitelist` / `remote_path_whitelist`\n" +

@@ -1,5 +1,7 @@
 # Policy & Audit
 
+Documentation version: `sshq v0.2.0`.
+
 Commands for validating capability policy, managing temporary daemon grants, and querying audit logs.
 
 Auto-generated from `sshq docs --skill`. Do not edit manually.

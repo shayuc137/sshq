@@ -1,5 +1,7 @@
 # Execution & File Transfer
 
+Documentation version: `sshq v0.2.0`.
+
 Commands for running remote commands and transferring files.
 
 Auto-generated from `sshq docs --skill`. Do not edit manually.
@@ -11,6 +13,13 @@ sshq exec <alias> <command...> [flags]
 ```
 
 Execute a command on a remote host
+
+**Examples:**
+
+```bash
+sshq exec myhost "uname -a"
+sshq exec myhost --script-file ./deploy.sh --shell bash --no-daemon
+```
 
 **Flags:**
 
@@ -71,7 +80,7 @@ A successful SSH connection can carry a failing remote command. Agents should ch
 
 - Exit 0: operation succeeded (for exec, remote exit code is in `data.exit_code`)
 - Exit 1: connection failure, policy block, or local error
-- Exit N (exec only): matches remote exit code when using `sshq <alias> "cmd"` shortcut
+- Exit N (exec only): matches the remote exit code from `sshq exec <alias> "cmd"`
 
 ### Security
 

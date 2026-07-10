@@ -60,15 +60,20 @@ func String() string {
 		meta = append(meta, Date)
 	}
 	if len(meta) == 0 {
-		return fmt.Sprintf("sshq v%s", normalizedVersion())
+		return fmt.Sprintf("sshq v%s", Number())
 	}
-	return fmt.Sprintf("sshq v%s (%s)", normalizedVersion(), strings.Join(meta, ", "))
+	return fmt.Sprintf("sshq v%s (%s)", Number(), strings.Join(meta, ", "))
+}
+
+// Number returns the stable semantic version without build metadata.
+func Number() string {
+	return normalizedVersion()
 }
 
 // Map keeps "version" always present; "commit" and "date" appear only when
 // known, so JSON consumers never see placeholder values.
 func Map() map[string]string {
-	m := map[string]string{"version": normalizedVersion()}
+	m := map[string]string{"version": Number()}
 	if Commit != "" {
 		m["commit"] = Commit
 	}

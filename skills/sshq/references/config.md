@@ -1,5 +1,7 @@
 # Configuration Management
 
+Documentation version: `sshq v0.2.0`.
+
 Commands for managing SSH host configuration and sshq metadata.
 
 Auto-generated from `sshq docs --skill`. Do not edit manually.

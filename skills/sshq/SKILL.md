@@ -7,6 +7,8 @@ keywords: SSH,sshq,remote,server,connect,upload,download,deploy,execute,transfer
 
 # sshq — SSH Routing Skill
 
+Documentation version: `sshq v0.2.0`.
+
 All SSH operations route through `sshq`. Never shell out to `ssh` or `scp` directly.
 
 `sshq` auto-detects the output mode: **pipe** (agent calling via subprocess) → JSON; **terminal** (human interactive) → pretty. No flags needed — agents get structured JSON automatically, humans get readable tables.
@@ -52,7 +54,7 @@ When a command is blocked by policy, relay the error and suggested `sshq policy 
 
 | Intent | Command |
 |--------|---------|
-| Run a command | `sshq <alias> "<cmd>"` |
+| Run a command | `sshq exec <alias> "<cmd>"` |
 | Upload file | `sshq cp ./local <alias>:/remote` |
 | Download file | `sshq cp <alias>:/remote ./local` |
 | Server-to-server | `sshq cp <src>:/path <dst>:/path` |
@@ -79,7 +81,7 @@ When a command is blocked by policy, relay the error and suggested `sshq policy 
 ## exec
 
 ```bash
-sshq <alias> "<command>"
+sshq exec <alias> "<command>"
 ```
 
 Always quote the command string — bare flags like `-a` are otherwise consumed by sshq's own parser.
@@ -87,8 +89,11 @@ Always quote the command string — bare flags like `-a` are otherwise consumed 
 Merge independent queries into one call to cut round-trips:
 
 ```bash
-sshq ali "hostname && uptime && df -h"
+sshq exec ali "hostname && uptime && df -h"
+sshq exec <alias> --script-file <path> --shell bash --no-daemon
 ```
+
+Human convenience — agents use `sshq exec`: people may run `sshq <alias> "<cmd>"`. Cobra resolves a colliding built-in subcommand before an alias, so agents always use the canonical form.
 
 Flags: `--timeout <dur>`, `--no-daemon`, `--script-file <path>`, `--shell <bash|ash|powershell|cmd>`.
 

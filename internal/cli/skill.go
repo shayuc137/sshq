@@ -368,5 +368,5 @@ func parseSkillVersion(content string) (string, bool) {
 }
 
 func currentSkillVersion() string {
-	return strings.TrimPrefix(version.Version, "v")
+	return version.Number()
 }
