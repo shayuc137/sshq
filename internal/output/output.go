@@ -189,9 +189,13 @@ func (w *Writer) Success(msg string) {
 // Error writes an error: a JSON error envelope to stdout in JSON mode, stderr otherwise.
 func (w *Writer) Error(e *CmdError) {
 	if w.isJSON() {
+		errorData := map[string]any{"hint": e.Hint, "action": e.Action}
+		for key, value := range e.Details {
+			errorData[key] = value
+		}
 		envelope := map[string]any{
 			"ok":             false,
-			"error":          map[string]string{"hint": e.Hint, "action": e.Action},
+			"error":          errorData,
 			"schema_version": SchemaVersion,
 		}
 		b, _ := json.Marshal(envelope)
@@ -222,8 +226,9 @@ func (w *Writer) writeln(dest io.Writer, s string) {
 }
 
 type CmdError struct {
-	Hint   string
-	Action string
+	Hint    string
+	Action  string
+	Details map[string]any
 }
 
 func (e *CmdError) Error() string {
@@ -235,6 +240,11 @@ func (e *CmdError) Error() string {
 
 func Errorf(hint, action string) *CmdError {
 	return &CmdError{Hint: hint, Action: action}
+}
+
+func (e *CmdError) WithDetails(details map[string]any) *CmdError {
+	e.Details = details
+	return e
 }
 
 func DetectEnvJSONMode() bool {

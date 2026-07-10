@@ -33,7 +33,9 @@ var errKeyCapture = errors.New("host key captured")
 
 const KnownHostsPathEnv = "SSHQ_KNOWN_HOSTS"
 
-func Fetch(addr string, timeout time.Duration) (ssh.PublicKey, error) {
+// FetchConn captures the host key during an SSH probe handshake over conn. The
+// caller owns conn and remains responsible for closing it.
+func FetchConn(conn net.Conn, addr string, timeout time.Duration) (ssh.PublicKey, error) {
 	var hostKey ssh.PublicKey
 	cfg := &ssh.ClientConfig{
 		HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error {
@@ -43,18 +45,28 @@ func Fetch(addr string, timeout time.Duration) (ssh.PublicKey, error) {
 		Timeout: timeout,
 	}
 
-	conn, err := net.DialTimeout("tcp", addr, timeout)
-	if err != nil {
-		return nil, fmt.Errorf("connect to %s: %w", addr, err)
+	// Close-on-timeout instead of SetDeadline: conns tunneled through a
+	// ProxyJump hop are ssh channels, which reject deadlines
+	// ("tcpChan: deadline not supported").
+	if timeout > 0 {
+		guard := time.AfterFunc(timeout, func() { conn.Close() })
+		defer guard.Stop()
 	}
-	defer conn.Close()
 
-	ssh.NewClientConn(conn, addr, cfg)
+	handshakeErr := fetchConnHandshake(conn, addr, cfg)
 
 	if hostKey == nil {
+		if handshakeErr != nil {
+			return nil, fmt.Errorf("fetch host key from %s: %w", addr, handshakeErr)
+		}
 		return nil, fmt.Errorf("no host key received from %s", addr)
 	}
 	return hostKey, nil
+}
+
+var fetchConnHandshake = func(conn net.Conn, addr string, cfg *ssh.ClientConfig) error {
+	_, _, _, err := ssh.NewClientConn(conn, addr, cfg)
+	return err
 }
 
 func Check(addr string, key ssh.PublicKey) (*Result, error) {
@@ -98,14 +110,6 @@ func Check(addr string, key ssh.PublicKey) (*Result, error) {
 	}
 
 	return nil, err
-}
-
-func FetchAndCheck(addr string, timeout time.Duration) (*Result, error) {
-	key, err := Fetch(addr, timeout)
-	if err != nil {
-		return nil, err
-	}
-	return Check(addr, key)
 }
 
 func Add(addr string, key ssh.PublicKey) error {
@@ -194,6 +198,24 @@ func Fingerprint(key ssh.PublicKey) string {
 
 func KeyType(key ssh.PublicKey) string {
 	return key.Type()
+}
+
+// LookupKeys returns the known_hosts names relevant to an alias and its
+// resolved endpoint, preserving order and removing duplicates.
+func LookupKeys(alias, hostname, port string) []string {
+	keys := make([]string, 0, 3)
+	seen := make(map[string]struct{}, 3)
+	for _, key := range []string{alias, hostname, knownhosts.Normalize(net.JoinHostPort(hostname, port))} {
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	return keys
 }
 
 func Path() (string, error) {

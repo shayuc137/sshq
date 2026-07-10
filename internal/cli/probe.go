@@ -1,7 +1,10 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
+	"io"
+	"net"
 	"sort"
 	"strings"
 	"time"
@@ -30,11 +33,12 @@ func newProbeCommand() *cobra.Command {
 			timeout, _ := cmd.Flags().GetDuration("timeout")
 			portOverride, _ := cmd.Flags().GetString("port")
 			all, _ := cmd.Flags().GetBool("all")
+			direct, _ := cmd.Flags().GetBool("direct")
 
 			refreshProfile, _ := cmd.Flags().GetBool("refresh-profile")
 
 			if all {
-				return runProbeAll(cmd, store, w, timeout, portOverride)
+				return runProbeAll(cmd, store, w, timeout, portOverride, direct)
 			}
 
 			if len(args) == 0 {
@@ -47,13 +51,12 @@ func newProbeCommand() *cobra.Command {
 				return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
 			}
 
-			port := host.Port
-			if portOverride != "" {
-				port = portOverride
+			target, err := probeTargetForHost(cmd.Context(), host, store, timeout, portOverride, direct)
+			if err != nil {
+				return output.Errorf(credentialErrorSummary(err), "")
 			}
 
-			r := probe.Check(cmd.Context(), host.HostName, port, timeout)
-			r.Alias = alias
+			r := checkProbeTarget(cmd.Context(), target)
 			w.Verbose(fmtProbeConnection(r))
 
 			var profile *remote.Profile
@@ -68,6 +71,7 @@ func newProbeCommand() *cobra.Command {
 
 	cmd.Flags().String("port", "", "override port to probe")
 	cmd.Flags().Bool("all", false, "probe all configured hosts")
+	cmd.Flags().Bool("direct", false, "skip ProxyJump and probe the target directly")
 	cmd.Flags().Bool("refresh-profile", false, "detect and cache remote OS/shell profile")
 
 	return cmd
@@ -160,18 +164,26 @@ func refreshProfileDirect(cmd *cobra.Command, w *output.Writer, host config.Host
 	return p
 }
 
-func runProbeAll(cmd *cobra.Command, store *config.Store, w *output.Writer, timeout time.Duration, portOverride string) error {
+func runProbeAll(cmd *cobra.Command, store *config.Store, w *output.Writer, timeout time.Duration, portOverride string, direct bool) error {
 	hosts := store.List()
 	targets := make([]probe.Target, len(hosts))
 	for i, h := range hosts {
-		port := h.Port
-		if portOverride != "" {
-			port = portOverride
+		target, err := probeTargetForHost(cmd.Context(), h, store, timeout, portOverride, direct)
+		if err != nil {
+			port := h.Port
+			if portOverride != "" {
+				port = portOverride
+			}
+			target = probe.Target{
+				Alias: h.Alias, Host: h.HostName, Port: port, ResolvedHostname: h.HostName,
+				ProxyJump: h.ProxyJump, ProbePath: probePath(h.ProxyJump, direct),
+				Dialer: failedProbeDialer(err),
+			}
 		}
-		targets[i] = probe.Target{Alias: h.Alias, Host: h.HostName, Port: port}
+		targets[i] = target
 	}
 
-	results := probe.CheckAll(cmd.Context(), targets, timeout, 10)
+	results := probe.CheckAll(cmd.Context(), targets, 10)
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Alias < results[j].Alias
 	})
@@ -180,6 +192,59 @@ func runProbeAll(cmd *cobra.Command, store *config.Store, w *output.Writer, time
 	}
 	w.Render(probeList(results))
 	return nil
+}
+
+var dialProbeTCP = sshclient.DialTCP
+
+func probeTargetForHost(ctx context.Context, host config.Host, store *config.Store, timeout time.Duration, portOverride string, direct bool) (probe.Target, error) {
+	cfg, err := hostToConnConfigWithCredentials(host, store, credentialStoreFrom(ctx))
+	if err != nil {
+		return probe.Target{}, err
+	}
+	if portOverride != "" {
+		cfg.Port = portOverride
+	}
+	cfg.Timeout = timeout
+	if direct {
+		cfg.ProxyJump = ""
+		cfg.ProxyConfig = nil
+	}
+
+	return probe.Target{
+		Alias:            host.Alias,
+		Host:             cfg.Host,
+		Port:             cfg.Port,
+		ResolvedHostname: cfg.Host,
+		ProxyJump:        host.ProxyJump,
+		ProbePath:        probePath(host.ProxyJump, direct),
+		Dialer: func(ctx context.Context) (net.Conn, io.Closer, error) {
+			return dialProbeTCP(ctx, cfg)
+		},
+	}, nil
+}
+
+func probePath(proxyJump string, direct bool) string {
+	if !direct && proxyJump != "" {
+		return "via-proxy"
+	}
+	return "direct"
+}
+
+func checkProbeTarget(ctx context.Context, target probe.Target) probe.Result {
+	r := probe.Check(ctx, target.Dialer)
+	r.Alias = target.Alias
+	r.Host = target.Host
+	r.Port = target.Port
+	r.ResolvedHostname = target.ResolvedHostname
+	r.ProxyJump = target.ProxyJump
+	r.ProbePath = target.ProbePath
+	return r
+}
+
+func failedProbeDialer(err error) probe.Dialer {
+	return func(context.Context) (net.Conn, io.Closer, error) {
+		return nil, nil, err
+	}
 }
 
 type probeView struct {

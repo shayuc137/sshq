@@ -10,6 +10,7 @@ import (
 	"github.com/shayuc137/sshq/internal/audit"
 	"github.com/shayuc137/sshq/internal/config"
 	"github.com/shayuc137/sshq/internal/credential"
+	"github.com/shayuc137/sshq/internal/hostkey"
 	"github.com/shayuc137/sshq/internal/output"
 	"github.com/shayuc137/sshq/internal/policy"
 	"github.com/shayuc137/sshq/internal/remote"
@@ -133,6 +134,7 @@ func recordAuditError(ctx context.Context, entry audit.Entry, err error) error {
 
 func hostToConnConfig(host config.Host) sshclient.ConnConfig {
 	cfg := sshclient.ConnConfig{
+		Alias:        host.Alias,
 		Host:         host.HostName,
 		Port:         host.Port,
 		User:         host.User,
@@ -233,17 +235,29 @@ func connErrorToOutput(err error, alias string) *output.CmdError {
 	if !errors.As(err, &ce) {
 		return output.Errorf(err.Error(), "check connectivity and credentials")
 	}
+	errorAlias := ce.Alias
+	if errorAlias == "" {
+		errorAlias = alias
+	}
+	lookupKeys := ce.LookupKeys
+	if len(lookupKeys) == 0 || ce.Alias == "" {
+		lookupKeys = hostkey.LookupKeys(errorAlias, ce.Host, ce.Port)
+	}
+	details := hostKeyErrorDetails(
+		errorAlias, ce.Host, ce.Port, ce.ProxyJump, lookupKeys,
+		ce.RemoteFingerprint, ce.KnownFingerprint,
+	)
 	switch ce.Kind {
 	case sshclient.ErrHostKeyMismatch:
 		return output.Errorf(
-			fmt.Sprintf("host key CHANGED for %s (%s:%s)", alias, ce.Host, ce.Port),
-			fmt.Sprintf("if expected, run: sshq trust %s --replace", alias),
-		)
+			fmt.Sprintf("host key CHANGED for %s (%s:%s)", errorAlias, ce.Host, ce.Port),
+			fmt.Sprintf("run: sshq trust %s --replace", errorAlias),
+		).WithDetails(details)
 	case sshclient.ErrHostKeyUnknown:
 		return output.Errorf(
-			fmt.Sprintf("host key unknown for %s (%s:%s)", alias, ce.Host, ce.Port),
-			fmt.Sprintf("run: sshq trust %s", alias),
-		)
+			fmt.Sprintf("host key unknown for %s (%s:%s)", errorAlias, ce.Host, ce.Port),
+			fmt.Sprintf("run: sshq trust %s", errorAlias),
+		).WithDetails(details)
 	case sshclient.ErrAuth:
 		return output.Errorf(ce.Error(), "check credentials and key file")
 	case sshclient.ErrNetwork:
@@ -251,4 +265,19 @@ func connErrorToOutput(err error, alias string) *output.CmdError {
 	default:
 		return output.Errorf(ce.Error(), "check connectivity and credentials")
 	}
+}
+
+func hostKeyErrorDetails(alias, hostname, port, proxyJump string, lookupKeys []string, remoteFingerprint, knownFingerprint string) map[string]any {
+	details := map[string]any{
+		"alias":              alias,
+		"hostname":           hostname,
+		"port":               port,
+		"proxy_jump":         proxyJump,
+		"lookup_keys":        lookupKeys,
+		"remote_fingerprint": remoteFingerprint,
+	}
+	if knownFingerprint != "" {
+		details["known_fingerprint"] = knownFingerprint
+	}
+	return details
 }

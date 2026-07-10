@@ -324,6 +324,24 @@ func TestError_JSONMode(t *testing.T) {
 	}
 }
 
+func TestError_JSONModeDetails(t *testing.T) {
+	w, out, _ := jsonWriter()
+	w.Error(Errorf("host key changed", "run trust").WithDetails(map[string]any{
+		"alias": "target", "lookup_keys": []string{"target", "192.0.2.10"},
+	}))
+	var env map[string]any
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	errObj := env["error"].(map[string]any)
+	if errObj["alias"] != "target" {
+		t.Fatalf("error details = %+v", errObj)
+	}
+	if len(errObj["lookup_keys"].([]any)) != 2 {
+		t.Fatalf("lookup_keys = %+v", errObj["lookup_keys"])
+	}
+}
+
 // --- CmdError + env detection ---
 
 func TestCmdError_Format(t *testing.T) {

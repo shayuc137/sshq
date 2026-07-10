@@ -33,7 +33,7 @@ func newSSHServer(t *testing.T) (string, ssh.PublicKey) {
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatal(err)
+		t.Skipf("loopback sockets unavailable: %v", err)
 	}
 	t.Cleanup(func() { ln.Close() })
 

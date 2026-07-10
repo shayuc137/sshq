@@ -2,20 +2,24 @@ package probe
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net"
 	"testing"
 	"time"
 )
 
 func TestCheck_Reachable(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-
-	_, port, _ := net.SplitHostPort(ln.Addr().String())
-	r := Check(context.Background(), "127.0.0.1", port, 2*time.Second)
+	client, peer := net.Pipe()
+	t.Cleanup(func() { peer.Close() })
+	peerClosed := make(chan struct{})
+	go func() {
+		io.Copy(io.Discard, peer)
+		close(peerClosed)
+	}()
+	r := Check(context.Background(), func(context.Context) (net.Conn, io.Closer, error) {
+		return client, client, nil
+	})
 
 	if !r.Reachable {
 		t.Errorf("expected reachable, got error: %s", r.Error)
@@ -23,19 +27,19 @@ func TestCheck_Reachable(t *testing.T) {
 	if r.LatencyMs < 0 {
 		t.Errorf("latency should be >= 0, got %d", r.LatencyMs)
 	}
+	select {
+	case <-peerClosed:
+	case <-time.After(time.Second):
+		t.Fatal("Check did not close the injected connection")
+	}
 }
 
 func TestCheck_Unreachable(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, port, _ := net.SplitHostPort(ln.Addr().String())
-	ln.Close()
-
-	r := Check(context.Background(), "127.0.0.1", port, 2*time.Second)
+	r := Check(context.Background(), func(context.Context) (net.Conn, io.Closer, error) {
+		return nil, nil, errors.New("connection refused")
+	})
 	if r.Reachable {
-		t.Error("expected unreachable for closed port")
+		t.Error("expected unreachable")
 	}
 	if r.Error == "" {
 		t.Error("expected error message")
@@ -46,34 +50,35 @@ func TestCheck_ContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	r := Check(ctx, "192.0.2.1", "22", 5*time.Second)
+	r := Check(ctx, func(ctx context.Context) (net.Conn, io.Closer, error) {
+		return nil, nil, ctx.Err()
+	})
 	if r.Reachable {
 		t.Error("expected unreachable with cancelled context")
+	}
+	if r.Error != "timeout" {
+		t.Fatalf("error = %q, want timeout", r.Error)
 	}
 }
 
 func TestCheckAll(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-
-	_, port, _ := net.SplitHostPort(ln.Addr().String())
-
-	ln2, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, badPort, _ := net.SplitHostPort(ln2.Addr().String())
-	ln2.Close()
-
+	client, peer := net.Pipe()
+	t.Cleanup(func() { peer.Close() })
 	targets := []Target{
-		{Alias: "local", Host: "127.0.0.1", Port: port},
-		{Alias: "bad", Host: "127.0.0.1", Port: badPort},
+		{
+			Alias: "local", Host: "127.0.0.1", Port: "22", ResolvedHostname: "127.0.0.1", ProbePath: "direct",
+			Dialer: func(context.Context) (net.Conn, io.Closer, error) { return client, client, nil },
+		},
+		{
+			Alias: "bad", Host: "10.0.0.20", Port: "2222", ResolvedHostname: "10.0.0.20",
+			ProxyJump: "jump", ProbePath: "via-proxy",
+			Dialer: func(context.Context) (net.Conn, io.Closer, error) {
+				return nil, nil, errors.New("proxy failed")
+			},
+		},
 	}
 
-	results := CheckAll(context.Background(), targets, 500*time.Millisecond, 2)
+	results := CheckAll(context.Background(), targets, 2)
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
@@ -86,6 +91,24 @@ func TestCheckAll(t *testing.T) {
 	}
 	if results[1].Reachable {
 		t.Error("bad should be unreachable")
+	}
+	if results[0].ProbePath != "direct" || results[1].ProbePath != "via-proxy" {
+		t.Fatalf("probe paths = %q, %q", results[0].ProbePath, results[1].ProbePath)
+	}
+	if results[1].ProxyJump != "jump" || results[1].ResolvedHostname != "10.0.0.20" {
+		t.Fatalf("proxy metadata = %+v", results[1])
+	}
+}
+
+func TestCheckMeasuresDialerLatency(t *testing.T) {
+	client, peer := net.Pipe()
+	t.Cleanup(func() { peer.Close() })
+	r := Check(context.Background(), func(context.Context) (net.Conn, io.Closer, error) {
+		time.Sleep(5 * time.Millisecond)
+		return client, client, nil
+	})
+	if r.LatencyMs < 4 {
+		t.Fatalf("latency_ms = %d, want injected delay", r.LatencyMs)
 	}
 }
 

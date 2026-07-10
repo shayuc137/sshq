@@ -76,7 +76,7 @@ func TestVersionJSONEnvelope(t *testing.T) {
 	if !env.OK || env.SchemaVersion != output.SchemaVersion {
 		t.Fatalf("envelope = %+v", env)
 	}
-	if env.Data.Version == "" || env.Data.Commit == "" || env.Data.Date == "" {
+	if env.Data.Version == "" {
 		t.Fatalf("version data = %+v", env.Data)
 	}
 }

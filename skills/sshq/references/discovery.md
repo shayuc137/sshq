@@ -40,6 +40,7 @@ Check TCP connectivity to a host
 
 ```
       --all               probe all configured hosts
+      --direct            skip ProxyJump and probe the target directly
       --port string       override port to probe
       --refresh-profile   detect and cache remote OS/shell profile
 ```

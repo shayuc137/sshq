@@ -2,53 +2,58 @@ package probe
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 	"time"
 )
 
 type Result struct {
-	Alias     string `json:"alias"`
-	Host      string `json:"host"`
-	Port      string `json:"port"`
-	Reachable bool   `json:"reachable"`
-	LatencyMs int64  `json:"latency_ms,omitempty"`
-	Error     string `json:"error,omitempty"`
+	Alias            string `json:"alias"`
+	Host             string `json:"host"`
+	Port             string `json:"port"`
+	ResolvedHostname string `json:"resolved_hostname"`
+	ProxyJump        string `json:"proxy_jump"`
+	ProbePath        string `json:"probe_path"`
+	Reachable        bool   `json:"reachable"`
+	LatencyMs        int64  `json:"latency_ms,omitempty"`
+	Error            string `json:"error,omitempty"`
 }
 
-func Check(ctx context.Context, host, port string, timeout time.Duration) Result {
-	addr := net.JoinHostPort(host, port)
-	start := time.Now()
+// Dialer establishes the TCP path to a target; latency is measured around it.
+type Dialer func(context.Context) (net.Conn, io.Closer, error)
 
-	dialer := net.Dialer{Timeout: timeout}
-	conn, err := dialer.DialContext(ctx, "tcp", addr)
+func Check(ctx context.Context, dial Dialer) Result {
+	start := time.Now()
+	_, closer, err := dial(ctx)
 	elapsed := time.Since(start)
 
 	if err != nil {
 		errMsg := "connection failed"
 		if ctx.Err() != nil {
 			errMsg = "timeout"
-		} else if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
-			errMsg = "timeout"
+		} else {
+			var opErr *net.OpError
+			if errors.As(err, &opErr) && opErr.Timeout() {
+				errMsg = "timeout"
+			}
 		}
-		return Result{
-			Host:  host,
-			Port:  port,
-			Error: errMsg,
-		}
+		return Result{Error: errMsg}
 	}
-	conn.Close()
+	if closer == nil {
+		return Result{Error: "connection failed"}
+	}
+	closer.Close()
 
 	return Result{
-		Host:      host,
-		Port:      port,
 		Reachable: true,
 		LatencyMs: elapsed.Milliseconds(),
 	}
 }
 
-func CheckAll(ctx context.Context, targets []Target, timeout time.Duration, concurrency int) []Result {
+func CheckAll(ctx context.Context, targets []Target, concurrency int) []Result {
 	if concurrency <= 0 {
 		concurrency = 10
 	}
@@ -64,8 +69,13 @@ func CheckAll(ctx context.Context, targets []Target, timeout time.Duration, conc
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			r := Check(ctx, target.Host, target.Port, timeout)
+			r := Check(ctx, target.Dialer)
 			r.Alias = target.Alias
+			r.Host = target.Host
+			r.Port = target.Port
+			r.ResolvedHostname = target.ResolvedHostname
+			r.ProxyJump = target.ProxyJump
+			r.ProbePath = target.ProbePath
 			results[idx] = r
 		}(i, t)
 	}
@@ -75,9 +85,13 @@ func CheckAll(ctx context.Context, targets []Target, timeout time.Duration, conc
 }
 
 type Target struct {
-	Alias string
-	Host  string
-	Port  string
+	Alias            string
+	Host             string
+	Port             string
+	ResolvedHostname string
+	ProxyJump        string
+	ProbePath        string
+	Dialer           Dialer
 }
 
 func RenderCompact(r Result) string {

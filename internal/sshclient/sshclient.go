@@ -2,12 +2,14 @@ package sshclient
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/shayuc137/sshq/internal/hostkey"
@@ -17,6 +19,7 @@ import (
 )
 
 type ConnConfig struct {
+	Alias        string
 	Host         string
 	Port         string
 	User         string
@@ -44,6 +47,7 @@ type Client struct {
 func newClient(raw *ssh.Client, cfg ConnConfig, proxy io.Closer) *Client {
 	return &Client{
 		Client:    raw,
+		Alias:     cfg.Alias,
 		Config:    cfg,
 		CreatedAt: time.Now(),
 		proxy:     proxy,
@@ -63,34 +67,38 @@ func (c *Client) Close() error {
 }
 
 func Dial(ctx context.Context, cfg ConnConfig) (*Client, error) {
-	if cfg.ProxyJump != "" {
-		return dialViaProxy(ctx, cfg)
-	}
-	return dialDirect(ctx, cfg)
-}
-
-func dialDirect(ctx context.Context, cfg ConnConfig) (*Client, error) {
 	sshCfg, err := buildSSHConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
 
 	addr := net.JoinHostPort(cfg.Host, cfg.Port)
-
-	dialer := net.Dialer{Timeout: cfg.Timeout}
-	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	conn, closer, err := DialTCP(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("connect to %s: %w", addr, err)
+		return nil, err
 	}
 
 	raw, err := handshake(ctx, conn, addr, sshCfg, cfg)
 	if err != nil {
+		closer.Close()
 		return nil, err
 	}
-	return newClient(raw, cfg, nil), nil
+	return newClient(raw, cfg, closer), nil
 }
 
-func dialViaProxy(ctx context.Context, cfg ConnConfig) (*Client, error) {
+// DialTCP returns a TCP connection to cfg's target through the same direct or
+// ProxyJump path used by Dial. Closing closer tears down the connection and the
+// complete tunnel chain; the closer is always non-nil and idempotent.
+func DialTCP(ctx context.Context, cfg ConnConfig) (net.Conn, io.Closer, error) {
+	if cfg.ProxyJump == "" {
+		addr := net.JoinHostPort(cfg.Host, cfg.Port)
+		conn, err := dialTCPContext(ctx, addr, cfg.Timeout)
+		if err != nil {
+			return nil, nil, fmt.Errorf("connect to %s: %w", addr, err)
+		}
+		return conn, newDialCloser(conn, nil), nil
+	}
+
 	var proxyCfg ConnConfig
 	if cfg.ProxyConfig != nil {
 		proxyCfg = *cfg.ProxyConfig
@@ -98,40 +106,63 @@ func dialViaProxy(ctx context.Context, cfg ConnConfig) (*Client, error) {
 		var err error
 		proxyCfg, err = resolveProxyConfig(cfg.ProxyJump)
 		if err != nil {
-			return nil, fmt.Errorf("resolve proxy %q: %w", cfg.ProxyJump, err)
+			return nil, nil, fmt.Errorf("resolve proxy %q: %w", cfg.ProxyJump, err)
 		}
 	}
 	proxyCfg.Timeout = cfg.Timeout
 
-	proxyClient, err := Dial(ctx, proxyCfg)
+	var proxyClient proxyDialer
+	var err error
+	if dialProxyTest != nil {
+		proxyClient, err = dialProxyTest(ctx, proxyCfg)
+	} else {
+		proxyClient, err = Dial(ctx, proxyCfg)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("connect to proxy %s: %w", cfg.ProxyJump, err)
+		return nil, nil, fmt.Errorf("connect to proxy %s: %w", cfg.ProxyJump, err)
 	}
 
 	targetAddr := net.JoinHostPort(cfg.Host, cfg.Port)
 	proxyConn, err := proxyClient.DialContext(ctx, "tcp", targetAddr)
 	if err != nil {
 		proxyClient.Close()
-		return nil, fmt.Errorf("proxy %s → %s: %w", cfg.ProxyJump, targetAddr, err)
+		return nil, nil, fmt.Errorf("proxy %s → %s: %w", cfg.ProxyJump, targetAddr, err)
 	}
 
-	sshCfg, err := buildSSHConfig(cfg)
-	if err != nil {
-		proxyConn.Close()
-		proxyClient.Close()
-		return nil, err
-	}
+	return proxyConn, newDialCloser(proxyConn, proxyClient), nil
+}
 
-	raw, err := handshake(ctx, proxyConn, targetAddr, sshCfg, cfg)
-	if err != nil {
-		proxyClient.Close()
-		return nil, err
-	}
+type proxyDialer interface {
+	DialContext(context.Context, string, string) (net.Conn, error)
+	io.Closer
+}
 
-	// Store the proxy hop as this client's proxy closer. proxyClient is itself a
-	// *Client, so Close cascades through the whole ProxyJump chain deterministically
-	// — no background goroutine, and nested jumps are released layer by layer.
-	return newClient(raw, cfg, proxyClient), nil
+var dialTCPContext = func(ctx context.Context, addr string, timeout time.Duration) (net.Conn, error) {
+	return (&net.Dialer{Timeout: timeout}).DialContext(ctx, "tcp", addr)
+}
+
+var dialProxyTest func(context.Context, ConnConfig) (proxyDialer, error)
+
+type dialCloser struct {
+	once sync.Once
+	err  error
+	conn io.Closer
+	tail io.Closer
+}
+
+func newDialCloser(conn io.Closer, tail io.Closer) *dialCloser {
+	return &dialCloser{conn: conn, tail: tail}
+}
+
+func (c *dialCloser) Close() error {
+	c.once.Do(func() {
+		var tailErr error
+		if c.tail != nil {
+			tailErr = c.tail.Close()
+		}
+		c.err = errors.Join(c.conn.Close(), tailErr)
+	})
+	return c.err
 }
 
 func resolveProxyConfig(proxyJump string) (ConnConfig, error) {
@@ -153,6 +184,7 @@ func resolveProxyConfig(proxyJump string) (ConnConfig, error) {
 	if proxy.Host == "" {
 		return ConnConfig{}, fmt.Errorf("empty proxy host in %q", proxyJump)
 	}
+	proxy.Alias = proxy.Host
 
 	return proxy, nil
 }
@@ -276,8 +308,25 @@ func hostKeyCallback() (ssh.HostKeyCallback, error) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil, fmt.Errorf("known_hosts not found at %s — sshq requires strict host key verification", path)
 	}
-	return knownhosts.New(path)
+	callback, err := knownhosts.New(path)
+	if err != nil {
+		return nil, err
+	}
+	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		if err := callback(hostname, remote, key); err != nil {
+			return &hostKeyVerificationError{cause: err, remoteKey: key}
+		}
+		return nil
+	}, nil
 }
+
+type hostKeyVerificationError struct {
+	cause     error
+	remoteKey ssh.PublicKey
+}
+
+func (e *hostKeyVerificationError) Error() string { return e.cause.Error() }
+func (e *hostKeyVerificationError) Unwrap() error { return e.cause }
 
 type ConnErrorKind int
 
@@ -290,11 +339,16 @@ const (
 )
 
 type ConnError struct {
-	Kind  ConnErrorKind
-	Host  string
-	Port  string
-	User  string
-	Cause error
+	Kind              ConnErrorKind
+	Alias             string
+	Host              string
+	Port              string
+	User              string
+	ProxyJump         string
+	LookupKeys        []string
+	RemoteFingerprint string
+	KnownFingerprint  string
+	Cause             error
 }
 
 func (e *ConnError) Error() string {
@@ -315,11 +369,30 @@ func (e *ConnError) Error() string {
 func (e *ConnError) Unwrap() error { return e.Cause }
 
 func categorizeError(err error, cfg ConnConfig) error {
-	ce := &ConnError{Host: cfg.Host, Port: cfg.Port, User: cfg.User, Cause: err}
+	ce := &ConnError{
+		Alias: cfg.Alias, Host: cfg.Host, Port: cfg.Port, User: cfg.User, ProxyJump: cfg.ProxyJump,
+		LookupKeys: hostkey.LookupKeys(cfg.Alias, cfg.Host, cfg.Port), Cause: err,
+	}
 
-	if _, ok := err.(*net.OpError); ok {
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
 		ce.Kind = ErrNetwork
 		return ce
+	}
+
+	var verificationErr *hostKeyVerificationError
+	if errors.As(err, &verificationErr) {
+		ce.RemoteFingerprint = hostkey.Fingerprint(verificationErr.remoteKey)
+		var keyErr *knownhosts.KeyError
+		if errors.As(err, &keyErr) {
+			if len(keyErr.Want) == 0 {
+				ce.Kind = ErrHostKeyUnknown
+			} else {
+				ce.Kind = ErrHostKeyMismatch
+				ce.KnownFingerprint = hostkey.Fingerprint(keyErr.Want[0].Key)
+			}
+			return ce
+		}
 	}
 
 	errMsg := err.Error()
