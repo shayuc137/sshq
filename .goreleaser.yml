@@ -1,7 +1,8 @@
 version: 2
 
 builds:
-  - main: ./cmd/sshq
+  - id: sshq
+    main: ./cmd/sshq
     binary: sshq
     ldflags:
       - -s -w
@@ -17,11 +18,20 @@ builds:
       - arm64
 
 archives:
-  - formats: [tar.gz]
+  - id: versioned
+    ids: [sshq]
+    formats: [tar.gz]
     format_overrides:
       - goos: windows
         formats: [zip]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  - id: stable
+    ids: [sshq]
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
 
 checksum:
   name_template: checksums.txt
