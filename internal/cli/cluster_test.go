@@ -68,8 +68,9 @@ func runRecvCluster(t *testing.T, jsonMode bool, frames ...ipc.Frame) (out, errO
 }
 
 type clusterEnvelope struct {
-	OK   bool `json:"ok"`
-	Data struct {
+	OK       bool `json:"ok"`
+	ExitCode int  `json:"exit_code"`
+	Data     struct {
 		Results []struct {
 			Alias    string `json:"alias"`
 			Stdout   string `json:"stdout"`
@@ -100,6 +101,9 @@ func TestRecvClusterFramesMultiHostJSON(t *testing.T) {
 	if !env.OK {
 		t.Error("envelope ok = false")
 	}
+	if env.ExitCode != 0 {
+		t.Errorf("envelope exit_code = %d, want 0", env.ExitCode)
+	}
 	if len(env.Data.Results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(env.Data.Results))
 	}
@@ -111,6 +115,30 @@ func TestRecvClusterFramesMultiHostJSON(t *testing.T) {
 	}
 	if env.Data.Summary.Success != 2 || env.Data.Summary.Total != 2 {
 		t.Errorf("summary = %+v", env.Data.Summary)
+	}
+}
+
+func TestRecvClusterFramesNonZeroExitJSON(t *testing.T) {
+	out, _, err := runRecvCluster(t, true,
+		clusterFrame(t, ipc.ClusterFrame{Alias: "web1", Type: "exit", Code: 0}),
+		clusterFrame(t, ipc.ClusterFrame{Alias: "web2", Type: "exit", Code: 3}),
+		resultFrame(t, ipc.ClusterSummary{Total: 2, Success: 1, Failed: 1}),
+	)
+
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || ee.Code != 1 {
+		t.Fatalf("expected unchanged process exit status 1, got %v", err)
+	}
+
+	var env clusterEnvelope
+	if e := json.Unmarshal(out.Bytes(), &env); e != nil {
+		t.Fatalf("invalid JSON output: %v", e)
+	}
+	if !env.OK || env.ExitCode != 3 {
+		t.Fatalf("envelope ok=%v exit_code=%d, want true and 3", env.OK, env.ExitCode)
+	}
+	if env.Data.Results[1].ExitCode != 3 {
+		t.Fatalf("data.results[1].exit_code = %d, want 3", env.Data.Results[1].ExitCode)
 	}
 }
 
@@ -133,6 +161,9 @@ func TestRecvClusterFramesPartialFailureJSON(t *testing.T) {
 	}
 	if len(env.Data.Results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(env.Data.Results))
+	}
+	if !env.OK || env.ExitCode != 1 {
+		t.Fatalf("envelope ok=%v exit_code=%d, want true and 1", env.OK, env.ExitCode)
 	}
 	var web2 *struct {
 		Alias    string `json:"alias"`

@@ -221,10 +221,13 @@ sshq auto-detects: pipe → JSON, terminal → pretty. Override with flags:
 
 ## error handling
 
-Parse stdout JSON first. Branch on `ok`; for exec, also inspect `data.exit_code`. Use stderr only as diagnostics.
+Parse stdout JSON first. **`ok:true` means the sshq call succeeded; ALWAYS check top-level `exit_code` for the remote command result.** Use stderr only as diagnostics. `data.exit_code` remains available for compatibility.
 
 ```
-stdout JSON → ok: true  → success; for exec check data.exit_code
+Wrong:   {"ok":true,"exit_code":3,...} → remote command succeeded
+Correct: {"ok":true,"exit_code":3,...} → sshq call succeeded; remote command exited 3
+
+stdout JSON → ok: true  → for exec/cluster exec, check top-level exit_code
             → ok: false → read error.hint + error.action
 ```
 

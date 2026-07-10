@@ -117,8 +117,11 @@ func TestRender_JSONMode(t *testing.T) {
 	if data["v"] != "hello" {
 		t.Errorf("data.v = %v, want hello", data["v"])
 	}
-	if env["schema_version"].(float64) != 1 {
-		t.Errorf("schema_version = %v, want 1", env["schema_version"])
+	if env["schema_version"].(float64) != SchemaVersion {
+		t.Errorf("schema_version = %v, want %d", env["schema_version"], SchemaVersion)
+	}
+	if _, ok := env["exit_code"]; ok {
+		t.Errorf("non-exec envelope unexpectedly has exit_code: %v", env["exit_code"])
 	}
 }
 
@@ -146,11 +149,34 @@ func TestExec_JSONMode(t *testing.T) {
 	if data["exit_code"].(float64) != 0 {
 		t.Errorf("data.exit_code = %v, want 0", data["exit_code"])
 	}
+	if env["exit_code"].(float64) != 0 {
+		t.Errorf("exit_code = %v, want 0", env["exit_code"])
+	}
 	if data["host"] != "rn" {
 		t.Errorf("data.host = %v, want rn", data["host"])
 	}
 	if data["duration_ms"].(float64) != 42 {
 		t.Errorf("data.duration_ms = %v, want 42", data["duration_ms"])
+	}
+}
+
+func TestExec_JSONMode_NonZeroExit(t *testing.T) {
+	w, out, _ := jsonWriter()
+	w.Exec(&ExecResult{ExitCode: 3, Stderr: "failed\n", Host: "rn"})
+
+	var env map[string]any
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if env["ok"] != true {
+		t.Errorf("ok = %v, want true", env["ok"])
+	}
+	if env["exit_code"].(float64) != 3 {
+		t.Errorf("exit_code = %v, want 3", env["exit_code"])
+	}
+	data := env["data"].(map[string]any)
+	if data["exit_code"].(float64) != 3 {
+		t.Errorf("data.exit_code = %v, want 3", data["exit_code"])
 	}
 }
 
@@ -281,8 +307,8 @@ func TestSuccess_JSONMode(t *testing.T) {
 	if data["message"] != "started" {
 		t.Errorf("data.message = %v, want started", data["message"])
 	}
-	if env["schema_version"].(float64) != 1 {
-		t.Errorf("schema_version = %v, want 1", env["schema_version"])
+	if env["schema_version"].(float64) != SchemaVersion {
+		t.Errorf("schema_version = %v, want %d", env["schema_version"], SchemaVersion)
 	}
 }
 
@@ -315,12 +341,21 @@ func TestError_JSONMode(t *testing.T) {
 	if env["ok"] != false {
 		t.Errorf("ok = %v, want false", env["ok"])
 	}
+	if _, ok := env["exit_code"]; ok {
+		t.Errorf("error envelope unexpectedly has exit_code: %v", env["exit_code"])
+	}
 	errObj := env["error"].(map[string]any)
 	if errObj["hint"] != "denied" {
 		t.Errorf("error.hint = %v, want denied", errObj["hint"])
 	}
 	if errObj["action"] != "run with sudo" {
 		t.Errorf("error.action = %v, want %q", errObj["action"], "run with sudo")
+	}
+}
+
+func TestSchemaVersion(t *testing.T) {
+	if SchemaVersion != 2 {
+		t.Fatalf("SchemaVersion = %d, want 2", SchemaVersion)
 	}
 }
 

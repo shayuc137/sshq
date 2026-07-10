@@ -63,7 +63,11 @@ In pretty mode, process stdout is the remote stdout exactly — sshq never write
 | `host` | string | Alias used |
 | `duration_ms` | int | Wall-clock milliseconds |
 
-A successful SSH connection can carry a failing remote command. Agents should check both `ok` and `data.exit_code`.
+`ok:true` means the sshq call succeeded; ALWAYS check top-level `exit_code` for the remote command result. The same value remains in `data.exit_code` for compatibility.
+
+Wrong: treat `{"ok":true,"exit_code":3,...}` as remote command success.
+
+Correct: treat `ok:true` as a completed sshq call, then read top-level `exit_code`; `3` means the remote command failed with exit code 3.
 
 ### cp output contract
 
@@ -78,7 +82,7 @@ A successful SSH connection can carry a failing remote command. Agents should ch
 
 ### Exit behavior
 
-- Exit 0: operation succeeded (for exec, remote exit code is in `data.exit_code`)
+- Exit 0: operation succeeded (for exec, the remote result is in top-level `exit_code`)
 - Exit 1: connection failure, policy block, or local error
 - Exit N (exec only): matches the remote exit code from `sshq exec <alias> "cmd"`
 

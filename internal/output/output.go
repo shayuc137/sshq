@@ -11,7 +11,7 @@ import (
 	"golang.org/x/term"
 )
 
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 // Mode is the resolved output form. After construction it is only ModeJSON or ModePretty.
 type Mode int
@@ -25,6 +25,12 @@ const (
 // Renderable types provide a human-readable rendering, used by Writer.Render in non-JSON mode.
 type Renderable interface {
 	Pretty() string
+}
+
+// ExitCoder marks results that carry a remote command outcome. It lets the
+// envelope writer expose that outcome without coupling commands to JSON layout.
+type ExitCoder interface {
+	RemoteExitCode() (int, bool)
 }
 
 // ProgressInfo is a transfer progress snapshot. It is defined here rather than
@@ -46,6 +52,8 @@ type ExecResult struct {
 	Host       string `json:"host"`
 	DurationMs int64  `json:"duration_ms"`
 }
+
+func (r ExecResult) RemoteExitCode() (int, bool) { return r.ExitCode, true }
 
 // Writer is sshq's output façade: it absorbs format decisions, TTY detection and
 // progress control, so callers only pass structured data.
@@ -213,6 +221,11 @@ func (w *Writer) writeEnvelope(data any) {
 		"ok":             true,
 		"data":           data,
 		"schema_version": SchemaVersion,
+	}
+	if result, ok := data.(ExitCoder); ok {
+		if exitCode, present := result.RemoteExitCode(); present {
+			envelope["exit_code"] = exitCode
+		}
 	}
 	b, _ := json.Marshal(envelope)
 	w.writeln(w.out, string(b))

@@ -82,7 +82,7 @@ List active tunnels
 
 ### cluster output contract
 
-JSON mode returns `{results: [{alias, stdout, stderr, exit_code, error}], summary: {total, success, failed}}`.
+JSON mode returns an envelope with top-level `exit_code` and `data: {results: [{alias, stdout, stderr, exit_code, error}], summary: {total, success, failed}}`. The aggregate exit code is the first non-zero host exit code in alias order, or 1 for a host transport error when no remote command returned non-zero.
 
 ### cluster policy pre-flight
 

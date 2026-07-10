@@ -34,6 +34,20 @@ type clusterResult struct {
 	Summary ipc.ClusterSummary  `json:"summary"`
 }
 
+func (cr clusterResult) RemoteExitCode() (int, bool) {
+	for _, result := range cr.Results {
+		if result.ExitCode != 0 {
+			return result.ExitCode, true
+		}
+	}
+	for _, result := range cr.Results {
+		if result.Error != "" {
+			return 1, true
+		}
+	}
+	return 0, true
+}
+
 func (cr clusterResult) Pretty() string {
 	var b strings.Builder
 	for _, r := range cr.Results {

@@ -4,11 +4,15 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/shayuc137/sshq/internal/exec"
+	"github.com/shayuc137/sshq/internal/ipc"
 	"github.com/shayuc137/sshq/internal/output"
 	"github.com/shayuc137/sshq/internal/remote"
 	"github.com/spf13/cobra"
@@ -117,6 +121,58 @@ func TestVersionJSONEnvelope(t *testing.T) {
 	}
 	if env.Data.Version == "" {
 		t.Fatalf("version data = %+v", env.Data)
+	}
+}
+
+func TestRecvExecFramesJSONEnvelope(t *testing.T) {
+	tests := []struct {
+		name     string
+		code     int
+		wantErr  bool
+		wantCode int
+	}{
+		{name: "success", code: 0, wantCode: 0},
+		{name: "remote non-zero", code: 3, wantErr: true, wantCode: 3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clientConn, serverConn := net.Pipe()
+			clientConn.SetDeadline(time.Now().Add(5 * time.Second))
+			go func() {
+				defer serverConn.Close()
+				_ = ipc.Send(serverConn, ipc.Frame{Type: "stdout", Data: "hello\n"})
+				_ = ipc.Send(serverConn, ipc.Frame{Type: "exit", Code: tt.code})
+			}()
+
+			out := &bytes.Buffer{}
+			w := output.New(out, &bytes.Buffer{}, output.WithJSON())
+			err := recvExecFrames(w, clientConn, "rn")
+			clientConn.Close()
+
+			var exitErr *exec.ExitError
+			if tt.wantErr != errors.As(err, &exitErr) {
+				t.Fatalf("error = %v, want remote exit error=%v", err, tt.wantErr)
+			}
+
+			var env struct {
+				OK       bool `json:"ok"`
+				ExitCode int  `json:"exit_code"`
+				Data     struct {
+					ExitCode int    `json:"exit_code"`
+					Stdout   string `json:"stdout"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+				t.Fatalf("invalid JSON: %v\n%s", err, out.String())
+			}
+			if !env.OK || env.ExitCode != tt.wantCode || env.Data.ExitCode != tt.wantCode {
+				t.Fatalf("envelope = %+v, want ok=true and exit_code=%d", env, tt.wantCode)
+			}
+			if env.Data.Stdout != "hello\n" {
+				t.Fatalf("data.stdout = %q, want hello", env.Data.Stdout)
+			}
+		})
 	}
 }
 

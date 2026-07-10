@@ -326,7 +326,10 @@ const execTransferAppendix = "---\n" +
 	"| `stderr` | string | Remote stderr verbatim |\n" +
 	"| `host` | string | Alias used |\n" +
 	"| `duration_ms` | int | Wall-clock milliseconds |\n\n" +
-	"A successful SSH connection can carry a failing remote command. Agents should check both `ok` and `data.exit_code`.\n\n" +
+	"`ok:true` means the sshq call succeeded; ALWAYS check top-level `exit_code` for the remote command result. " +
+	"The same value remains in `data.exit_code` for compatibility.\n\n" +
+	"Wrong: treat `{\"ok\":true,\"exit_code\":3,...}` as remote command success.\n\n" +
+	"Correct: treat `ok:true` as a completed sshq call, then read top-level `exit_code`; `3` means the remote command failed with exit code 3.\n\n" +
 	"### cp output contract\n\n" +
 	"| Field | Type | Description |\n" +
 	"|-------|------|-------------|\n" +
@@ -337,7 +340,7 @@ const execTransferAppendix = "---\n" +
 	"| `engine` | string | sftp / raw / sftp→sftp |\n" +
 	"| `files` | int | File count |\n\n" +
 	"### Exit behavior\n\n" +
-	"- Exit 0: operation succeeded (for exec, remote exit code is in `data.exit_code`)\n" +
+	"- Exit 0: operation succeeded (for exec, the remote result is in top-level `exit_code`)\n" +
 	"- Exit 1: connection failure, policy block, or local error\n" +
 	"- Exit N (exec only): matches the remote exit code from `sshq exec <alias> \"cmd\"`\n\n" +
 	"### Security\n\n" +
@@ -348,7 +351,8 @@ const execTransferAppendix = "---\n" +
 const clusterTunnelAppendix = "---\n" +
 	"\n## Agent notes\n\n" +
 	"### cluster output contract\n\n" +
-	"JSON mode returns `{results: [{alias, stdout, stderr, exit_code, error}], summary: {total, success, failed}}`.\n\n" +
+	"JSON mode returns an envelope with top-level `exit_code` and `data: {results: [{alias, stdout, stderr, exit_code, error}], summary: {total, success, failed}}`. " +
+	"The aggregate exit code is the first non-zero host exit code in alias order, or 1 for a host transport error when no remote command returned non-zero.\n\n" +
 	"### cluster policy pre-flight\n\n" +
 	"After selector resolution, sshq checks policy for all targets before execution. " +
 	"If any host is blocked, no hosts execute. Pre-flight block is exit 1 with a policy error, not a partial-failure result.\n\n" +
