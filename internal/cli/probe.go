@@ -65,6 +65,9 @@ func newProbeCommand() *cobra.Command {
 			}
 
 			w.Render(probeView{Result: r, Profile: profile})
+			if !r.Reachable {
+				return output.BadNews()
+			}
 			return nil
 		},
 	}
@@ -191,6 +194,11 @@ func runProbeAll(cmd *cobra.Command, store *config.Store, w *output.Writer, time
 		w.Verbose(fmtProbeConnection(result))
 	}
 	w.Render(probeList(results))
+	for _, result := range results {
+		if !result.Reachable {
+			return output.BadNews()
+		}
+	}
 	return nil
 }
 

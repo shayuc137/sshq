@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -11,6 +14,7 @@ import (
 	"time"
 
 	"github.com/shayuc137/sshq/internal/config"
+	"github.com/shayuc137/sshq/internal/output"
 	"github.com/shayuc137/sshq/internal/probe"
 	"github.com/shayuc137/sshq/internal/sshclient"
 )
@@ -28,6 +32,71 @@ func probeStoreForTest(t *testing.T) *config.Store {
 		t.Fatal(err)
 	}
 	return store
+}
+
+func TestProbeUnreachableRendersDataAndReturnsBadNews(t *testing.T) {
+	store := probeStoreForTest(t)
+	originalDial := dialProbeTCP
+	t.Cleanup(func() { dialProbeTCP = originalDial })
+	dialProbeTCP = func(context.Context, sshclient.ConnConfig) (net.Conn, io.Closer, error) {
+		return nil, nil, fmt.Errorf("connection refused")
+	}
+
+	var out bytes.Buffer
+	cmd := newProbeCommand()
+	cmd.SetContext(withWriter(withConfig(context.Background(), store), output.New(&out, &bytes.Buffer{}, output.WithJSON())))
+	cmd.SetArgs([]string{"target"})
+	err := cmd.Execute()
+	assertBadNews(t, err)
+
+	var envelope struct {
+		Data probe.Result `json:"data"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out.String())
+	}
+	if envelope.Data.Reachable || envelope.Data.Alias != "target" {
+		t.Fatalf("probe data = %+v", envelope.Data)
+	}
+}
+
+func TestProbeAllUnreachableRendersDataAndReturnsBadNews(t *testing.T) {
+	store := probeStoreForTest(t)
+	originalDial := dialProbeTCP
+	t.Cleanup(func() { dialProbeTCP = originalDial })
+	dialProbeTCP = func(context.Context, sshclient.ConnConfig) (net.Conn, io.Closer, error) {
+		return nil, nil, fmt.Errorf("connection refused")
+	}
+
+	var out bytes.Buffer
+	w := output.New(&out, &bytes.Buffer{}, output.WithJSON())
+	cmd := newProbeCommand()
+	cmd.SetContext(context.Background())
+	err := runProbeAll(cmd, store, w, time.Second, "", false)
+	assertBadNews(t, err)
+
+	var envelope struct {
+		Data []probe.Result `json:"data"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out.String())
+	}
+	if len(envelope.Data) != 2 {
+		t.Fatalf("probe all data = %+v", envelope.Data)
+	}
+	for _, result := range envelope.Data {
+		if result.Reachable {
+			t.Fatalf("probe all unexpectedly reachable: %+v", result)
+		}
+	}
+}
+
+func assertBadNews(t *testing.T, err error) {
+	t.Helper()
+	var badNews *output.BadNewsError
+	if !errors.As(err, &badNews) || badNews.ProcessExitCode() != 1 {
+		t.Fatalf("error = %v, want bad-news process exit 1", err)
+	}
 }
 
 func TestProbeCommandHasDirectFlag(t *testing.T) {

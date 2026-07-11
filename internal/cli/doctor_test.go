@@ -14,7 +14,6 @@ import (
 
 	"github.com/shayuc137/sshq/internal/config"
 	"github.com/shayuc137/sshq/internal/credential"
-	"github.com/shayuc137/sshq/internal/exec"
 	"github.com/shayuc137/sshq/internal/output"
 	"github.com/shayuc137/sshq/internal/remote"
 	"github.com/shayuc137/sshq/internal/sshclient"
@@ -286,8 +285,8 @@ func TestDoctorCommandRendersSuccessEnvelopeBeforeExitOne(t *testing.T) {
 	cmd.SetArgs([]string{"missing-alias"})
 
 	err := cmd.Execute()
-	var exitErr *exec.ExitError
-	if !errors.As(err, &exitErr) || exitErr.Code != 1 {
+	var badNews *output.BadNewsError
+	if !errors.As(err, &badNews) || badNews.ProcessExitCode() != 1 {
 		t.Fatalf("Execute() error = %v, want exit 1", err)
 	}
 	var envelope struct {

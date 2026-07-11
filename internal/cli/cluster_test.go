@@ -67,7 +67,7 @@ func runRecvCluster(t *testing.T, jsonMode bool, frames ...ipc.Frame) (out, errO
 }
 
 type clusterEnvelope struct {
-	ExitCode int `json:"exit_code"`
+	ExitCode *int `json:"exit_code"`
 	Data     struct {
 		Results []struct {
 			Alias    string `json:"alias"`
@@ -96,8 +96,8 @@ func TestRecvClusterFramesMultiHostJSON(t *testing.T) {
 	if e := json.Unmarshal(out.Bytes(), &env); e != nil {
 		t.Fatalf("invalid JSON output: %v\n%s", e, out.String())
 	}
-	if env.ExitCode != 0 {
-		t.Errorf("envelope exit_code = %d, want 0", env.ExitCode)
+	if env.ExitCode != nil {
+		t.Errorf("envelope unexpectedly contains exit_code = %d", *env.ExitCode)
 	}
 	if len(env.Data.Results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(env.Data.Results))
@@ -139,8 +139,8 @@ func TestRecvClusterFramesNonZeroExitJSON(t *testing.T) {
 	if e := json.Unmarshal(out.Bytes(), &env); e != nil {
 		t.Fatalf("invalid JSON output: %v", e)
 	}
-	if env.ExitCode != 3 {
-		t.Fatalf("envelope exit_code=%d, want 3", env.ExitCode)
+	if env.ExitCode != nil {
+		t.Fatalf("envelope unexpectedly contains exit_code=%d", *env.ExitCode)
 	}
 	if env.Data.Results[1].ExitCode != 3 {
 		t.Fatalf("data.results[1].exit_code = %d, want 3", env.Data.Results[1].ExitCode)
@@ -167,8 +167,8 @@ func TestRecvClusterFramesPartialFailureJSON(t *testing.T) {
 	if len(env.Data.Results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(env.Data.Results))
 	}
-	if env.ExitCode != 1 {
-		t.Fatalf("envelope exit_code=%d, want 1", env.ExitCode)
+	if env.ExitCode != nil {
+		t.Fatalf("envelope unexpectedly contains exit_code=%d", *env.ExitCode)
 	}
 	var web2 *struct {
 		Alias    string `json:"alias"`

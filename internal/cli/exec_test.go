@@ -228,15 +228,20 @@ func TestRecvExecFramesJSONEnvelope(t *testing.T) {
 			var env struct {
 				ExitCode int `json:"exit_code"`
 				Data     struct {
-					ExitCode int    `json:"exit_code"`
+					Alias    string `json:"alias"`
+					ExitCode *int   `json:"exit_code"`
+					Host     *string `json:"host"`
 					Stdout   string `json:"stdout"`
 				} `json:"data"`
 			}
 			if err := json.Unmarshal(out.Bytes(), &env); err != nil {
 				t.Fatalf("invalid JSON: %v\n%s", err, out.String())
 			}
-			if env.ExitCode != tt.wantCode || env.Data.ExitCode != tt.wantCode {
+			if env.ExitCode != tt.wantCode {
 				t.Fatalf("envelope = %+v, want exit_code=%d", env, tt.wantCode)
+			}
+			if env.Data.ExitCode != nil || env.Data.Host != nil || env.Data.Alias != "rn" {
+				t.Fatalf("exec data schema = %+v", env.Data)
 			}
 			if env.Data.Stdout != "hello\n" {
 				t.Fatalf("data.stdout = %q, want hello", env.Data.Stdout)

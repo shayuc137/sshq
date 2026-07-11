@@ -1,10 +1,28 @@
 package cli
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/shayuc137/sshq/internal/output"
 )
+
+func TestCredentialAliasesNilRendersEmptyJSONArray(t *testing.T) {
+	var out bytes.Buffer
+	output.New(&out, &bytes.Buffer{}, output.WithJSON()).Render(credentialAliases(nil))
+	var envelope struct {
+		Data []string `json:"data"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out.String())
+	}
+	if envelope.Data == nil || len(envelope.Data) != 0 {
+		t.Fatalf("data = %#v, want []", envelope.Data)
+	}
+}
 
 // envUnset removes key for the duration of the test and restores any prior
 // value on cleanup. Used because testing.T has no Unsetenv and the providers

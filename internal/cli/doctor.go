@@ -11,7 +11,6 @@ import (
 
 	"github.com/shayuc137/sshq/internal/config"
 	"github.com/shayuc137/sshq/internal/credential"
-	"github.com/shayuc137/sshq/internal/exec"
 	"github.com/shayuc137/sshq/internal/output"
 	"github.com/shayuc137/sshq/internal/remote"
 	"github.com/shayuc137/sshq/internal/sshclient"
@@ -308,7 +307,7 @@ func newDoctorCommandWithChecker(factory doctorCheckerFactory) *cobra.Command {
 			result := runDoctor(cmd.Context(), args[0], checker)
 			writerFrom(cmd.Context()).Render(result)
 			if result.FailedCheck != "" {
-				return &exec.ExitError{Code: 1}
+				return output.BadNews()
 			}
 			return nil
 		},

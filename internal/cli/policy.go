@@ -206,6 +206,9 @@ func newPolicyCheckCommand() *cobra.Command {
 			}
 
 			writerFrom(cmd.Context()).Render(policyCheckOutput{Decision: decision})
+			if !decision.Allowed {
+				return output.BadNews()
+			}
 			return nil
 		},
 	}

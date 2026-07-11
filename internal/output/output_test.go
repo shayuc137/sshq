@@ -147,14 +147,17 @@ func TestExec_JSONMode(t *testing.T) {
 	if data["stdout"] != "hi\n" {
 		t.Errorf("data.stdout = %v, want %q", data["stdout"], "hi\n")
 	}
-	if data["exit_code"].(float64) != 0 {
-		t.Errorf("data.exit_code = %v, want 0", data["exit_code"])
+	if _, ok := data["exit_code"]; ok {
+		t.Errorf("data unexpectedly contains exit_code: %v", data)
 	}
 	if env["exit_code"].(float64) != 0 {
 		t.Errorf("exit_code = %v, want 0", env["exit_code"])
 	}
-	if data["host"] != "rn" {
-		t.Errorf("data.host = %v, want rn", data["host"])
+	if data["alias"] != "rn" {
+		t.Errorf("data.alias = %v, want rn", data["alias"])
+	}
+	if _, ok := data["host"]; ok {
+		t.Errorf("data unexpectedly contains host: %v", data)
 	}
 	if data["duration_ms"].(float64) != 42 {
 		t.Errorf("data.duration_ms = %v, want 42", data["duration_ms"])
@@ -173,8 +176,8 @@ func TestExec_JSONMode_NonZeroExit(t *testing.T) {
 		t.Errorf("exit_code = %v, want 3", env["exit_code"])
 	}
 	data := env["data"].(map[string]any)
-	if data["exit_code"].(float64) != 3 {
-		t.Errorf("data.exit_code = %v, want 3", data["exit_code"])
+	if _, ok := data["exit_code"]; ok {
+		t.Errorf("data unexpectedly contains exit_code: %v", data)
 	}
 }
 

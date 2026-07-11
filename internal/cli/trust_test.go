@@ -6,10 +6,12 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,6 +22,72 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
+
+func TestTrustAllPromotesResultsInJSONAndPreservesPrettyInfo(t *testing.T) {
+	store := trustStoreForTest(t)
+	originalDial := dialTrustTCP
+	originalFetch := fetchTrustHostKey
+	t.Cleanup(func() { dialTrustTCP = originalDial; fetchTrustHostKey = originalFetch })
+	t.Setenv(hostkey.KnownHostsPathEnv, filepath.Join(t.TempDir(), "known_hosts"))
+	signer := cliTestSigner(t)
+	fetchTrustHostKey = func(net.Conn, string, time.Duration) (ssh.PublicKey, error) {
+		return signer.PublicKey(), nil
+	}
+	dialTrustTCP = func(_ context.Context, cfg sshclient.ConnConfig) (net.Conn, io.Closer, error) {
+		if cfg.Alias == "target" {
+			return nil, nil, errors.New("connection refused")
+		}
+		conn, closer := trustPipe(t)
+		return conn, closer, nil
+	}
+
+	var jsonOut, jsonErr bytes.Buffer
+	err := trustAll(context.Background(), output.New(&jsonOut, &jsonErr, output.WithJSON()), store, nil, false, time.Second)
+	assertBadNews(t, err)
+	if jsonErr.Len() != 0 {
+		t.Fatalf("JSON stderr = %q, want empty", jsonErr.String())
+	}
+	var envelope struct {
+		Data struct {
+			Results []trustAllHostResult `json:"results"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(jsonOut.Bytes(), &envelope); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, jsonOut.String())
+	}
+	if len(envelope.Data.Results) != len(store.List()) {
+		t.Fatalf("results = %+v", envelope.Data.Results)
+	}
+	failed := 0
+	added := 0
+	for _, result := range envelope.Data.Results {
+		switch result.Status {
+		case "failed":
+			failed++
+			if result.Alias != "target" || result.Error != "connection refused" {
+				t.Fatalf("failed result = %+v", result)
+			}
+		case "added":
+			added++
+			if result.Error != "" {
+				t.Fatalf("added result = %+v", result)
+			}
+		}
+	}
+	if failed != 1 || added != 2 {
+		t.Fatalf("results = %+v", envelope.Data.Results)
+	}
+
+	var prettyOut, prettyErr bytes.Buffer
+	err = trustAll(context.Background(), output.New(&prettyOut, &prettyErr, output.WithPretty()), store, nil, false, time.Second)
+	assertBadNews(t, err)
+	if !strings.Contains(prettyOut.String(), "total=3 trusted=2 added=0 failed=1") {
+		t.Fatalf("pretty stdout = %q", prettyOut.String())
+	}
+	if !strings.Contains(prettyErr.String(), "target (192.0.2.12:2222) unreachable: connection refused") {
+		t.Fatalf("pretty stderr = %q", prettyErr.String())
+	}
+}
 
 func trustStoreForTest(t *testing.T) *config.Store {
 	t.Helper()

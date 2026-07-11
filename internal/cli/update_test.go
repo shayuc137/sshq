@@ -34,9 +34,8 @@ func TestUpdateCheckAvailableJSONAndExitCode(t *testing.T) {
 	})
 	cmd.SetArgs([]string{"--check"})
 	err := cmd.Execute()
-	var exitErr *sshqexec.ExitError
-	if !errors.As(err, &exitErr) || exitErr.Code != 1 {
-		t.Fatalf("error = %v, want exit 1", err)
+	if err != nil {
+		t.Fatalf("error = %v, want process exit 0", err)
 	}
 	var envelope map[string]any
 	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {

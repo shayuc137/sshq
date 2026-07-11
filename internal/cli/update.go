@@ -59,9 +59,6 @@ func newUpdateCommandWithDeps(deps updateCommandDeps) *cobra.Command {
 			w := writerFrom(cmd.Context())
 			if checkOnly || !binaryResult.UpdateAvailable {
 				w.Render(result)
-				if checkOnly && binaryResult.UpdateAvailable {
-					return &sshqexec.ExitError{Code: 1}
-				}
 				return nil
 			}
 

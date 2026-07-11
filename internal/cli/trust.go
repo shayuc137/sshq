@@ -137,15 +137,46 @@ func trustOne(ctx context.Context, w *output.Writer, store *config.Store, creds 
 func trustAll(ctx context.Context, w *output.Writer, store *config.Store, creds *credential.Store, replace bool, timeout time.Duration) error {
 	hosts := store.List()
 	var summary trustSummary
+	result := trustAllResult{Results: make([]trustAllHostResult, 0, len(hosts))}
 
 	for _, host := range hosts {
-		result := trustHost(ctx, store, creds, host.Alias, replace, timeout)
-		renderTrustAllLine(w, result)
-		summary.Add(result)
+		hostResult := trustHost(ctx, store, creds, host.Alias, replace, timeout)
+		if !w.IsJSON() {
+			renderTrustAllLine(w, hostResult)
+		}
+		summary.Add(hostResult)
+		result.Results = append(result.Results, trustAllResultRow(hostResult))
 	}
 
-	w.Success(summary.String(len(hosts)))
+	result.summary = summary
+	w.Render(result)
+	if summary.Failed > 0 || summary.Mismatch > 0 {
+		return output.BadNews()
+	}
 	return nil
+}
+
+type trustAllHostResult struct {
+	Alias  string `json:"alias"`
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+}
+
+type trustAllResult struct {
+	Results []trustAllHostResult `json:"results"`
+	summary trustSummary
+}
+
+func (r trustAllResult) Pretty() string {
+	return r.summary.String(len(r.Results))
+}
+
+func trustAllResultRow(result trustResult) trustAllHostResult {
+	row := trustAllHostResult{Alias: result.Alias, Status: result.Status}
+	if result.Err != nil {
+		row.Error = result.Err.Error()
+	}
+	return row
 }
 
 var dialTrustTCP = sshclient.DialTCP

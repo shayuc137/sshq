@@ -55,10 +55,10 @@ type ProgressInfo struct {
 
 // ExecResult is a remote command result, used for structured JSON output.
 type ExecResult struct {
-	ExitCode   int    `json:"exit_code"`
+	ExitCode   int    `json:"-"`
 	Stdout     string `json:"stdout"`
 	Stderr     string `json:"stderr"`
-	Host       string `json:"host"`
+	Host       string `json:"alias"`
 	DurationMs int64  `json:"duration_ms"`
 }
 
@@ -129,6 +129,9 @@ func (w *Writer) resolveMode() Mode {
 }
 
 func (w *Writer) isJSON() bool { return w.mode == ModeJSON }
+
+// IsJSON reports whether structured output is active.
+func (w *Writer) IsJSON() bool { return w.isJSON() }
 
 func (w *Writer) IsVerbose() bool { return w.verbose }
 
