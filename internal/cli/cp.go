@@ -30,12 +30,12 @@ func newCpCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			parsed, err := transfer.ParseArgs(args[0], args[1])
 			if err != nil {
-				return output.Errorf(err.Error(), "usage: sshq cp <src> <dst>")
+				return output.Errorf(err.Error(), "usage: sshq cp <src> <dst>").WithCode(output.CodeInvalidUsage)
 			}
 
 			store := configFrom(cmd.Context())
 			if store == nil {
-				return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists")
+				return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists").WithCode(output.CodeConfigUnavailable)
 			}
 
 			w := writerFrom(cmd.Context())
@@ -139,12 +139,12 @@ func recvTransferFrames(w *output.Writer, conn net.Conn) error {
 	for {
 		msg, err := ipc.Recv(conn)
 		if err != nil {
-			return output.Errorf("daemon connection lost", "retry or use --no-daemon")
+			return output.Errorf("daemon connection lost", "retry or use --no-daemon").WithCode(output.CodeResultIndeterminate)
 		}
 
 		var frame ipc.Frame
 		if err := json.Unmarshal(msg, &frame); err != nil {
-			return output.Errorf("invalid daemon response", "")
+			return output.Errorf("invalid daemon response", "").WithCode(output.CodeDaemonError)
 		}
 
 		switch frame.Type {
@@ -169,7 +169,7 @@ func recvTransferFrames(w *output.Writer, conn net.Conn) error {
 			w.Render(&result)
 			return nil
 		case "error":
-			return output.Errorf(frame.Hint, frame.Action)
+			return output.Errorf(frame.Hint, frame.Action).WithCode(output.CodeOrInternal(frame.ErrorCode()))
 		}
 	}
 }
@@ -190,7 +190,7 @@ func cpTransferDirect(ctx context.Context, w *output.Writer, store *config.Store
 		if auditErr := recordAuditError(ctx, entry, err); auditErr != nil {
 			return auditErr
 		}
-		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
+		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts").WithCode(output.CodeHostNotFound)
 	}
 
 	cfg, err := hostToConnConfigWithCredentials(host, store, credentialStoreFrom(ctx))
@@ -229,7 +229,7 @@ func cpTransferDirect(ctx context.Context, w *output.Writer, store *config.Store
 		if auditErr := recordAuditError(ctx, entry, err); auditErr != nil {
 			return auditErr
 		}
-		return output.Errorf("transfer engine: "+err.Error(), "")
+		return output.Errorf("transfer engine: "+err.Error(), "").WithCode(output.CodeTransferFailed)
 	}
 	defer engine.Close()
 	w.Verbose("transfer engine: " + engine.Name())
@@ -257,13 +257,13 @@ func cpTransferDirect(ctx context.Context, w *output.Writer, store *config.Store
 			return auditErr
 		}
 		if ctx.Err() != nil {
-			return output.Errorf("transfer cancelled", "remote temp file cleaned up")
+			return output.Errorf("transfer cancelled", "remote temp file cleaned up").WithCode(output.CodeTransferFailed)
 		}
 		var missingParent *transfer.RemoteParentMissingError
 		if errors.As(err, &missingParent) {
-			return output.Errorf(err.Error(), cpMkdirsAction(parsed, recursive))
+			return output.Errorf(err.Error(), cpMkdirsAction(parsed, recursive)).WithCode(output.CodeTransferFailed)
 		}
-		return output.Errorf(err.Error(), "")
+		return output.Errorf(err.Error(), "").WithCode(output.CodeTransferFailed)
 	}
 
 	if err := recordAudit(ctx, audit.TransferEntry(alias, direction, localPath, remotePath, audit.ResultSuccess, time.Since(auditStart).Milliseconds(), audit.SourceDirect)); err != nil {
@@ -285,7 +285,7 @@ func cpRelayDirect(ctx context.Context, w *output.Writer, store *config.Store, p
 		if auditErr := recordAuditError(ctx, entry, err); auditErr != nil {
 			return auditErr
 		}
-		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
+		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts").WithCode(output.CodeHostNotFound)
 	}
 	dstHost, err := store.Get(parsed.Dst.Alias)
 	if err != nil {
@@ -293,7 +293,7 @@ func cpRelayDirect(ctx context.Context, w *output.Writer, store *config.Store, p
 		if auditErr := recordAuditError(ctx, entry, err); auditErr != nil {
 			return auditErr
 		}
-		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
+		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts").WithCode(output.CodeHostNotFound)
 	}
 
 	srcCfg, err := hostToConnConfigWithCredentials(srcHost, store, credentialStoreFrom(ctx))
@@ -368,13 +368,13 @@ func cpRelayDirect(ctx context.Context, w *output.Writer, store *config.Store, p
 			return auditErr
 		}
 		if ctx.Err() != nil {
-			return output.Errorf("relay cancelled", "remote temp files cleaned up")
+			return output.Errorf("relay cancelled", "remote temp files cleaned up").WithCode(output.CodeTransferFailed)
 		}
 		var missingParent *transfer.RemoteParentMissingError
 		if errors.As(err, &missingParent) {
-			return output.Errorf(err.Error(), cpMkdirsAction(parsed, recursive))
+			return output.Errorf(err.Error(), cpMkdirsAction(parsed, recursive)).WithCode(output.CodeTransferFailed)
 		}
-		return output.Errorf(err.Error(), "")
+		return output.Errorf(err.Error(), "").WithCode(output.CodeTransferFailed)
 	}
 
 	if err := recordAudit(ctx, audit.RelayEntry(parsed.Src.Alias, parsed.Src.Path, parsed.Dst.Alias, parsed.Dst.Path, audit.ResultSuccess, time.Since(auditStart).Milliseconds(), audit.SourceDirect)); err != nil {

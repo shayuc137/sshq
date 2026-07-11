@@ -18,7 +18,7 @@ func newAuditCommand() *cobra.Command {
 			w := writerFrom(cmd.Context())
 			last, _ := cmd.Flags().GetInt("last")
 			if last < 0 {
-				return output.Errorf("--last must be non-negative", "use --last 50")
+				return output.Errorf("--last must be non-negative", "use --last 50").WithCode(output.CodeInvalidUsage)
 			}
 			alias, _ := cmd.Flags().GetString("alias")
 			operation, _ := cmd.Flags().GetString("operation")
@@ -26,7 +26,7 @@ func newAuditCommand() *cobra.Command {
 				return output.Errorf(
 					"invalid --operation "+operation,
 					"valid values: "+strings.Join(validAuditOperations, "|"),
-				)
+				).WithCode(output.CodeInvalidUsage)
 			}
 
 			path := ""
@@ -43,7 +43,7 @@ func newAuditCommand() *cobra.Command {
 			}
 			entries, err := auditpkg.Query(path, opts)
 			if err != nil {
-				return output.Errorf("read audit log: "+err.Error(), "check [audit] path and permissions")
+				return output.Errorf("read audit log: "+err.Error(), "check [audit] path and permissions").WithCode(output.CodeInternalError)
 			}
 			w.Render(auditList(entries))
 			return nil

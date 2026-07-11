@@ -39,16 +39,16 @@ func newPolicyGrantCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			alias, pattern := args[0], args[1]
 			if ttl <= 0 {
-				return output.Errorf("--ttl is required", "example: sshq policy grant prod '^uptime$' --ttl 15m")
+				return output.Errorf("--ttl is required", "example: sshq policy grant prod '^uptime$' --ttl 15m").WithCode(output.CodeInvalidUsage)
 			}
 			if ttl > policypkg.MaxGrantTTL {
-				return output.Errorf("ttl exceeds maximum "+policypkg.MaxGrantTTL.String(), "use a shorter --ttl")
+				return output.Errorf("ttl exceeds maximum "+policypkg.MaxGrantTTL.String(), "use a shorter --ttl").WithCode(output.CodeInvalidUsage)
 			}
 			if !validPolicyKind(kind) {
-				return output.Errorf("invalid grant kind: "+kind, "use command, local-path, remote-path, local-forward, or remote-forward")
+				return output.Errorf("invalid grant kind: "+kind, "use command, local-path, remote-path, local-forward, or remote-forward").WithCode(output.CodeInvalidUsage)
 			}
 			if err := confirmPolicyGrant(cmd, alias, kind, pattern, ttl); err != nil {
-				return output.Errorf(err.Error(), "run in an interactive terminal with a controlling TTY")
+				return output.Errorf(err.Error(), "run in an interactive terminal with a controlling TTY").WithCode(output.CodeInvalidUsage)
 			}
 
 			var result ipc.PolicyGrantResult
@@ -77,14 +77,14 @@ func newPolicyRevokeCommand() *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if alias != "" && len(args) > 0 {
-				return output.Errorf("--alias cannot be combined with grant id", "use either sshq policy revoke <grant-id> or sshq policy revoke --alias <alias>")
+				return output.Errorf("--alias cannot be combined with grant id", "use either sshq policy revoke <grant-id> or sshq policy revoke --alias <alias>").WithCode(output.CodeInvalidUsage)
 			}
 			id := ""
 			if len(args) == 1 {
 				id = args[0]
 			}
 			if id == "" && alias == "" {
-				return output.Errorf("grant id or --alias required", "use sshq policy list to see active grants")
+				return output.Errorf("grant id or --alias required", "use sshq policy list to see active grants").WithCode(output.CodeInvalidUsage)
 			}
 
 			var result ipc.PolicyRevokeResult
@@ -136,7 +136,7 @@ func newPolicyValidateCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := appconfig.Load()
 			if err != nil {
-				return output.Errorf("policy config invalid: "+err.Error(), "fix config.toml")
+				return output.Errorf("policy config invalid: "+err.Error(), "fix config.toml").WithCode(output.CodeConfigUnavailable)
 			}
 			store := configFrom(cmd.Context())
 			var aliasExists func(string) bool
@@ -149,7 +149,7 @@ func newPolicyValidateCommand() *cobra.Command {
 
 			errs := policypkg.ValidateConfig(cfg, aliasExists)
 			if len(errs) > 0 {
-				return output.Errorf("policy config invalid: "+joinValidationErrors(errs), "fix "+cfg.Path())
+				return output.Errorf("policy config invalid: "+joinValidationErrors(errs), "fix "+cfg.Path()).WithCode(output.CodeConfigUnavailable)
 			}
 			if !cfg.Exists() {
 				writerFrom(cmd.Context()).Success("config.toml not found; policy disabled")
@@ -180,7 +180,7 @@ func newPolicyCheckCommand() *cobra.Command {
 				}
 			}
 			if selected != 1 {
-				return output.Errorf("exactly one check input is required", "use --command, --local-path, --remote-path, --local-forward, or --remote-forward")
+				return output.Errorf("exactly one check input is required", "use --command, --local-path, --remote-path, --local-forward, or --remote-forward").WithCode(output.CodeInvalidUsage)
 			}
 
 			checker, err := checkerForPolicyCheck(cmd.Context())
@@ -220,26 +220,37 @@ func newPolicyCheckCommand() *cobra.Command {
 func sendPolicyRequest(action string, payload any, out any) error {
 	conn, err := ipc.Connect()
 	if err != nil {
-		return output.Errorf("daemon not running", "start daemon with: sshq daemon start")
+		return output.Errorf("daemon not running", "start daemon with: sshq daemon start").WithCode(output.CodeDaemonError)
 	}
 	defer conn.Close()
 
 	env, _ := ipc.MakeEnvelope(action, payload)
 	if err := ipc.Send(conn, env); err != nil {
-		return output.Errorf("send "+action+": "+err.Error(), "restart daemon and retry")
+		return output.Errorf("send "+action+": "+err.Error(), "restart daemon and retry").WithCode(output.CodeDaemonError)
 	}
-	return recvPolicyResult(conn, out)
+	err = recvPolicyResult(conn, out)
+	// A grant mutates daemon state: once the request is on the wire, a lost
+	// response means the grant may already be active, so the caller must
+	// verify before re-issuing. Revoke is idempotent and list is read-only,
+	// so a plain daemon_error (safe to retry) stays correct for them.
+	if err != nil && action == "policy-grant" {
+		if ce, ok := err.(*output.CmdError); ok && ce.Code == output.CodeDaemonError && strings.Contains(ce.Hint, "daemon connection lost") {
+			return output.Errorf("daemon connection lost after grant was sent; the grant may already be active",
+				"run 'sshq policy list' to verify before granting again").WithCode(output.CodeResultIndeterminate)
+		}
+	}
+	return err
 }
 
 func localPolicyList(cmd *cobra.Command, alias string) (ipc.PolicyListResult, error) {
 	if err := appConfigErrorFrom(cmd.Context()); err != nil {
-		return ipc.PolicyListResult{}, output.Errorf("app config invalid: "+err.Error(), "fix config.toml")
+		return ipc.PolicyListResult{}, output.Errorf("app config invalid: "+err.Error(), "fix config.toml").WithCode(output.CodeConfigUnavailable)
 	}
 	if alias != "" {
 		store := configFrom(cmd.Context())
 		if store != nil {
 			if _, err := store.Get(alias); err != nil {
-				return ipc.PolicyListResult{}, output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
+				return ipc.PolicyListResult{}, output.Errorf(err.Error(), "run 'sshq ls' to see available hosts").WithCode(output.CodeHostNotFound)
 			}
 		}
 	}

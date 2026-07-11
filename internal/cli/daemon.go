@@ -50,12 +50,12 @@ func newDaemonStartCommand() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if ipc.IsRunning() {
-				return output.Errorf("daemon already running", "use 'sshq daemon status' to check")
+				return output.Errorf("daemon already running", "use 'sshq daemon status' to check").WithCode(output.CodeDaemonError)
 			}
 
 			store := configFrom(cmd.Context())
 			if store == nil {
-				return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists")
+				return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists").WithCode(output.CodeConfigUnavailable)
 			}
 
 			w := writerFrom(cmd.Context())
@@ -91,12 +91,12 @@ func newDaemonStatusCommand() *cobra.Command {
 
 			env, _ := ipc.MakeEnvelope("status", nil)
 			if err := ipc.Send(conn, env); err != nil {
-				return output.Errorf("send status: "+err.Error(), "")
+				return output.Errorf("send status: "+err.Error(), "").WithCode(output.CodeDaemonError)
 			}
 
 			msg, err := ipc.Recv(conn)
 			if err != nil {
-				return output.Errorf("recv status: "+err.Error(), "")
+				return output.Errorf("recv status: "+err.Error(), "").WithCode(output.CodeDaemonError)
 			}
 
 			var resp ipc.StatusResponse
@@ -110,13 +110,13 @@ func newDaemonStatusCommand() *cobra.Command {
 func sendSimpleAction(action, successMsg string, cmd *cobra.Command) error {
 	conn, err := ipc.Connect()
 	if err != nil {
-		return output.Errorf("daemon not running", "")
+		return output.Errorf("daemon not running", "").WithCode(output.CodeDaemonError)
 	}
 	defer conn.Close()
 
 	env, _ := ipc.MakeEnvelope(action, nil)
 	if err := ipc.Send(conn, env); err != nil {
-		return output.Errorf("send "+action+": "+err.Error(), "")
+		return output.Errorf("send "+action+": "+err.Error(), "").WithCode(output.CodeDaemonError)
 	}
 
 	w := writerFrom(cmd.Context())
@@ -164,13 +164,13 @@ func runDaemon(w *output.Writer, store *config.Store, creds *credential.Store) e
 
 	ln, err := net.Listen("unix", sockPath)
 	if err != nil {
-		return output.Errorf("listen: "+err.Error(), "")
+		return output.Errorf("listen: "+err.Error(), "").WithCode(output.CodeDaemonError)
 	}
 	defer ln.Close()
 	os.Chmod(sockPath, 0600)
 
 	if err := writePID(); err != nil {
-		return output.Errorf("write PID: "+err.Error(), "")
+		return output.Errorf("write PID: "+err.Error(), "").WithCode(output.CodeDaemonError)
 	}
 	defer removePID()
 	defer os.Remove(sockPath)
@@ -206,7 +206,7 @@ func runDaemon(w *output.Writer, store *config.Store, creds *credential.Store) e
 		if err != nil {
 			// Fail closed: audit is explicitly enabled but the logger could not
 			// be created, so refuse to start rather than run unaudited.
-			return output.Errorf("audit log unavailable: "+err.Error(), "fix [audit] path or disable audit.enabled")
+			return output.Errorf("audit log unavailable: "+err.Error(), "fix [audit] path or disable audit.enabled").WithCode(output.CodeAuditWriteFailed)
 		}
 	}
 	grants := policy.NewGrantManager()
@@ -324,6 +324,7 @@ func (dc *daemonContext) handleConn(conn net.Conn) {
 
 	if ipc.DetectV1(msg) {
 		ipc.SendError(conn,
+			output.CodeDaemonError,
 			"protocol v1 is deprecated, upgrade sshq CLI",
 			"go install github.com/shayuc137/sshq/cmd/sshq@latest",
 		)
@@ -332,12 +333,13 @@ func (dc *daemonContext) handleConn(conn net.Conn) {
 
 	env, err := ipc.ParseEnvelope(msg)
 	if err != nil {
-		ipc.SendError(conn, "invalid request: "+err.Error(), "")
+		ipc.SendError(conn, output.CodeDaemonError, "invalid request: "+err.Error(), "")
 		return
 	}
 
 	if env.Version != ipc.ProtocolVersion {
 		ipc.SendError(conn,
+			output.CodeDaemonError,
 			fmt.Sprintf("protocol version mismatch: got %d, want %d", env.Version, ipc.ProtocolVersion),
 			"restart daemon so CLI and daemon use the same sshq version",
 		)
@@ -350,7 +352,7 @@ func (dc *daemonContext) handleConn(conn net.Conn) {
 func (dc *daemonContext) route(conn net.Conn, env ipc.Envelope) {
 	dc.reloadSSHConfig()
 	if err := dc.reloadAppConfig(); err != nil && isSensitiveAction(env.Action) {
-		ipc.SendError(conn, "app config invalid: "+err.Error(), "fix config.toml, then retry")
+		ipc.SendError(conn, output.CodeConfigUnavailable, "app config invalid: "+err.Error(), "fix config.toml, then retry")
 		return
 	}
 
@@ -384,7 +386,7 @@ func (dc *daemonContext) route(conn net.Conn, env ipc.Envelope) {
 	case "shutdown":
 		dc.shutdown()
 	default:
-		ipc.SendError(conn, "unknown action: "+env.Action, "")
+		ipc.SendError(conn, output.CodeInvalidUsage, "unknown action: "+env.Action, "")
 	}
 }
 
@@ -526,7 +528,7 @@ func (dc *daemonContext) reconcileAudit(cfg *appconfig.Config) error {
 		dc.auditLog = nil
 		dc.auditCfg = cfg.Audit
 		dc.auditMu.Unlock()
-		return output.Errorf("audit log unavailable: "+err.Error(), "fix [audit] path or disable audit.enabled")
+		return output.Errorf("audit log unavailable: "+err.Error(), "fix [audit] path or disable audit.enabled").WithCode(output.CodeAuditWriteFailed)
 	}
 
 	if prevLog != nil {
@@ -563,7 +565,7 @@ func isSensitiveAction(action string) bool {
 func (dc *daemonContext) handleExec(conn net.Conn, raw json.RawMessage) {
 	var payload ipc.ExecPayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		ipc.SendError(conn, "invalid exec payload: "+err.Error(), "")
+		ipc.SendError(conn, output.CodeInvalidUsage, "invalid exec payload: "+err.Error(), "")
 		return
 	}
 	if !dc.checkDaemonCommand(conn, payload.Alias, payload.Command) {
@@ -577,7 +579,7 @@ func (dc *daemonContext) handleExec(conn net.Conn, raw json.RawMessage) {
 		if !dc.sendAudit(conn, entry) {
 			return
 		}
-		ipc.SendError(conn, err.Error(), "run 'sshq ls' to see available hosts")
+		ipc.SendError(conn, output.CodeHostNotFound, err.Error(), "run 'sshq ls' to see available hosts")
 		return
 	}
 
@@ -587,7 +589,7 @@ func (dc *daemonContext) handleExec(conn net.Conn, raw json.RawMessage) {
 		if !dc.sendAudit(conn, entry) {
 			return
 		}
-		ipc.SendError(conn, credentialErrorSummary(credErr), "check credential store integrity and permissions")
+		ipc.SendError(conn, output.CodeCredentialError, credentialErrorSummary(credErr), "check credential store integrity and permissions")
 		return
 	}
 	cfg.Timeout = time.Duration(payload.Timeout) * time.Second
@@ -606,7 +608,7 @@ func (dc *daemonContext) handleExec(conn net.Conn, raw json.RawMessage) {
 			return
 		}
 		ce := connErrorToOutput(err, payload.Alias)
-		ipc.SendError(conn, ce.Hint, ce.Action)
+		ipc.SendError(conn, ce.Code, ce.Hint, ce.Action)
 		return
 	}
 	sendDaemonVerbose(conn, payload.Verbose,
@@ -630,7 +632,7 @@ func (dc *daemonContext) handleExec(conn net.Conn, raw json.RawMessage) {
 		if !dc.sendAudit(conn, entry) {
 			return
 		}
-		ipc.SendError(conn, err.Error(), "")
+		ipc.SendError(conn, output.CodeResultIndeterminate, err.Error(), "")
 		return
 	}
 	staleProfile := payload.Shell == "" && invalidateSuspectedStaleProfile(dc.cache, host.HostName, host.Port, profile, result)

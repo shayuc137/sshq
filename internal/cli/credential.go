@@ -34,15 +34,15 @@ func newCredentialSetCommand() *cobra.Command {
 			alias := args[0]
 			password, err := readConfirmedSecret(cmd, "Password: ", "Confirm password: ")
 			if err != nil {
-				return output.Errorf(err.Error(), "run in an interactive terminal")
+				return output.Errorf(err.Error(), "run in an interactive terminal").WithCode(output.CodeCredentialError)
 			}
 			if password == "" {
-				return output.Errorf("password cannot be empty", "")
+				return output.Errorf("password cannot be empty", "").WithCode(output.CodeCredentialError)
 			}
 
 			store, err := openCredentialStoreForCommand(cmd)
 			if err != nil {
-				return output.Errorf("open credential store: "+err.Error(), "")
+				return output.Errorf("open credential store: "+err.Error(), "").WithCode(output.CodeCredentialError)
 			}
 			if err := store.Set(alias, password); err != nil {
 				return credentialOutputError(err, alias)
@@ -64,7 +64,7 @@ func newCredentialDeleteCommand() *cobra.Command {
 			alias := args[0]
 			store, err := openCredentialStoreForCommand(cmd)
 			if err != nil {
-				return output.Errorf("open credential store: "+err.Error(), "")
+				return output.Errorf("open credential store: "+err.Error(), "").WithCode(output.CodeCredentialError)
 			}
 			if err := store.Delete(alias); err != nil {
 				return credentialOutputError(err, alias)
@@ -84,7 +84,7 @@ func newCredentialListCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, err := openCredentialStoreForCommand(cmd)
 			if err != nil {
-				return output.Errorf("open credential store: "+err.Error(), "")
+				return output.Errorf("open credential store: "+err.Error(), "").WithCode(output.CodeCredentialError)
 			}
 			aliases, err := store.List()
 			if err != nil {
@@ -231,27 +231,27 @@ func (aliases credentialAliases) Pretty() string {
 func credentialOutputError(err error, alias string) *output.CmdError {
 	switch {
 	case errors.Is(err, credential.ErrNoEncryptionKey):
-		return output.Errorf("no SSH key found for encryption", "generate one with: ssh-keygen -t ed25519 or run credential commands in a TTY for passphrase mode")
+		return output.Errorf("no SSH key found for encryption", "generate one with: ssh-keygen -t ed25519 or run credential commands in a TTY for passphrase mode").WithCode(output.CodeCredentialError)
 	case errors.Is(err, credential.ErrCannotDecrypt):
 		action := "ensure your SSH key has not changed; re-create credentials if needed"
 		if alias != "" {
 			action = "ensure your SSH key has not changed; re-create with: sshq credential set " + alias
 		}
-		return output.Errorf("cannot decrypt credentials", action)
+		return output.Errorf("cannot decrypt credentials", action).WithCode(output.CodeCredentialError)
 	case errors.Is(err, credential.ErrCorrupt):
 		action := "re-create credentials with: sshq credential set <alias>"
 		if alias != "" {
 			action = "re-create with: sshq credential set " + alias
 		}
-		return output.Errorf("credential file corrupt", action)
+		return output.Errorf("credential file corrupt", action).WithCode(output.CodeCredentialError)
 	default:
 		if strings.Contains(err.Error(), "insecure permissions") {
 			action := "fix with: chmod 600 <credentials.age path>"
 			if p, pathErr := credential.DefaultPath(); pathErr == nil {
 				action = "fix with: chmod 600 " + p
 			}
-			return output.Errorf(err.Error(), action)
+			return output.Errorf(err.Error(), action).WithCode(output.CodeCredentialError)
 		}
-		return output.Errorf(err.Error(), "")
+		return output.Errorf(err.Error(), "").WithCode(output.CodeCredentialError)
 	}
 }

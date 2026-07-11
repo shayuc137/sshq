@@ -45,7 +45,7 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store := configFrom(cmd.Context())
 			if store == nil {
-				return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists")
+				return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists").WithCode(output.CodeConfigUnavailable)
 			}
 			w := writerFrom(cmd.Context())
 			alias := args[0]
@@ -54,10 +54,10 @@ Examples:
 			remoteFwd, _ := cmd.Flags().GetString("R")
 
 			if localFwd == "" && remoteFwd == "" {
-				return output.Errorf("specify -L or -R", "usage: sshq tunnel start <alias> -L <local:remote> or -R <remote:local>")
+				return output.Errorf("specify -L or -R", "usage: sshq tunnel start <alias> -L <local:remote> or -R <remote:local>").WithCode(output.CodeInvalidUsage)
 			}
 			if localFwd != "" && remoteFwd != "" {
-				return output.Errorf("specify either -L or -R, not both", "")
+				return output.Errorf("specify either -L or -R, not both", "").WithCode(output.CodeInvalidUsage)
 			}
 
 			var direction, localAddr, remoteAddr string
@@ -65,14 +65,14 @@ Examples:
 				direction = "local"
 				la, ra, err := parseFwdSpec(localFwd)
 				if err != nil {
-					return output.Errorf(err.Error(), "format: <local_port>:<remote_host>:<remote_port>")
+					return output.Errorf(err.Error(), "format: <local_port>:<remote_host>:<remote_port>").WithCode(output.CodeInvalidUsage)
 				}
 				localAddr, remoteAddr = la, ra
 			} else {
 				direction = "remote"
 				ra, la, err := parseFwdSpec(remoteFwd)
 				if err != nil {
-					return output.Errorf(err.Error(), "format: <remote_port>:<local_host>:<local_port>")
+					return output.Errorf(err.Error(), "format: <remote_port>:<local_host>:<local_port>").WithCode(output.CodeInvalidUsage)
 				}
 				localAddr, remoteAddr = la, ra
 			}
@@ -130,19 +130,19 @@ func recvTunnelStartResult(w *output.Writer, conn net.Conn, alias, direction str
 	for {
 		msg, err := ipc.Recv(conn)
 		if err != nil {
-			return output.Errorf("daemon recv failed", "")
+			return output.Errorf("daemon recv failed", "").WithCode(output.CodeResultIndeterminate)
 		}
 
 		var frame ipc.Frame
 		if err := json.Unmarshal(msg, &frame); err != nil {
-			return output.Errorf("invalid daemon response", "")
+			return output.Errorf("invalid daemon response", "").WithCode(output.CodeDaemonError)
 		}
 
 		switch frame.Type {
 		case daemonVerboseFrame:
 			recvVerboseFrame(w, frame)
 		case "error":
-			return output.Errorf(frame.Hint, frame.Action)
+			return output.Errorf(frame.Hint, frame.Action).WithCode(output.CodeOrInternal(frame.ErrorCode()))
 		case "result":
 			var result ipc.TunnelStartResult
 			json.Unmarshal(frame.Payload, &result)
@@ -165,7 +165,7 @@ func tunnelStartForeground(cmd *cobra.Command, w *output.Writer, alias, directio
 		if auditErr := recordAuditError(cmd.Context(), entry, err); auditErr != nil {
 			return auditErr
 		}
-		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
+		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts").WithCode(output.CodeHostNotFound)
 	}
 
 	cfg, err := hostToConnConfigWithCredentials(host, store, credentialStoreFrom(cmd.Context()))
@@ -212,7 +212,7 @@ func tunnelStartForeground(cmd *cobra.Command, w *output.Writer, alias, directio
 		if auditErr := recordAuditError(cmd.Context(), entry, err); auditErr != nil {
 			return auditErr
 		}
-		return output.Errorf(err.Error(), "")
+		return output.Errorf(err.Error(), "").WithCode(output.CodeInternalError)
 	}
 
 	if err := recordAudit(cmd.Context(), audit.TunnelEntry(alias, direction, localAddr, remoteAddr, "start", audit.ResultSuccess, time.Since(auditStart).Milliseconds(), audit.SourceDirect)); err != nil {
@@ -249,18 +249,18 @@ func newTunnelListCommand() *cobra.Command {
 
 			env, _ := ipc.MakeEnvelope("tunnel-list", nil)
 			if err := ipc.Send(conn, env); err != nil {
-				return output.Errorf("daemon send failed", "")
+				return output.Errorf("daemon send failed", "").WithCode(output.CodeDaemonError)
 			}
 
 			msg, err := ipc.Recv(conn)
 			if err != nil {
-				return output.Errorf("daemon recv failed", "")
+				return output.Errorf("daemon recv failed", "").WithCode(output.CodeDaemonError)
 			}
 
 			var frame ipc.Frame
 			json.Unmarshal(msg, &frame)
 			if frame.Type == "error" {
-				return output.Errorf(frame.Hint, frame.Action)
+				return output.Errorf(frame.Hint, frame.Action).WithCode(output.CodeOrInternal(frame.ErrorCode()))
 			}
 
 			var list []tunnel.TunnelInfo
@@ -281,24 +281,24 @@ func newTunnelStopCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			conn, err := ipc.Connect()
 			if err != nil {
-				return output.Errorf("daemon not running", "")
+				return output.Errorf("daemon not running", "").WithCode(output.CodeDaemonError)
 			}
 			defer conn.Close()
 
 			env, _ := ipc.MakeEnvelope("tunnel-stop", ipc.TunnelStopPayload{ID: args[0]})
 			if err := ipc.Send(conn, env); err != nil {
-				return output.Errorf("daemon send failed", "")
+				return output.Errorf("daemon send failed", "").WithCode(output.CodeDaemonError)
 			}
 
 			msg, err := ipc.Recv(conn)
 			if err != nil {
-				return output.Errorf("daemon recv failed", "")
+				return output.Errorf("daemon recv failed", "").WithCode(output.CodeResultIndeterminate)
 			}
 
 			var frame ipc.Frame
 			json.Unmarshal(msg, &frame)
 			if frame.Type == "error" {
-				return output.Errorf(frame.Hint, frame.Action)
+				return output.Errorf(frame.Hint, frame.Action).WithCode(output.CodeOrInternal(frame.ErrorCode()))
 			}
 
 			w := writerFrom(cmd.Context())

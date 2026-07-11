@@ -262,6 +262,23 @@ type CmdError struct {
 	Code    string
 }
 
+const (
+	CodeInvalidUsage        = "invalid_usage"
+	CodeHostNotFound        = "host_not_found"
+	CodeConfigUnavailable   = "config_unavailable"
+	CodeNetworkError        = "network_error"
+	CodeAuthFailed          = "auth_failed"
+	CodeHostKeyUnknown      = "host_key_unknown"
+	CodeHostKeyMismatch     = "host_key_mismatch"
+	CodePolicyBlocked       = "policy_blocked"
+	CodeCredentialError     = "credential_error"
+	CodeResultIndeterminate = "result_indeterminate"
+	CodeTransferFailed      = "transfer_failed"
+	CodeDaemonError         = "daemon_error"
+	CodeAuditWriteFailed    = "audit_write_failed"
+	CodeInternalError       = "internal_error"
+)
+
 func (e *CmdError) Error() string {
 	if e.Action != "" {
 		return fmt.Sprintf("%s (-> %s)", e.Hint, e.Action)
@@ -270,7 +287,14 @@ func (e *CmdError) Error() string {
 }
 
 func Errorf(hint, action string) *CmdError {
-	return &CmdError{Hint: hint, Action: action, Code: "internal_error"}
+	return &CmdError{Hint: hint, Action: action, Code: CodeInternalError}
+}
+
+func CodeOrInternal(code string) string {
+	if code == "" {
+		return CodeInternalError
+	}
+	return code
 }
 
 func (e *CmdError) WithCode(code string) *CmdError {

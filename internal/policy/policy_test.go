@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/shayuc137/sshq/internal/appconfig"
+	"github.com/shayuc137/sshq/internal/output"
 	"github.com/shayuc137/sshq/internal/policy"
 )
 
@@ -306,6 +307,9 @@ func TestBlockedErrorFormat(t *testing.T) {
 	}
 	if !strings.Contains(err.Action, "grants do not override blacklists") {
 		t.Fatalf("action = %q", err.Action)
+	}
+	if err.Code != output.CodePolicyBlocked {
+		t.Fatalf("error.code = %q, want %q", err.Code, output.CodePolicyBlocked)
 	}
 }
 

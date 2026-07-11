@@ -245,6 +245,27 @@ func TestRecvExecFramesJSONEnvelope(t *testing.T) {
 	}
 }
 
+func TestRecvExecFramesConnectionLostAfterCommandSentIsIndeterminate(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	clientConn.SetDeadline(time.Now().Add(5 * time.Second))
+	go func() {
+		_ = ipc.Send(serverConn, ipc.Frame{Type: "stdout", Data: "started\n"})
+		_ = serverConn.Close()
+	}()
+
+	w := output.New(&bytes.Buffer{}, &bytes.Buffer{}, output.WithJSON())
+	err := recvExecFrames(w, clientConn, "rn")
+	_ = clientConn.Close()
+
+	var cmdErr *output.CmdError
+	if !errors.As(err, &cmdErr) {
+		t.Fatalf("error = %v, want CmdError", err)
+	}
+	if cmdErr.Code != output.CodeResultIndeterminate {
+		t.Fatalf("error.code = %q, want %q", cmdErr.Code, output.CodeResultIndeterminate)
+	}
+}
+
 func rootCommandForTest(t *testing.T, aliases ...string) (*cobra.Command, *bytes.Buffer, *bytes.Buffer) {
 	t.Helper()
 

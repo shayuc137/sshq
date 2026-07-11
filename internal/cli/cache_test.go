@@ -65,8 +65,8 @@ func TestCacheClearUnknownAliasReturnsStandardErrorEnvelope(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
 		t.Fatalf("invalid JSON: %v\n%s", err, out.String())
 	}
-	if envelope.Error.Code != "internal_error" {
-		t.Fatalf("error code = %q, want internal_error", envelope.Error.Code)
+	if envelope.Error.Code != output.CodeHostNotFound {
+		t.Fatalf("error code = %q, want %s", envelope.Error.Code, output.CodeHostNotFound)
 	}
 	if envelope.Error.Hint != `host "missing" not found` || envelope.Error.Action != "run 'sshq ls' to see available hosts" {
 		t.Fatalf("error = %+v", envelope.Error)

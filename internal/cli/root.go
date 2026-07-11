@@ -76,7 +76,7 @@ func NewRootCommand() *cobra.Command {
 				if audit.Enabled(appCfg) && !skipAuditLoggerInit(cmd) {
 					auditLog, err := audit.NewLogger(appCfg.Audit)
 					if err != nil {
-						return output.Errorf("audit log unavailable: "+err.Error(), "fix [audit] path or disable audit.enabled")
+						return output.Errorf("audit log unavailable: "+err.Error(), "fix [audit] path or disable audit.enabled").WithCode(output.CodeAuditWriteFailed)
 					}
 					ctx = withAuditLogger(ctx, auditLog)
 				}
@@ -148,7 +148,7 @@ func runRootCommand(cmd *cobra.Command, args []string) error {
 
 	store := configFrom(cmd.Context())
 	if store == nil {
-		return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists")
+		return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists").WithCode(output.CodeConfigUnavailable)
 	}
 
 	alias := args[0]
@@ -156,7 +156,7 @@ func runRootCommand(cmd *cobra.Command, args []string) error {
 		return output.Errorf(
 			fmt.Sprintf("unknown command %q for %q", alias, cmd.CommandPath()),
 			"run 'sshq --help' to see available commands",
-		)
+		).WithCode(output.CodeInvalidUsage)
 	}
 
 	return runExecCommand(cmd, args)

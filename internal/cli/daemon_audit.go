@@ -5,6 +5,7 @@ import (
 
 	"github.com/shayuc137/sshq/internal/audit"
 	"github.com/shayuc137/sshq/internal/ipc"
+	"github.com/shayuc137/sshq/internal/output"
 )
 
 // auditTarget snapshots the current logger and enabled flag under the lock so a
@@ -32,11 +33,11 @@ func (dc *daemonContext) sendAudit(conn net.Conn, entry audit.Entry) bool {
 		return true
 	}
 	if logger == nil {
-		ipc.SendError(conn, "audit log unavailable", "fix [audit] path or disable audit.enabled, then restart daemon")
+		ipc.SendError(conn, output.CodeAuditWriteFailed, "audit log unavailable", "fix [audit] path or disable audit.enabled, then restart daemon")
 		return false
 	}
 	if err := logger.Record(entry); err != nil {
-		ipc.SendError(conn, "audit log write failed: "+err.Error(), "check [audit] path and permissions")
+		ipc.SendError(conn, output.CodeAuditWriteFailed, "audit log write failed: "+err.Error(), "check [audit] path and permissions")
 		return false
 	}
 	return true

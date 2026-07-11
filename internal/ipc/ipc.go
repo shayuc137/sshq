@@ -33,9 +33,9 @@ func DetectV1(raw json.RawMessage) bool {
 	return probe.ProtocolVersion > 0
 }
 
-// SendError sends an error frame with hint and action.
-func SendError(conn net.Conn, hint, action string) error {
-	return Send(conn, Frame{Type: "error", Hint: hint, Action: action})
+// SendError sends an error frame with a machine-readable code and recovery text.
+func SendError(conn net.Conn, code, hint, action string) error {
+	return Send(conn, Frame{Type: "error", Code: code, Hint: hint, Action: action})
 }
 
 func SocketPath() string {

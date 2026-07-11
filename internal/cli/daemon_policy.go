@@ -65,6 +65,7 @@ func (dc *daemonContext) checkDaemonCluster(conn net.Conn, aliases []string, com
 		return true
 	}
 	ipc.SendError(conn,
+		output.CodePolicyBlocked,
 		"cluster command blocked by policy for aliases: "+strings.Join(blocked, ", "),
 		"adjust config.toml or grant each blocked alias before retrying",
 	)
@@ -98,34 +99,34 @@ func (dc *daemonContext) sendPolicyDecision(conn net.Conn, decision policy.Decis
 	}
 	err := decisionToError(decision)
 	if ce, ok := err.(*output.CmdError); ok {
-		ipc.SendError(conn, ce.Hint, ce.Action)
+		ipc.SendError(conn, ce.Code, ce.Hint, ce.Action)
 		return false
 	}
-	ipc.SendError(conn, err.Error(), "fix config.toml, then retry")
+	ipc.SendError(conn, output.CodeConfigUnavailable, err.Error(), "fix config.toml, then retry")
 	return false
 }
 
 func (dc *daemonContext) handlePolicyGrant(conn net.Conn, raw json.RawMessage) {
 	var payload ipc.PolicyGrantPayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		ipc.SendError(conn, "invalid policy-grant payload: "+err.Error(), "")
+		ipc.SendError(conn, output.CodeInvalidUsage, "invalid policy-grant payload: "+err.Error(), "")
 		return
 	}
 	if payload.Kind == "" {
 		payload.Kind = policy.KindCommand
 	}
 	if payload.Alias == "" {
-		ipc.SendError(conn, "policy grant alias required", "usage: sshq policy grant <alias> <pattern> --ttl <duration>")
+		ipc.SendError(conn, output.CodeInvalidUsage, "policy grant alias required", "usage: sshq policy grant <alias> <pattern> --ttl <duration>")
 		return
 	}
 	if _, err := dc.storeSnapshot().Get(payload.Alias); err != nil {
-		ipc.SendError(conn, err.Error(), "run 'sshq ls' to see available hosts")
+		ipc.SendError(conn, output.CodeHostNotFound, err.Error(), "run 'sshq ls' to see available hosts")
 		return
 	}
 
 	grant, err := dc.grants.Add(payload.Alias, payload.Kind, payload.Pattern, time.Duration(payload.TTLSeconds)*time.Second)
 	if err != nil {
-		ipc.SendError(conn, "invalid policy grant: "+err.Error(), "")
+		ipc.SendError(conn, output.CodeInvalidUsage, "invalid policy grant: "+err.Error(), "")
 		return
 	}
 
@@ -136,11 +137,11 @@ func (dc *daemonContext) handlePolicyGrant(conn net.Conn, raw json.RawMessage) {
 func (dc *daemonContext) handlePolicyRevoke(conn net.Conn, raw json.RawMessage) {
 	var payload ipc.PolicyRevokePayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		ipc.SendError(conn, "invalid policy-revoke payload: "+err.Error(), "")
+		ipc.SendError(conn, output.CodeInvalidUsage, "invalid policy-revoke payload: "+err.Error(), "")
 		return
 	}
 	if payload.ID == "" && payload.Alias == "" {
-		ipc.SendError(conn, "policy revoke requires grant id or --alias", "usage: sshq policy revoke <grant-id> or sshq policy revoke --alias <alias>")
+		ipc.SendError(conn, output.CodeInvalidUsage, "policy revoke requires grant id or --alias", "usage: sshq policy revoke <grant-id> or sshq policy revoke --alias <alias>")
 		return
 	}
 
@@ -159,17 +160,17 @@ func (dc *daemonContext) handlePolicyList(conn net.Conn, raw json.RawMessage) {
 	var payload ipc.PolicyListPayload
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &payload); err != nil {
-			ipc.SendError(conn, "invalid policy-list payload: "+err.Error(), "")
+			ipc.SendError(conn, output.CodeInvalidUsage, "invalid policy-list payload: "+err.Error(), "")
 			return
 		}
 	}
 	if dc.appCfgErr != nil {
-		ipc.SendError(conn, "app config invalid: "+dc.appCfgErr.Error(), "fix config.toml, then retry")
+		ipc.SendError(conn, output.CodeConfigUnavailable, "app config invalid: "+dc.appCfgErr.Error(), "fix config.toml, then retry")
 		return
 	}
 	if payload.Alias != "" {
 		if _, err := dc.storeSnapshot().Get(payload.Alias); err != nil {
-			ipc.SendError(conn, err.Error(), "run 'sshq ls' to see available hosts")
+			ipc.SendError(conn, output.CodeHostNotFound, err.Error(), "run 'sshq ls' to see available hosts")
 			return
 		}
 	}

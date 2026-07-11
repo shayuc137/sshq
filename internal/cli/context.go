@@ -120,7 +120,7 @@ func recordAudit(ctx context.Context, entry audit.Entry) error {
 		return nil
 	}
 	if err := logger.Record(entry); err != nil {
-		return output.Errorf("audit log write failed: "+err.Error(), "check [audit] path and permissions")
+		return output.Errorf("audit log write failed: "+err.Error(), "check [audit] path and permissions").WithCode(output.CodeAuditWriteFailed)
 	}
 	return nil
 }
@@ -233,7 +233,7 @@ func resolveProxyChainGuardedWithCredentials(store *config.Store, proxyJump stri
 func connErrorToOutput(err error, alias string) *output.CmdError {
 	var ce *sshclient.ConnError
 	if !errors.As(err, &ce) {
-		return output.Errorf(err.Error(), "check connectivity and credentials")
+		return output.Errorf(err.Error(), "check connectivity and credentials").WithCode(output.CodeInternalError)
 	}
 	errorAlias := ce.Alias
 	if errorAlias == "" {
@@ -252,18 +252,18 @@ func connErrorToOutput(err error, alias string) *output.CmdError {
 		return output.Errorf(
 			fmt.Sprintf("host key CHANGED for %s (%s:%s)", errorAlias, ce.Host, ce.Port),
 			fmt.Sprintf("run: sshq trust %s --replace", errorAlias),
-		).WithCode("host_key_mismatch").WithDetails(details)
+		).WithCode(output.CodeHostKeyMismatch).WithDetails(details)
 	case sshclient.ErrHostKeyUnknown:
 		return output.Errorf(
 			fmt.Sprintf("host key unknown for %s (%s:%s)", errorAlias, ce.Host, ce.Port),
 			fmt.Sprintf("run: sshq trust %s", errorAlias),
-		).WithCode("host_key_unknown").WithDetails(details)
+		).WithCode(output.CodeHostKeyUnknown).WithDetails(details)
 	case sshclient.ErrAuth:
-		return output.Errorf(ce.Error(), "check credentials and key file").WithCode("auth_failed")
+		return output.Errorf(ce.Error(), "check credentials and key file").WithCode(output.CodeAuthFailed)
 	case sshclient.ErrNetwork:
-		return output.Errorf(ce.Error(), "check network connectivity").WithCode("network_error")
+		return output.Errorf(ce.Error(), "check network connectivity").WithCode(output.CodeNetworkError)
 	default:
-		return output.Errorf(ce.Error(), "check connectivity and credentials")
+		return output.Errorf(ce.Error(), "check connectivity and credentials").WithCode(output.CodeInternalError)
 	}
 }
 

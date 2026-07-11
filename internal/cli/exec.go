@@ -45,7 +45,7 @@ func runExecCommand(cmd *cobra.Command, args []string) error {
 
 	store := configFrom(cmd.Context())
 	if store == nil {
-		return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists")
+		return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists").WithCode(output.CodeConfigUnavailable)
 	}
 
 	w := writerFrom(cmd.Context())
@@ -56,7 +56,7 @@ func runExecCommand(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(args) < 2 {
-		return output.Errorf("command required", "usage: sshq exec <alias> <command...> or sshq exec --script-file <path> <alias>")
+		return output.Errorf("command required", "usage: sshq exec <alias> <command...> or sshq exec --script-file <path> <alias>").WithCode(output.CodeInvalidUsage)
 	}
 	command := strings.Join(args[1:], " ")
 
@@ -87,7 +87,7 @@ func runExecCommand(cmd *cobra.Command, args []string) error {
 func execScript(cmd *cobra.Command, w *output.Writer, alias, scriptFile string) error {
 	script, err := os.ReadFile(scriptFile)
 	if err != nil {
-		return output.Errorf("read script file: "+err.Error(), "check file path")
+		return output.Errorf("read script file: "+err.Error(), "check file path").WithCode(output.CodeInvalidUsage)
 	}
 
 	noDaemon, _ := cmd.Flags().GetBool("no-daemon")
@@ -126,7 +126,7 @@ func execScriptDirect(cmd *cobra.Command, w *output.Writer, alias string, script
 		if auditErr := recordAudit(cmd.Context(), entry); auditErr != nil {
 			return auditErr
 		}
-		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
+		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts").WithCode(output.CodeHostNotFound)
 	}
 
 	timeout, _ := cmd.Flags().GetDuration("timeout")
@@ -181,7 +181,7 @@ func execScriptDirect(cmd *cobra.Command, w *output.Writer, alias string, script
 		if auditErr := recordAudit(ctx, audit.ScriptErrorEntry(alias, script, audit.ResultError, durationMs, audit.SourceDirect, err)); auditErr != nil {
 			return auditErr
 		}
-		return output.Errorf(err.Error(), "")
+		return output.Errorf(err.Error(), "").WithCode(output.CodeInternalError)
 	}
 	normalizeRemoteResult(result, profile, shell)
 	auditResult := audit.ResultSuccess
@@ -211,12 +211,12 @@ func recvExecFrames(w *output.Writer, conn net.Conn, alias string) error {
 	for {
 		msg, err := ipc.Recv(conn)
 		if err != nil {
-			return output.Errorf("daemon connection lost", "retry or use --no-daemon")
+			return output.Errorf("daemon connection lost", "retry or use --no-daemon").WithCode(output.CodeResultIndeterminate)
 		}
 
 		var frame ipc.Frame
 		if err := json.Unmarshal(msg, &frame); err != nil {
-			return output.Errorf("invalid daemon response", "")
+			return output.Errorf("invalid daemon response", "").WithCode(output.CodeDaemonError)
 		}
 
 		switch frame.Type {
@@ -228,18 +228,18 @@ func recvExecFrames(w *output.Writer, conn net.Conn, alias string) error {
 			stderrBuf.WriteString(frame.Data)
 		case "exit":
 			w.Exec(&output.ExecResult{
-				ExitCode:   frame.Code,
+				ExitCode:   frame.ExitCode(),
 				Stdout:     stdoutBuf.String(),
 				Stderr:     stderrBuf.String(),
 				Host:       alias,
 				DurationMs: time.Since(start).Milliseconds(),
 			})
-			if frame.Code != 0 {
-				return &exec.ExitError{Code: frame.Code}
+			if frame.ExitCode() != 0 {
+				return &exec.ExitError{Code: frame.ExitCode()}
 			}
 			return nil
 		case "error":
-			return output.Errorf(frame.Hint, frame.Action)
+			return output.Errorf(frame.Hint, frame.Action).WithCode(output.CodeOrInternal(frame.ErrorCode()))
 		}
 	}
 }
@@ -256,7 +256,7 @@ func execDirect(cmd *cobra.Command, w *output.Writer, alias, command string) err
 		if auditErr := recordAudit(cmd.Context(), entry); auditErr != nil {
 			return auditErr
 		}
-		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
+		return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts").WithCode(output.CodeHostNotFound)
 	}
 
 	timeout, _ := cmd.Flags().GetDuration("timeout")
@@ -308,7 +308,7 @@ func execDirect(cmd *cobra.Command, w *output.Writer, alias, command string) err
 		if auditErr := recordAudit(ctx, audit.ExecErrorEntry(alias, command, audit.ResultError, durationMs, audit.SourceDirect, err)); auditErr != nil {
 			return auditErr
 		}
-		return output.Errorf(err.Error(), "")
+		return output.Errorf(err.Error(), "").WithCode(output.CodeInternalError)
 	}
 	staleProfile := shellOverride == "" && invalidateSuspectedStaleProfile(cache, host.HostName, host.Port, profile, result)
 	if staleProfile {

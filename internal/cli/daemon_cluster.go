@@ -10,17 +10,18 @@ import (
 	"github.com/shayuc137/sshq/internal/audit"
 	"github.com/shayuc137/sshq/internal/exec"
 	"github.com/shayuc137/sshq/internal/ipc"
+	"github.com/shayuc137/sshq/internal/output"
 )
 
 func (dc *daemonContext) handleClusterExec(conn net.Conn, raw json.RawMessage) {
 	var payload ipc.ClusterExecPayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		ipc.SendError(conn, "invalid cluster-exec payload: "+err.Error(), "")
+		ipc.SendError(conn, output.CodeInvalidUsage, "invalid cluster-exec payload: "+err.Error(), "")
 		return
 	}
 
 	if len(payload.Aliases) == 0 {
-		ipc.SendError(conn, "no hosts matched the filter", "use --tag, --env, or --all")
+		ipc.SendError(conn, output.CodeInvalidUsage, "no hosts matched the filter", "use --tag, --env, or --all")
 		return
 	}
 	if !dc.checkDaemonCluster(conn, payload.Aliases, payload.Command) {
@@ -212,13 +213,13 @@ func (dc *daemonContext) sendAuditLocked(conn net.Conn, mu *sync.Mutex, entry au
 	}
 	if logger == nil {
 		mu.Lock()
-		ipc.SendError(conn, "audit log unavailable", "fix [audit] path or disable audit.enabled, then restart daemon")
+		ipc.SendError(conn, output.CodeAuditWriteFailed, "audit log unavailable", "fix [audit] path or disable audit.enabled, then restart daemon")
 		mu.Unlock()
 		return false
 	}
 	if err := logger.Record(entry); err != nil {
 		mu.Lock()
-		ipc.SendError(conn, "audit log write failed: "+err.Error(), "check [audit] path and permissions")
+		ipc.SendError(conn, output.CodeAuditWriteFailed, "audit log write failed: "+err.Error(), "check [audit] path and permissions")
 		mu.Unlock()
 		return false
 	}

@@ -17,12 +17,12 @@ func newInfoCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store := configFrom(cmd.Context())
 			if store == nil {
-				return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists")
+				return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists").WithCode(output.CodeConfigUnavailable)
 			}
 
 			host, err := store.Get(args[0])
 			if err != nil {
-				return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
+				return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts").WithCode(output.CodeHostNotFound)
 			}
 
 			w := writerFrom(cmd.Context())

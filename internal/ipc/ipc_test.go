@@ -77,8 +77,29 @@ func TestSendRecvFrame(t *testing.T) {
 	if frames[1].Type != "stderr" || frames[1].Data != "warn\n" {
 		t.Errorf("frame[1] = %+v", frames[1])
 	}
-	if frames[2].Type != "exit" || frames[2].Code != 0 {
+	if frames[2].Type != "exit" || frames[2].ExitCode() != 0 {
 		t.Errorf("frame[2] = %+v", frames[2])
+	}
+}
+
+func TestSendErrorCarriesStringCode(t *testing.T) {
+	serverConn, clientConn := net.Pipe()
+	defer serverConn.Close()
+	defer clientConn.Close()
+
+	go func() {
+		_ = SendError(serverConn, "auth_failed", "authentication failed", "check credentials")
+	}()
+	msg, err := Recv(clientConn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var frame Frame
+	if err := json.Unmarshal(msg, &frame); err != nil {
+		t.Fatal(err)
+	}
+	if frame.ErrorCode() != "auth_failed" {
+		t.Fatalf("error frame code = %q, want auth_failed", frame.ErrorCode())
 	}
 }
 

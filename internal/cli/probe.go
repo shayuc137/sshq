@@ -26,7 +26,7 @@ func newProbeCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store := configFrom(cmd.Context())
 			if store == nil {
-				return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists")
+				return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists").WithCode(output.CodeConfigUnavailable)
 			}
 
 			w := writerFrom(cmd.Context())
@@ -42,18 +42,18 @@ func newProbeCommand() *cobra.Command {
 			}
 
 			if len(args) == 0 {
-				return output.Errorf("alias required", "use 'sshq probe <alias>' or 'sshq probe --all'")
+				return output.Errorf("alias required", "use 'sshq probe <alias>' or 'sshq probe --all'").WithCode(output.CodeInvalidUsage)
 			}
 
 			alias := args[0]
 			host, err := store.Get(alias)
 			if err != nil {
-				return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
+				return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts").WithCode(output.CodeHostNotFound)
 			}
 
 			target, err := probeTargetForHost(cmd.Context(), host, store, timeout, portOverride, direct)
 			if err != nil {
-				return output.Errorf(credentialErrorSummary(err), "")
+				return output.Errorf(credentialErrorSummary(err), "").WithCode(output.CodeCredentialError)
 			}
 
 			r := checkProbeTarget(cmd.Context(), target)

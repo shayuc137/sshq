@@ -229,6 +229,22 @@ func TestRecvClusterFramesErrorFrame(t *testing.T) {
 	if ce.Hint != "daemon exploded" || ce.Action != "restart daemon" {
 		t.Errorf("error frame not propagated: %+v", ce)
 	}
+	if ce.Code != output.CodeInternalError {
+		t.Errorf("legacy error frame code = %q, want %q", ce.Code, output.CodeInternalError)
+	}
+}
+
+func TestRecvClusterFramesErrorFramePreservesCode(t *testing.T) {
+	_, _, err := runRecvCluster(t, false,
+		ipc.Frame{Type: "error", Code: output.CodePolicyBlocked, Hint: "blocked", Action: "grant access"},
+	)
+	var ce *output.CmdError
+	if !errors.As(err, &ce) {
+		t.Fatalf("expected *output.CmdError, got %v", err)
+	}
+	if ce.Code != output.CodePolicyBlocked {
+		t.Fatalf("error frame code = %q, want %q", ce.Code, output.CodePolicyBlocked)
+	}
 }
 
 func TestRecvClusterFramesMultiHostText(t *testing.T) {

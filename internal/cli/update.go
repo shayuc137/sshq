@@ -124,6 +124,7 @@ func updateCommandError(err error) error {
 	var permissionErr *updater.PermissionError
 	if errors.As(err, &permissionErr) {
 		return output.Errorf(permissionErr.Error(), permissionErr.Action).
+			WithCode(output.CodeInternalError).
 			WithDetails(map[string]any{
 				"target_path": permissionErr.TargetPath,
 				"staged_path": permissionErr.StagedPath,
@@ -132,13 +133,14 @@ func updateCommandError(err error) error {
 	var rollbackErr *updater.RollbackError
 	if errors.As(err, &rollbackErr) {
 		return output.Errorf(rollbackErr.Error(), "").
+			WithCode(output.CodeInternalError).
 			WithDetails(map[string]any{
 				"target_path": rollbackErr.TargetPath,
 				"old_path":    rollbackErr.OldPath,
 				"new_path":    rollbackErr.NewPath,
 			})
 	}
-	return output.Errorf(err.Error(), "")
+	return output.Errorf(err.Error(), "").WithCode(output.CodeInternalError)
 }
 
 func refreshSkillsWithNewBinary(ctx context.Context, targetPath string) (skillUpdateResult, string, error) {

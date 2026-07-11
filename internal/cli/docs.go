@@ -217,12 +217,12 @@ func verifySkillDocs(cmd *cobra.Command, root *cobra.Command, dir string) error 
 
 	tmpDir, err := os.MkdirTemp("", "sshq-docs-verify-*")
 	if err != nil {
-		return output.Errorf("create temp dir: "+err.Error(), "")
+		return output.Errorf("create temp dir: "+err.Error(), "").WithCode(output.CodeInternalError)
 	}
 	defer os.RemoveAll(tmpDir)
 
 	if err := genSkillDocs(root, tmpDir); err != nil {
-		return output.Errorf("generate docs failed: "+err.Error(), "")
+		return output.Errorf("generate docs failed: "+err.Error(), "").WithCode(output.CodeInternalError)
 	}
 
 	drift := compareDocDirs(tmpDir, dir)

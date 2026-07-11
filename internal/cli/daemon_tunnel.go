@@ -9,13 +9,14 @@ import (
 
 	"github.com/shayuc137/sshq/internal/audit"
 	"github.com/shayuc137/sshq/internal/ipc"
+	"github.com/shayuc137/sshq/internal/output"
 	"github.com/shayuc137/sshq/internal/tunnel"
 )
 
 func (dc *daemonContext) handleTunnelStart(conn net.Conn, raw json.RawMessage) {
 	var payload ipc.TunnelStartPayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		ipc.SendError(conn, "invalid tunnel-start payload: "+err.Error(), "")
+		ipc.SendError(conn, output.CodeInvalidUsage, "invalid tunnel-start payload: "+err.Error(), "")
 		return
 	}
 	auditStart := time.Now()
@@ -70,7 +71,7 @@ func (dc *daemonContext) handleTunnelStart(conn net.Conn, raw json.RawMessage) {
 		if !dc.sendAuditError(conn, entry, err) {
 			return
 		}
-		ipc.SendError(conn, "invalid direction: "+payload.Direction, "use 'local' or 'remote'")
+		ipc.SendError(conn, output.CodeInvalidUsage, "invalid direction: "+payload.Direction, "use 'local' or 'remote'")
 		return
 	}
 
@@ -79,7 +80,7 @@ func (dc *daemonContext) handleTunnelStart(conn net.Conn, raw json.RawMessage) {
 		if !dc.sendAuditError(conn, entry, err) {
 			return
 		}
-		ipc.SendError(conn, err.Error(), "")
+		ipc.SendError(conn, output.CodeInternalError, err.Error(), "")
 		return
 	}
 
@@ -102,7 +103,7 @@ func (dc *daemonContext) handleTunnelStart(conn net.Conn, raw json.RawMessage) {
 func (dc *daemonContext) handleTunnelStop(conn net.Conn, raw json.RawMessage) {
 	var payload ipc.TunnelStopPayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		ipc.SendError(conn, "invalid tunnel-stop payload: "+err.Error(), "")
+		ipc.SendError(conn, output.CodeInvalidUsage, "invalid tunnel-stop payload: "+err.Error(), "")
 		return
 	}
 
@@ -114,7 +115,7 @@ func (dc *daemonContext) handleTunnelStop(conn net.Conn, raw json.RawMessage) {
 		if !dc.sendAuditError(conn, entry, err) {
 			return
 		}
-		ipc.SendError(conn, err.Error(), "use 'sshq tunnel list' to see active tunnels")
+		ipc.SendError(conn, output.CodeDaemonError, err.Error(), "use 'sshq tunnel list' to see active tunnels")
 		return
 	}
 

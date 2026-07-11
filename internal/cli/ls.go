@@ -14,7 +14,7 @@ func newLsCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store := configFrom(cmd.Context())
 			if store == nil {
-				return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists")
+				return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists").WithCode(output.CodeConfigUnavailable)
 			}
 
 			w := writerFrom(cmd.Context())

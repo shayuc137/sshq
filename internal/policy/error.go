@@ -23,9 +23,9 @@ func (e *BlockedError) Error() string {
 
 func (e *BlockedError) ToOutputError() *output.CmdError {
 	if e == nil {
-		return output.Errorf("policy blocked request", "")
+		return output.Errorf("policy blocked request", "").WithCode(output.CodePolicyBlocked)
 	}
-	return output.Errorf(e.hint(), e.action())
+	return output.Errorf(e.hint(), e.action()).WithCode(output.CodePolicyBlocked)
 }
 
 func (e *BlockedError) hint() string {

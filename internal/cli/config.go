@@ -31,14 +31,14 @@ func newConfigAddCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store := configFrom(cmd.Context())
 			if store == nil {
-				return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists")
+				return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists").WithCode(output.CodeConfigUnavailable)
 			}
 			w := writerFrom(cmd.Context())
 			alias := args[0]
 
 			hostname, _ := cmd.Flags().GetString("hostname")
 			if hostname == "" {
-				return output.Errorf("--hostname is required", "usage: sshq config add <alias> --hostname <host>")
+				return output.Errorf("--hostname is required", "usage: sshq config add <alias> --hostname <host>").WithCode(output.CodeInvalidUsage)
 			}
 
 			h := config.Host{
@@ -69,10 +69,10 @@ func newConfigAddCommand() *cobra.Command {
 			}
 
 			if err := store.Add(h); err != nil {
-				return output.Errorf(err.Error(), "")
+				return output.Errorf(err.Error(), "").WithCode(output.CodeInvalidUsage)
 			}
 			if err := store.Save(); err != nil {
-				return output.Errorf("save failed: "+err.Error(), "")
+				return output.Errorf("save failed: "+err.Error(), "").WithCode(output.CodeConfigUnavailable)
 			}
 
 			return renderConfigVerification(w, store, alias)
@@ -105,21 +105,21 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store := configFrom(cmd.Context())
 			if store == nil {
-				return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists")
+				return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists").WithCode(output.CodeConfigUnavailable)
 			}
 			w := writerFrom(cmd.Context())
 
 			alias, key, value := args[0], args[1], args[2]
 
 			if strings.ToLower(key) == "password" {
-				return output.Errorf("passwords must not be stored in ssh config", "use ssh-agent or identity files")
+				return output.Errorf("passwords must not be stored in ssh config", "use ssh-agent or identity files").WithCode(output.CodeInvalidUsage)
 			}
 
 			if err := store.Set(alias, key, value); err != nil {
-				return output.Errorf(err.Error(), "")
+				return output.Errorf(err.Error(), "").WithCode(output.CodeInvalidUsage)
 			}
 			if err := store.Save(); err != nil {
-				return output.Errorf("save failed: "+err.Error(), "")
+				return output.Errorf("save failed: "+err.Error(), "").WithCode(output.CodeConfigUnavailable)
 			}
 
 			return renderConfigVerification(w, store, alias)
@@ -131,7 +131,7 @@ Examples:
 func renderConfigVerification(w *output.Writer, store *config.Store, alias string) error {
 	host, err := store.Get(alias)
 	if err != nil {
-		return output.Errorf("resolve saved host: "+err.Error(), "sshq doctor "+alias)
+		return output.Errorf("resolve saved host: "+err.Error(), "sshq doctor "+alias).WithCode(output.CodeConfigUnavailable)
 	}
 	w.Render(config.NewHostVerification(host, "sshq doctor "+alias))
 	return nil
@@ -146,16 +146,16 @@ func newConfigRemoveCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store := configFrom(cmd.Context())
 			if store == nil {
-				return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists")
+				return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists").WithCode(output.CodeConfigUnavailable)
 			}
 			w := writerFrom(cmd.Context())
 			alias := args[0]
 
 			if err := store.Remove(alias); err != nil {
-				return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
+				return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts").WithCode(output.CodeHostNotFound)
 			}
 			if err := store.Save(); err != nil {
-				return output.Errorf("save failed: "+err.Error(), "")
+				return output.Errorf("save failed: "+err.Error(), "").WithCode(output.CodeConfigUnavailable)
 			}
 
 			w.Success(fmt.Sprintf("removed %s", alias))
@@ -172,7 +172,7 @@ func newConfigListCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store := configFrom(cmd.Context())
 			if store == nil {
-				return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists")
+				return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists").WithCode(output.CodeConfigUnavailable)
 			}
 			w := writerFrom(cmd.Context())
 			w.Render(config.HostList(store.List()))

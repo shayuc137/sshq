@@ -11,6 +11,7 @@ import (
 	"github.com/shayuc137/sshq/internal/audit"
 	"github.com/shayuc137/sshq/internal/exec"
 	"github.com/shayuc137/sshq/internal/ipc"
+	"github.com/shayuc137/sshq/internal/output"
 	"github.com/shayuc137/sshq/internal/remote"
 	"github.com/shayuc137/sshq/internal/sshclient"
 	"github.com/shayuc137/sshq/internal/transfer"
@@ -33,7 +34,7 @@ func (dc *daemonContext) resolveHost(conn net.Conn, alias string, auditErr audit
 		if !dc.recordResolveAudit(conn, auditErr, err) {
 			return nil, false
 		}
-		ipc.SendError(conn, err.Error(), "run 'sshq ls' to see available hosts")
+		ipc.SendError(conn, output.CodeHostNotFound, err.Error(), "run 'sshq ls' to see available hosts")
 		return nil, false
 	}
 	c, credErr := hostToConnConfigWithCredentials(host, store, dc.creds)
@@ -41,7 +42,7 @@ func (dc *daemonContext) resolveHost(conn net.Conn, alias string, auditErr audit
 		if !dc.recordResolveAudit(conn, auditErr, credErr) {
 			return nil, false
 		}
-		ipc.SendError(conn, credentialErrorSummary(credErr), "check credential store integrity and permissions")
+		ipc.SendError(conn, output.CodeCredentialError, credentialErrorSummary(credErr), "check credential store integrity and permissions")
 		return nil, false
 	}
 	cfg := &c
@@ -64,7 +65,7 @@ func (dc *daemonContext) getClientWithStatus(ctx context.Context, conn net.Conn,
 			return nil, false, false
 		}
 		ce := connErrorToOutput(err, alias)
-		ipc.SendError(conn, ce.Hint, ce.Action)
+		ipc.SendError(conn, ce.Code, ce.Hint, ce.Action)
 		return nil, false, false
 	}
 	return client, reused, true
@@ -80,7 +81,7 @@ func (dc *daemonContext) getProfile(ctx context.Context, client *sshclient.Clien
 func (dc *daemonContext) handleScript(conn net.Conn, raw json.RawMessage) {
 	var payload ipc.ScriptPayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		ipc.SendError(conn, "invalid script payload: "+err.Error(), "")
+		ipc.SendError(conn, output.CodeInvalidUsage, "invalid script payload: "+err.Error(), "")
 		return
 	}
 	if !dc.checkDaemonCommandWithAudit(conn, payload.Alias, string(payload.Script), audit.OperationExec, audit.ScriptSummary(payload.Script)) {
@@ -135,7 +136,7 @@ func (dc *daemonContext) handleScript(conn net.Conn, raw json.RawMessage) {
 		if !dc.sendAudit(conn, entry) {
 			return
 		}
-		ipc.SendError(conn, err.Error(), "")
+		ipc.SendError(conn, output.CodeResultIndeterminate, err.Error(), "")
 		return
 	}
 	normalizeRemoteResult(result, profile, shell)
@@ -155,7 +156,7 @@ func (dc *daemonContext) handleScript(conn net.Conn, raw json.RawMessage) {
 func (dc *daemonContext) handleTransfer(conn net.Conn, raw json.RawMessage) {
 	var payload ipc.TransferPayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		ipc.SendError(conn, "invalid transfer payload: "+err.Error(), "")
+		ipc.SendError(conn, output.CodeInvalidUsage, "invalid transfer payload: "+err.Error(), "")
 		return
 	}
 	if !dc.checkDaemonTransfer(conn, payload) {
@@ -194,7 +195,7 @@ func (dc *daemonContext) handleTransfer(conn net.Conn, raw json.RawMessage) {
 		if !dc.sendAuditError(conn, entry, err) {
 			return
 		}
-		ipc.SendError(conn, "transfer engine: "+err.Error(), "")
+		ipc.SendError(conn, output.CodeTransferFailed, "transfer engine: "+err.Error(), "")
 		return
 	}
 	defer engine.Close()
@@ -227,7 +228,7 @@ func (dc *daemonContext) handleTransfer(conn net.Conn, raw json.RawMessage) {
 		if !dc.sendAuditError(conn, entry, err) {
 			return
 		}
-		ipc.SendError(conn, "invalid direction: "+payload.Direction, "use 'upload' or 'download'")
+		ipc.SendError(conn, output.CodeInvalidUsage, "invalid direction: "+payload.Direction, "use 'upload' or 'download'")
 		return
 	}
 
@@ -241,7 +242,7 @@ func (dc *daemonContext) handleTransfer(conn net.Conn, raw json.RawMessage) {
 		if errors.As(err, &missingParent) {
 			action = cpMkdirsAction(parsedArgsFromTransferPayload(payload), payload.Recursive)
 		}
-		ipc.SendError(conn, err.Error(), action)
+		ipc.SendError(conn, output.CodeTransferFailed, err.Error(), action)
 		return
 	}
 
@@ -257,7 +258,7 @@ func (dc *daemonContext) handleTransfer(conn net.Conn, raw json.RawMessage) {
 func (dc *daemonContext) handleRelay(conn net.Conn, raw json.RawMessage) {
 	var payload ipc.RelayPayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		ipc.SendError(conn, "invalid relay payload: "+err.Error(), "")
+		ipc.SendError(conn, output.CodeInvalidUsage, "invalid relay payload: "+err.Error(), "")
 		return
 	}
 	if !dc.checkDaemonRelay(conn, payload) {
@@ -330,7 +331,7 @@ func (dc *daemonContext) handleRelay(conn net.Conn, raw json.RawMessage) {
 		if errors.As(err, &missingParent) {
 			action = cpMkdirsAction(parsedArgsFromRelayPayload(payload), payload.Recursive)
 		}
-		ipc.SendError(conn, err.Error(), action)
+		ipc.SendError(conn, output.CodeTransferFailed, err.Error(), action)
 		return
 	}
 	sendDaemonVerbose(conn, payload.Verbose, "transfer engine: %s", result.Engine)
@@ -347,14 +348,14 @@ func (dc *daemonContext) handleRelay(conn net.Conn, raw json.RawMessage) {
 func (dc *daemonContext) handleProfile(conn net.Conn, raw json.RawMessage) {
 	var payload ipc.ProfilePayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		ipc.SendError(conn, "invalid profile payload: "+err.Error(), "")
+		ipc.SendError(conn, output.CodeInvalidUsage, "invalid profile payload: "+err.Error(), "")
 		return
 	}
 
 	store := dc.storeSnapshot()
 	host, err := store.Get(payload.Alias)
 	if err != nil {
-		ipc.SendError(conn, err.Error(), "run 'sshq ls' to see available hosts")
+		ipc.SendError(conn, output.CodeHostNotFound, err.Error(), "run 'sshq ls' to see available hosts")
 		return
 	}
 
@@ -382,7 +383,7 @@ func (dc *daemonContext) handleProfile(conn net.Conn, raw json.RawMessage) {
 
 	cfg, credErr := hostToConnConfigWithCredentials(host, store, dc.creds)
 	if credErr != nil {
-		ipc.SendError(conn, credentialErrorSummary(credErr), "check credential store integrity and permissions")
+		ipc.SendError(conn, output.CodeCredentialError, credentialErrorSummary(credErr), "check credential store integrity and permissions")
 		return
 	}
 	cfg.Timeout = 30 * time.Second
@@ -398,7 +399,7 @@ func (dc *daemonContext) handleProfile(conn net.Conn, raw json.RawMessage) {
 
 	p, err := remote.GetProfile(context.Background(), client, dc.cache, host.HostName, host.Port)
 	if err != nil {
-		ipc.SendError(conn, fmt.Sprintf("profile detect failed: %s", err), "")
+		ipc.SendError(conn, output.CodeNetworkError, fmt.Sprintf("profile detect failed: %s", err), "")
 		return
 	}
 	sendDaemonVerbose(conn, payload.Verbose, "%s", verboseProfile(p))

@@ -23,10 +23,26 @@ type Envelope struct {
 type Frame struct {
 	Type    string          `json:"type"`
 	Data    string          `json:"data,omitempty"`
-	Code    int             `json:"code,omitempty"`
+	Code    any             `json:"code,omitempty"`
 	Hint    string          `json:"hint,omitempty"`
 	Action  string          `json:"action,omitempty"`
 	Payload json.RawMessage `json:"payload,omitempty"`
+}
+
+func (f Frame) ExitCode() int {
+	switch code := f.Code.(type) {
+	case int:
+		return code
+	case float64:
+		return int(code)
+	default:
+		return 0
+	}
+}
+
+func (f Frame) ErrorCode() string {
+	code, _ := f.Code.(string)
+	return code
 }
 
 // Action payloads — one type per action, decoupled from each other.

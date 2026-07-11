@@ -29,7 +29,7 @@ If the key has changed (mismatch), use --replace to update it.`,
 			store := configFrom(cmd.Context())
 
 			if store == nil {
-				return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists")
+				return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists").WithCode(output.CodeConfigUnavailable)
 			}
 
 			if all {
@@ -37,7 +37,7 @@ If the key has changed (mismatch), use --replace to update it.`,
 			}
 
 			if len(args) == 0 {
-				return output.Errorf("alias required", "usage: sshq trust <alias> or sshq trust --all")
+				return output.Errorf("alias required", "usage: sshq trust <alias> or sshq trust --all").WithCode(output.CodeInvalidUsage)
 			}
 
 			return trustOne(cmd.Context(), w, store, credentialStoreFrom(cmd.Context()), args[0], replace, timeout)
@@ -258,7 +258,7 @@ func renderTrustOne(w *output.Writer, result trustResult) error {
 			hint += "\n  old: " + result.OldKeyInfo
 		}
 		hint += "\n  new: " + result.KeyInfo
-		return output.Errorf(hint, fmt.Sprintf("run: sshq trust %s --replace", result.Alias)).WithDetails(trustResultDetails(result))
+		return output.Errorf(hint, fmt.Sprintf("run: sshq trust %s --replace", result.Alias)).WithCode(output.CodeHostKeyMismatch).WithDetails(trustResultDetails(result))
 	case trustFailed:
 		return renderTrustFailure(result)
 	}
@@ -268,17 +268,17 @@ func renderTrustOne(w *output.Writer, result trustResult) error {
 func renderTrustFailure(result trustResult) error {
 	switch result.Failure {
 	case trustResolveFailed:
-		return output.Errorf(result.Err.Error(), "run: sshq ls")
+		return output.Errorf(result.Err.Error(), "run: sshq ls").WithCode(output.CodeHostNotFound)
 	case trustConfigFailed:
-		return output.Errorf(credentialErrorSummary(result.Err), "")
+		return output.Errorf(credentialErrorSummary(result.Err), "").WithCode(output.CodeCredentialError)
 	case trustFetchFailed:
-		return output.Errorf(fmt.Sprintf("cannot reach %s (%s): %v", result.Alias, result.Target, result.Err), "")
+		return output.Errorf(fmt.Sprintf("cannot reach %s (%s): %v", result.Alias, result.Target, result.Err), "").WithCode(output.CodeNetworkError)
 	case trustAddFailed:
-		return output.Errorf("failed to add key: "+result.Err.Error(), "")
+		return output.Errorf("failed to add key: "+result.Err.Error(), "").WithCode(output.CodeInternalError)
 	case trustRemoveFailed:
-		return output.Errorf("failed to remove old key: "+result.Err.Error(), "")
+		return output.Errorf("failed to remove old key: "+result.Err.Error(), "").WithCode(output.CodeInternalError)
 	default:
-		return output.Errorf(result.Err.Error(), "")
+		return output.Errorf(result.Err.Error(), "").WithCode(output.CodeInternalError)
 	}
 }
 

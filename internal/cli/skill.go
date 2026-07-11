@@ -317,7 +317,7 @@ func embeddedSkillFiles() ([]string, error) {
 
 func resolveSkillInstallDir(scope, target string) (string, error) {
 	if scope != skillScopeUser && scope != skillScopeProject {
-		return "", output.Errorf("invalid skill scope: "+scope, "use --scope user or --scope project")
+		return "", output.Errorf("invalid skill scope: "+scope, "use --scope user or --scope project").WithCode(output.CodeInvalidUsage)
 	}
 	targetDir, err := skillTargetDir(target)
 	if err != nil {
@@ -329,7 +329,7 @@ func resolveSkillInstallDir(scope, target string) (string, error) {
 
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", output.Errorf("home directory not found", "set HOME or use --scope project")
+		return "", output.Errorf("home directory not found", "set HOME or use --scope project").WithCode(output.CodeInvalidUsage)
 	}
 	return filepath.Join(home, targetDir, "skills", "sshq"), nil
 }
@@ -341,7 +341,7 @@ func skillTargetDir(target string) (string, error) {
 	case skillTargetCodex:
 		return ".codex", nil
 	default:
-		return "", output.Errorf("invalid skill target: "+target, "use --codex for Codex, omit for Claude Code")
+		return "", output.Errorf("invalid skill target: "+target, "use --codex for Codex, omit for Claude Code").WithCode(output.CodeInvalidUsage)
 	}
 }
 

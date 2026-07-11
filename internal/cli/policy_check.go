@@ -99,7 +99,7 @@ func checkPolicyClusterCommand(ctx context.Context, aliases []string, command st
 	return output.Errorf(
 		"cluster command blocked by policy for aliases: "+strings.Join(blocked, ", "),
 		"adjust config.toml or grant each blocked alias before retrying",
-	)
+	).WithCode(output.CodePolicyBlocked)
 }
 
 func policyCheckForward(ctx context.Context, alias, direction, target string) error {
@@ -140,14 +140,14 @@ func policyCheckForward(ctx context.Context, alias, direction, target string) er
 // checkerForPolicyCheck.
 func ensureAppConfigUsable(ctx context.Context) error {
 	if err := appConfigErrorFrom(ctx); err != nil {
-		return output.Errorf("app config invalid: "+err.Error(), "fix config.toml, then retry")
+		return output.Errorf("app config invalid: "+err.Error(), "fix config.toml, then retry").WithCode(output.CodeConfigUnavailable)
 	}
 	return nil
 }
 
 func checkerForPolicyCheck(ctx context.Context) (*policy.Checker, error) {
 	if err := appConfigErrorFrom(ctx); err != nil {
-		return nil, output.Errorf("app config invalid: "+err.Error(), "fix config.toml")
+		return nil, output.Errorf("app config invalid: "+err.Error(), "fix config.toml").WithCode(output.CodeConfigUnavailable)
 	}
 	cfg := appConfigFrom(ctx)
 	if cfg == nil {
@@ -232,7 +232,7 @@ func daemonGrantsForPolicyCheck() (*policy.GrantManager, error) {
 	var result ipc.PolicyListResult
 	if err := recvPolicyResult(conn, &result); err != nil {
 		if ce, ok := err.(*output.CmdError); ok && strings.Contains(ce.Hint, "protocol version mismatch") {
-			return nil, output.Errorf(ce.Hint, "restart daemon so CLI and daemon use the same sshq version")
+			return nil, output.Errorf(ce.Hint, "restart daemon so CLI and daemon use the same sshq version").WithCode(output.CodeDaemonError)
 		}
 		return nil, nil
 	}
@@ -255,23 +255,23 @@ func recvPolicyResult(conn net.Conn, out any) error {
 	for {
 		msg, err := ipc.Recv(conn)
 		if err != nil {
-			return output.Errorf("daemon connection lost", "retry after restarting daemon")
+			return output.Errorf("daemon connection lost", "retry after restarting daemon").WithCode(output.CodeDaemonError)
 		}
 		var frame ipc.Frame
 		if err := json.Unmarshal(msg, &frame); err != nil {
-			return output.Errorf("invalid daemon response", "")
+			return output.Errorf("invalid daemon response", "").WithCode(output.CodeDaemonError)
 		}
 		switch frame.Type {
 		case "result":
 			if err := json.Unmarshal(frame.Payload, out); err != nil {
-				return output.Errorf("invalid daemon result", "")
+				return output.Errorf("invalid daemon result", "").WithCode(output.CodeDaemonError)
 			}
 			return nil
 		case "error":
 			if strings.Contains(frame.Hint, "protocol version mismatch") {
-				return output.Errorf(frame.Hint, "restart daemon so CLI and daemon use the same sshq version")
+				return output.Errorf(frame.Hint, "restart daemon so CLI and daemon use the same sshq version").WithCode(output.CodeDaemonError)
 			}
-			return output.Errorf(frame.Hint, frame.Action)
+			return output.Errorf(frame.Hint, frame.Action).WithCode(output.CodeOrInternal(frame.ErrorCode()))
 		}
 	}
 }

@@ -91,7 +91,7 @@ func newClusterExecCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store := configFrom(cmd.Context())
 			if store == nil {
-				return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists")
+				return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists").WithCode(output.CodeConfigUnavailable)
 			}
 			w := writerFrom(cmd.Context())
 
@@ -146,18 +146,18 @@ func newClusterExecCommand() *cobra.Command {
 func resolveClusterAliases(store *config.Store, hostsFlag, tag, env string, all bool) ([]string, error) {
 	if hostsFlag != "" {
 		if all || tag != "" || env != "" {
-			return nil, output.Errorf("--hosts cannot be combined with --tag, --env, or --all", "use exactly one host selector")
+			return nil, output.Errorf("--hosts cannot be combined with --tag, --env, or --all", "use exactly one host selector").WithCode(output.CodeInvalidUsage)
 		}
 		return aliasesFromHostsFlag(store, hostsFlag)
 	}
 
 	if !all && tag == "" && env == "" {
-		return nil, output.Errorf("specify --hosts, --tag, --env, or --all", "usage: sshq cluster exec --all \"command\"")
+		return nil, output.Errorf("specify --hosts, --tag, --env, or --all", "usage: sshq cluster exec --all \"command\"").WithCode(output.CodeInvalidUsage)
 	}
 
 	hosts := store.Filter(config.Filter{Tag: tag, Env: env, All: all})
 	if len(hosts) == 0 {
-		return nil, output.Errorf("no hosts matched the filter", "check tags/env with 'sshq ls'")
+		return nil, output.Errorf("no hosts matched the filter", "check tags/env with 'sshq ls'").WithCode(output.CodeInvalidUsage)
 	}
 
 	aliases := make([]string, len(hosts))
@@ -193,10 +193,10 @@ func aliasesFromHostsFlag(store *config.Store, hostsFlag string) ([]string, erro
 	}
 
 	if hasEmpty || len(aliases)+len(missing) == 0 {
-		return nil, output.Errorf("invalid --hosts value", "use comma-separated aliases, for example --hosts rn,wee")
+		return nil, output.Errorf("invalid --hosts value", "use comma-separated aliases, for example --hosts rn,wee").WithCode(output.CodeInvalidUsage)
 	}
 	if len(missing) > 0 {
-		return nil, output.Errorf("hosts not found: "+strings.Join(missing, ", "), "run 'sshq ls' to see available hosts")
+		return nil, output.Errorf("hosts not found: "+strings.Join(missing, ", "), "run 'sshq ls' to see available hosts").WithCode(output.CodeHostNotFound)
 	}
 	return aliases, nil
 }
@@ -209,12 +209,12 @@ func recvClusterFrames(w *output.Writer, conn net.Conn) error {
 	for {
 		msg, err := ipc.Recv(conn)
 		if err != nil {
-			return output.Errorf("daemon connection lost", "")
+			return output.Errorf("daemon connection lost", "").WithCode(output.CodeResultIndeterminate)
 		}
 
 		var frame ipc.Frame
 		if err := json.Unmarshal(msg, &frame); err != nil {
-			return output.Errorf("invalid daemon response", "")
+			return output.Errorf("invalid daemon response", "").WithCode(output.CodeDaemonError)
 		}
 
 		switch frame.Type {
@@ -264,7 +264,7 @@ func recvClusterFrames(w *output.Writer, conn net.Conn) error {
 			return nil
 
 		case "error":
-			return output.Errorf(frame.Hint, frame.Action)
+			return output.Errorf(frame.Hint, frame.Action).WithCode(output.CodeOrInternal(frame.ErrorCode()))
 		}
 	}
 }

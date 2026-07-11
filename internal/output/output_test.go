@@ -343,7 +343,7 @@ func TestError_JSONMode(t *testing.T) {
 	if len(env) != 1 || len(errObj) != 3 {
 		t.Fatalf("error envelope = %v, want only code/hint/action", env)
 	}
-	if errObj["code"] != "internal_error" {
+	if errObj["code"] != CodeInternalError {
 		t.Errorf("error.code = %v, want internal_error", errObj["code"])
 	}
 	if errObj["hint"] != "denied" {
@@ -356,7 +356,7 @@ func TestError_JSONMode(t *testing.T) {
 
 func TestError_JSONModeWithCode(t *testing.T) {
 	w, out, _ := jsonWriter()
-	w.Error(Errorf("authentication failed", "check credentials").WithCode("auth_failed"))
+	w.Error(Errorf("authentication failed", "check credentials").WithCode(CodeAuthFailed))
 	var env struct {
 		Error struct {
 			Code string `json:"code"`
@@ -365,8 +365,51 @@ func TestError_JSONModeWithCode(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if env.Error.Code != "auth_failed" {
+	if env.Error.Code != CodeAuthFailed {
 		t.Fatalf("error.code = %q, want auth_failed", env.Error.Code)
+	}
+}
+
+func TestAllErrorCodeConstantsRenderExpectedValue(t *testing.T) {
+	cases := []struct {
+		code string
+		want string
+	}{
+		{CodeInvalidUsage, "invalid_usage"},
+		{CodeHostNotFound, "host_not_found"},
+		{CodeConfigUnavailable, "config_unavailable"},
+		{CodeNetworkError, "network_error"},
+		{CodeAuthFailed, "auth_failed"},
+		{CodeHostKeyUnknown, "host_key_unknown"},
+		{CodeHostKeyMismatch, "host_key_mismatch"},
+		{CodePolicyBlocked, "policy_blocked"},
+		{CodeCredentialError, "credential_error"},
+		{CodeResultIndeterminate, "result_indeterminate"},
+		{CodeTransferFailed, "transfer_failed"},
+		{CodeDaemonError, "daemon_error"},
+		{CodeAuditWriteFailed, "audit_write_failed"},
+		{CodeInternalError, "internal_error"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.want, func(t *testing.T) {
+			w, out, _ := jsonWriter()
+			cmdErr := Errorf("test error", "test action").WithCode(tc.code)
+			if cmdErr.ProcessExitCode() != 2 {
+				t.Fatalf("ProcessExitCode() = %d, want 2", cmdErr.ProcessExitCode())
+			}
+			w.Error(cmdErr)
+			var env struct {
+				Error struct {
+					Code string `json:"code"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+				t.Fatal(err)
+			}
+			if env.Error.Code != tc.want {
+				t.Fatalf("error.code = %q, want %q", env.Error.Code, tc.want)
+			}
+		})
 	}
 }
 

@@ -24,7 +24,7 @@ func newCacheClearCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cache := profileCacheFrom(cmd.Context())
 			if cache == nil {
-				return output.Errorf("profile cache unavailable", "check the cache path and permissions")
+				return output.Errorf("profile cache unavailable", "check the cache path and permissions").WithCode(output.CodeInternalError)
 			}
 
 			cleared := 0
@@ -33,11 +33,11 @@ func newCacheClearCommand() *cobra.Command {
 			} else {
 				store := configFrom(cmd.Context())
 				if store == nil {
-					return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists")
+					return output.Errorf("no SSH config loaded", "check ~/.ssh/config exists").WithCode(output.CodeConfigUnavailable)
 				}
 				host, err := store.Get(args[0])
 				if err != nil {
-					return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts")
+					return output.Errorf(err.Error(), "run 'sshq ls' to see available hosts").WithCode(output.CodeHostNotFound)
 				}
 				if _, ok := cache.Get(host.HostName, host.Port); ok {
 					cleared = 1

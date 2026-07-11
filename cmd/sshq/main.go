@@ -43,7 +43,7 @@ func main() {
 			os.Exit(processExitCode(err))
 		}
 
-		w.Error(output.Errorf(err.Error(), "").WithCode("internal_error"))
+		w.Error(output.Errorf(err.Error(), "").WithCode(output.CodeInternalError))
 		os.Exit(processExitCode(err))
 	}
 }
