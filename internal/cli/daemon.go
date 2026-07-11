@@ -127,13 +127,19 @@ func sendSimpleAction(action, successMsg string, cmd *cobra.Command) error {
 // --- daemon server ---
 
 type daemonContext struct {
-	store     *config.Store
-	creds     *credential.Store
-	appConfig *appconfig.Config
-	appCfgErr error
-	checker   *policy.Checker
-	grants    *policy.GrantManager
-	auditLog  *audit.Logger
+	store      *config.Store
+	storePath  string
+	storeMu    sync.RWMutex
+	storeInfo  func(string)
+	storeMtime time.Time
+	storeSize  int64
+	storeWarn  sync.Once
+	creds      *credential.Store
+	appConfig  *appconfig.Config
+	appCfgErr  error
+	checker    *policy.Checker
+	grants     *policy.GrantManager
+	auditLog   *audit.Logger
 	// auditEnabled tracks whether [audit].enabled is true. When enabled, a nil
 	// auditLog means logger initialization failed and auditable operations must
 	// fail closed rather than run unaudited. auditCfg is the [audit] section the
@@ -208,6 +214,8 @@ func runDaemon(w *output.Writer, store *config.Store, creds *credential.Store) e
 	stopped := false
 	dc := &daemonContext{
 		store:        store,
+		storePath:    store.Path(),
+		storeInfo:    w.Info,
 		creds:        creds,
 		appConfig:    appCfg,
 		appCfgErr:    appCfgErr,
@@ -223,6 +231,7 @@ func runDaemon(w *output.Writer, store *config.Store, creds *credential.Store) e
 		stopCh:       make(chan struct{}),
 		stopped:      &stopped,
 	}
+	dc.recordStoreState()
 	// Close whichever logger is live at shutdown. reloadAppConfig may swap
 	// dc.auditLog over the daemon's lifetime (closing the previous one), so the
 	// final close must read the current value rather than capture auditLog.
@@ -339,6 +348,7 @@ func (dc *daemonContext) handleConn(conn net.Conn) {
 }
 
 func (dc *daemonContext) route(conn net.Conn, env ipc.Envelope) {
+	dc.reloadSSHConfig()
 	if err := dc.reloadAppConfig(); err != nil && isSensitiveAction(env.Action) {
 		ipc.SendError(conn, "app config invalid: "+err.Error(), "fix config.toml, then retry")
 		return
@@ -376,6 +386,62 @@ func (dc *daemonContext) route(conn net.Conn, env ipc.Envelope) {
 	default:
 		ipc.SendError(conn, "unknown action: "+env.Action, "")
 	}
+}
+
+// reloadSSHConfig replaces the immutable Store snapshot when the daemon's
+// startup config file changes. The pre-load stat is recorded deliberately: if
+// another writer wins during Load, the next request observes and loads it.
+func (dc *daemonContext) reloadSSHConfig() {
+	dc.storeMu.Lock()
+	defer dc.storeMu.Unlock()
+
+	if dc.storePath == "" {
+		return
+	}
+	info, err := os.Stat(dc.storePath)
+	if err != nil {
+		dc.warnStoreReload("ssh config stat failed: " + err.Error())
+		return
+	}
+	if info.ModTime().Equal(dc.storeMtime) && info.Size() == dc.storeSize {
+		return
+	}
+
+	store, err := config.Load(dc.storePath)
+	if err != nil {
+		dc.warnStoreReload("ssh config reload failed: " + err.Error())
+		return
+	}
+	dc.store = store
+	dc.storeMtime = info.ModTime()
+	dc.storeSize = info.Size()
+}
+
+func (dc *daemonContext) storeSnapshot() *config.Store {
+	dc.storeMu.RLock()
+	defer dc.storeMu.RUnlock()
+	return dc.store
+}
+
+func (dc *daemonContext) recordStoreState() {
+	if dc.storePath == "" {
+		return
+	}
+	info, err := os.Stat(dc.storePath)
+	if err != nil {
+		dc.warnStoreReload("ssh config stat failed: " + err.Error())
+		return
+	}
+	dc.storeMtime = info.ModTime()
+	dc.storeSize = info.Size()
+}
+
+func (dc *daemonContext) warnStoreReload(msg string) {
+	dc.storeWarn.Do(func() {
+		if dc.storeInfo != nil {
+			dc.storeInfo("warning: " + msg)
+		}
+	})
 }
 
 // reloadAppConfig hot-reloads config.toml on every routed request and
@@ -504,7 +570,8 @@ func (dc *daemonContext) handleExec(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 
-	host, err := dc.store.Get(payload.Alias)
+	store := dc.storeSnapshot()
+	host, err := store.Get(payload.Alias)
 	if err != nil {
 		entry := audit.ExecErrorEntry(payload.Alias, payload.Command, audit.ResultError, 0, audit.SourceDaemon, err)
 		if !dc.sendAudit(conn, entry) {
@@ -514,7 +581,7 @@ func (dc *daemonContext) handleExec(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 
-	cfg, credErr := hostToConnConfigWithCredentials(host, dc.store, dc.creds)
+	cfg, credErr := hostToConnConfigWithCredentials(host, store, dc.creds)
 	if credErr != nil {
 		entry := audit.ExecErrorEntry(payload.Alias, payload.Command, audit.ResultError, 0, audit.SourceDaemon, credErr)
 		if !dc.sendAudit(conn, entry) {
@@ -566,7 +633,14 @@ func (dc *daemonContext) handleExec(conn net.Conn, raw json.RawMessage) {
 		ipc.SendError(conn, err.Error(), "")
 		return
 	}
+	staleProfile := payload.Shell == "" && invalidateSuspectedStaleProfile(dc.cache, host.HostName, host.Port, profile, result)
+	if staleProfile {
+		sendDaemonVerbose(conn, payload.Verbose, "shell profile invalidated: alias=%s", payload.Alias)
+	}
 	normalizeRemoteResult(result, profile, shell)
+	if staleProfile {
+		result.Stderr = appendStaleProfileHint(result.Stderr, payload.Alias)
+	}
 	auditResult := audit.ResultSuccess
 	if result.ExitCode != 0 {
 		auditResult = audit.ResultError

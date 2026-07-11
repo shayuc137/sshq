@@ -293,7 +293,8 @@ func execDirect(cmd *cobra.Command, w *output.Writer, alias, command string) err
 		w.Verbose("shell detection warning: " + profileErr.Error())
 	}
 	w.Verbose(verboseProfile(profile))
-	shell := shellForExec(profile, execShellOverride(cmd))
+	shellOverride := execShellOverride(cmd)
+	shell := shellForExec(profile, shellOverride)
 	if shell == "" {
 		w.Verbose("shell selected: default")
 	} else {
@@ -309,7 +310,14 @@ func execDirect(cmd *cobra.Command, w *output.Writer, alias, command string) err
 		}
 		return output.Errorf(err.Error(), "")
 	}
+	staleProfile := shellOverride == "" && invalidateSuspectedStaleProfile(cache, host.HostName, host.Port, profile, result)
+	if staleProfile {
+		w.Verbose("shell profile invalidated: alias=" + alias)
+	}
 	normalizeRemoteResult(result, profile, shell)
+	if staleProfile {
+		result.Stderr = appendStaleProfileHint(result.Stderr, alias)
+	}
 	auditResult := audit.ResultSuccess
 	if result.ExitCode != 0 {
 		auditResult = audit.ResultError
@@ -352,6 +360,23 @@ func normalizeRemoteResult(result *exec.Result, profile *remote.Profile, shell s
 	}
 	result.Stderr = exec.DecodeCLIXMLStderr(result.Stderr)
 	result.Stderr = appendPowerShellVariableHint(result.Stderr, shell, result.ExitCode)
+}
+
+func invalidateSuspectedStaleProfile(cache *remote.Cache, host, port string, profile *remote.Profile, result *exec.Result) bool {
+	if result == nil || result.ExitCode == 0 || !remote.SuspectStaleProfile(profile, result.Stdout, result.Stderr) {
+		return false
+	}
+	if cache != nil {
+		cache.Invalidate(host, port)
+	}
+	return true
+}
+
+func appendStaleProfileHint(stderr, alias string) string {
+	if stderr != "" && !strings.HasSuffix(stderr, "\n") {
+		stderr += "\n"
+	}
+	return stderr + "shell profile was stale and has been invalidated; retry the command or run 'sshq doctor " + alias + "'\n"
 }
 
 const powerShellVariableHint = "if your command contained PowerShell $variables, the local shell may have expanded them — use --script-file"

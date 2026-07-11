@@ -182,3 +182,28 @@ func repositoryRoot(t *testing.T) string {
 	}
 	return filepath.Clean(filepath.Join(filepath.Dir(filename), "..", ".."))
 }
+
+// TestEveryTopLevelCommandIsGrouped is the reverse direction of the contract:
+// a new top-level command must be assigned to a skillGroups scenario, or it
+// silently vanishes from the generated skill references.
+func TestEveryTopLevelCommandIsGrouped(t *testing.T) {
+	grouped := make(map[string]bool)
+	for _, g := range skillGroups {
+		for _, c := range g.cmds {
+			grouped[strings.Fields(c)[0]] = true
+		}
+	}
+
+	// docs is the generator itself; help/completion are cobra builtins.
+	exempt := map[string]bool{"docs": true, "help": true, "completion": true}
+
+	for _, cmd := range NewRootCommand().Commands() {
+		name := cmd.Name()
+		if cmd.Hidden || exempt[name] {
+			continue
+		}
+		if !grouped[name] {
+			t.Errorf("top-level command %q is not in any skillGroups scenario (internal/cli/docs.go); assign it or the skill docs will silently omit it", name)
+		}
+	}
+}

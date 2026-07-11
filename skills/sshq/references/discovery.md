@@ -135,6 +135,22 @@ sshq daemon status
 
 Show daemon status
 
+## sshq cache
+
+```
+sshq cache
+```
+
+Manage sshq local caches
+
+### sshq cache clear
+
+```
+sshq cache clear [alias]
+```
+
+Clear cached remote shell profiles
+
 ## sshq version
 
 ```

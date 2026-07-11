@@ -27,7 +27,8 @@ type auditErrFn func(err error) audit.Entry
 // auditErr is non-nil) before sending the IPC error, so daemon error paths are
 // audited the same way the direct paths are. Returns (cfg, true) on success.
 func (dc *daemonContext) resolveHost(conn net.Conn, alias string, auditErr auditErrFn) (*sshclient.ConnConfig, bool) {
-	host, err := dc.store.Get(alias)
+	store := dc.storeSnapshot()
+	host, err := store.Get(alias)
 	if err != nil {
 		if !dc.recordResolveAudit(conn, auditErr, err) {
 			return nil, false
@@ -35,7 +36,7 @@ func (dc *daemonContext) resolveHost(conn net.Conn, alias string, auditErr audit
 		ipc.SendError(conn, err.Error(), "run 'sshq ls' to see available hosts")
 		return nil, false
 	}
-	c, credErr := hostToConnConfigWithCredentials(host, dc.store, dc.creds)
+	c, credErr := hostToConnConfigWithCredentials(host, store, dc.creds)
 	if credErr != nil {
 		if !dc.recordResolveAudit(conn, auditErr, credErr) {
 			return nil, false
@@ -350,7 +351,8 @@ func (dc *daemonContext) handleProfile(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 
-	host, err := dc.store.Get(payload.Alias)
+	store := dc.storeSnapshot()
+	host, err := store.Get(payload.Alias)
 	if err != nil {
 		ipc.SendError(conn, err.Error(), "run 'sshq ls' to see available hosts")
 		return
@@ -378,7 +380,7 @@ func (dc *daemonContext) handleProfile(conn net.Conn, raw json.RawMessage) {
 		}
 	}
 
-	cfg, credErr := hostToConnConfigWithCredentials(host, dc.store, dc.creds)
+	cfg, credErr := hostToConnConfigWithCredentials(host, store, dc.creds)
 	if credErr != nil {
 		ipc.SendError(conn, credentialErrorSummary(credErr), "check credential store integrity and permissions")
 		return

@@ -17,6 +17,7 @@ import (
 	"github.com/shayuc137/sshq/internal/exec"
 	"github.com/shayuc137/sshq/internal/output"
 	"github.com/shayuc137/sshq/internal/remote"
+	"github.com/shayuc137/sshq/internal/sshclient"
 )
 
 type fakeDoctorChecker struct {
@@ -305,6 +306,36 @@ func TestDoctorCommandRendersSuccessEnvelopeBeforeExitOne(t *testing.T) {
 	}
 	if envelope.Data.FailedCheck != string(doctorConfigValid) {
 		t.Fatalf("data = %+v", envelope.Data)
+	}
+}
+
+func TestDoctorShellDetectedBypassesAndRepairsStaleCache(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "profiles.json")
+	cache, err := remote.NewCache(time.Hour, remote.WithCachePath(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := &remote.Profile{OS: remote.Windows, Shell: remote.Cmd, DetectedAt: time.Now().Unix()}
+	fresh := &remote.Profile{OS: remote.Linux, Shell: remote.Bash, DetectedAt: time.Now().Unix()}
+	cache.Put("192.0.2.10", "22", stale)
+
+	checker := &systemDoctorChecker{
+		cache: cache,
+		detect: func(context.Context, *sshclient.Client) (*remote.Profile, error) {
+			return fresh, nil
+		},
+	}
+	state := &doctorRunState{
+		connCfg: sshclient.ConnConfig{Host: "192.0.2.10", Port: "22"},
+	}
+
+	outcome := checker.shellDetected(context.Background(), state)
+	if outcome.Value != doctorCheckPassed || state.profile != fresh {
+		t.Fatalf("outcome = %+v, profile = %+v", outcome, state.profile)
+	}
+	got, ok := cache.Get("192.0.2.10", "22")
+	if !ok || got.Shell != remote.Bash {
+		t.Fatalf("cached profile = %+v, ok=%v; want fresh bash profile", got, ok)
 	}
 }
 

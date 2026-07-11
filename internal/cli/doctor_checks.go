@@ -20,10 +20,11 @@ type systemDoctorChecker struct {
 	creds   *credential.Store
 	cache   *remote.Cache
 	timeout time.Duration
+	detect  func(context.Context, *sshclient.Client) (*remote.Profile, error)
 }
 
 func newSystemDoctorChecker(store *config.Store, creds *credential.Store, cache *remote.Cache, timeout time.Duration) doctorChecker {
-	return &systemDoctorChecker{store: store, creds: creds, cache: cache, timeout: timeout}
+	return &systemDoctorChecker{store: store, creds: creds, cache: cache, timeout: timeout, detect: remote.Detect}
 }
 
 func (c *systemDoctorChecker) Check(ctx context.Context, name doctorCheckName, state *doctorRunState) doctorCheckOutcome {
@@ -183,7 +184,7 @@ func (c *systemDoctorChecker) authOK(ctx context.Context, state *doctorRunState)
 }
 
 func (c *systemDoctorChecker) shellDetected(ctx context.Context, state *doctorRunState) doctorCheckOutcome {
-	profile, err := remote.GetProfile(ctx, state.client, c.cache, state.connCfg.Host, state.connCfg.Port)
+	profile, err := c.detect(ctx, state.client)
 	if err != nil {
 		return failedDoctorOutcome(
 			doctorFailureShell,
@@ -191,6 +192,9 @@ func (c *systemDoctorChecker) shellDetected(ctx context.Context, state *doctorRu
 			"",
 			"",
 		)
+	}
+	if c.cache != nil {
+		c.cache.Put(state.connCfg.Host, state.connCfg.Port, profile)
 	}
 	state.profile = profile
 	return passedDoctorOutcome()

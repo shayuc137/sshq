@@ -43,6 +43,7 @@ func (dc *daemonContext) handleClusterExec(conn net.Conn, raw json.RawMessage) {
 	success, failed := 0, 0
 	auditStart := time.Now()
 	auditFailed := false
+	store := dc.storeSnapshot()
 
 	for _, alias := range payload.Aliases {
 		wg.Add(1)
@@ -52,7 +53,7 @@ func (dc *daemonContext) handleClusterExec(conn net.Conn, raw json.RawMessage) {
 			defer func() { <-sem }()
 			hostStart := time.Now()
 
-			host, err := dc.store.Get(alias)
+			host, err := store.Get(alias)
 			if err != nil {
 				mu.Lock()
 				failed++
@@ -70,7 +71,7 @@ func (dc *daemonContext) handleClusterExec(conn net.Conn, raw json.RawMessage) {
 				return
 			}
 
-			cfg, credErr := hostToConnConfigWithCredentials(host, dc.store, dc.creds)
+			cfg, credErr := hostToConnConfigWithCredentials(host, store, dc.creds)
 			if credErr != nil {
 				mu.Lock()
 				failed++

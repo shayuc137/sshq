@@ -118,7 +118,7 @@ func (dc *daemonContext) handlePolicyGrant(conn net.Conn, raw json.RawMessage) {
 		ipc.SendError(conn, "policy grant alias required", "usage: sshq policy grant <alias> <pattern> --ttl <duration>")
 		return
 	}
-	if _, err := dc.store.Get(payload.Alias); err != nil {
+	if _, err := dc.storeSnapshot().Get(payload.Alias); err != nil {
 		ipc.SendError(conn, err.Error(), "run 'sshq ls' to see available hosts")
 		return
 	}
@@ -168,7 +168,7 @@ func (dc *daemonContext) handlePolicyList(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	if payload.Alias != "" {
-		if _, err := dc.store.Get(payload.Alias); err != nil {
+		if _, err := dc.storeSnapshot().Get(payload.Alias); err != nil {
 			ipc.SendError(conn, err.Error(), "run 'sshq ls' to see available hosts")
 			return
 		}

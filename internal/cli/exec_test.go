@@ -72,6 +72,40 @@ func TestAppendPowerShellVariableHint(t *testing.T) {
 	}
 }
 
+func TestInvalidateSuspectedStaleProfile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "profiles.json")
+	cache, err := remote.NewCache(time.Hour, remote.WithCachePath(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := &remote.Profile{Shell: remote.Cmd, DetectedAt: time.Now().Unix()}
+	cache.Put("example.test", "22", profile)
+	result := &exec.Result{ExitCode: 1, Stdout: "#< CLIXML\n<Objs />"}
+
+	if !invalidateSuspectedStaleProfile(cache, "example.test", "22", profile, result) {
+		t.Fatal("stale profile was not invalidated")
+	}
+	if _, ok := cache.Get("example.test", "22"); ok {
+		t.Fatal("stale profile remains cached")
+	}
+	result.Stderr = appendStaleProfileHint(result.Stderr, "win")
+	if !strings.Contains(result.Stderr, "sshq doctor win") {
+		t.Fatalf("stderr = %q, want recovery hint", result.Stderr)
+	}
+}
+
+func TestInvalidateSuspectedStaleProfileKeepsOrdinaryExit(t *testing.T) {
+	profile := &remote.Profile{Shell: remote.Bash}
+	result := &exec.Result{ExitCode: 7, Stderr: "permission denied"}
+
+	if invalidateSuspectedStaleProfile(nil, "example.test", "22", profile, result) {
+		t.Fatal("ordinary non-zero exit was treated as a stale profile")
+	}
+	if result.ExitCode != 7 || result.Stderr != "permission denied" {
+		t.Fatalf("result changed: %+v", result)
+	}
+}
+
 func TestRootShortcutRequiresConfiguredAlias(t *testing.T) {
 	cmd, _, _ := rootCommandForTest(t, "rn")
 	cmd.SetArgs([]string{"rn"})
