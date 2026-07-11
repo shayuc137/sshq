@@ -4,7 +4,7 @@ Thanks for your interest in contributing. This guide covers the development setu
 
 ## Prerequisites
 
-- Go 1.23+
+- Go 1.26+
 - An SSH key pair and at least one reachable SSH host (for integration testing)
 - Git
 

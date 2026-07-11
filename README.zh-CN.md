@@ -4,7 +4,7 @@
 
 跨平台 SSH 单二进制，为 AI agent 设计。
 
-[![Go](https://img.shields.io/badge/Go-1.23+-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev)
+[![Go](https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-blue?style=for-the-badge)]()
 
@@ -12,9 +12,9 @@
 
 </div>
 
-agent 调 SSH 最头疼的事：拿回来的是一堆文本，混着连接提示、进度条、各种编码问题，得靠正则猜着 parse。
+agent 调 SSH 最头疼的事：碰上未知 host key 或密码提示，调用直接挂到超时；就算跑通了，拿回来的也是一堆文本，混着连接提示、进度条、各种编码问题，得靠正则猜着 parse。
 
-sshq 解决的就是这个。通过管道调用时自动输出 JSON，在终端里用时自动输出易读格式。远程命令的 stdout 就是远端的 stdout，sshq 自己的信息全走 stderr，不会混进去。远端是 bash 还是 PowerShell，sshq 替你处理好。
+sshq 解决的就是这个。所有会触发交互提示的场景都立即失败，返回结构化错误和能直接执行的修复命令。通过管道调用时自动输出 JSON，在终端里用时自动输出易读格式。远程命令的 stdout 就是远端的 stdout，sshq 自己的信息全走 stderr，不会混进去。远端是 bash 还是 PowerShell，sshq 替你处理好。
 
 ```bash
 # 人在终端里执行：stdout 是 TTY，所以输出文本。
@@ -59,7 +59,7 @@ sudo mv sshq /usr/local/bin/
 
 Windows：下载 [`sshq_windows_amd64.zip`](https://github.com/shayuc137/sshq/releases/latest/download/sshq_windows_amd64.zip)，解压后把 `sshq.exe` 放到 PATH 中的文件夹。
 
-有 Go 1.23+ 的话：`go install github.com/shayuc137/sshq/cmd/sshq@latest`
+有 Go 1.26+ 的话：`go install github.com/shayuc137/sshq/cmd/sshq@latest`
 
 ```bash
 sshq version
@@ -146,6 +146,7 @@ sshq tunnel stop tun-1
 | 特性 | 说明 |
 | --- | --- |
 | TTY 自动检测 | 管道调用自动 JSON，终端自动易读格式，不用加任何 flag |
+| 立即失败，绝不提示 | 未知 host key、认证缺失、策略拦截都立即返回结构化错误和可直接执行的修复命令，绝不弹交互提示把 agent 挂住 |
 | stdout 干净 | `exec` 的 stdout 就是远端 stdout，sshq 自己的信息全走 stderr |
 | 连接池 | daemon 后台复用 SSH 会话，没有 daemon 时自动直连，不影响使用 |
 | 传输降级 | 有 SFTP 就用 SFTP，没有（比如 OpenWrt）就走原始字节流 |
@@ -192,7 +193,18 @@ JSON 模式下，同样的保证体现在 `data.stdout`：
 
 ## 安全模型
 
-密码、权限策略、审计日志都独立于 `~/.ssh/config`，统一放在 `config.toml` 里管理。
+这类工具有两个信任问题：sshq 本身可不可信，以及敢不敢把它交给 agent。两个问题都有具体答案。
+
+### 信任与隐私
+
+- **零遥测。** 除了你主动发起的 SSH 会话，sshq 没有任何网络连接。整个代码库唯一的 HTTP 客户端属于更新器——只在你执行 `sshq update` 时运行，只连 GitHub，重定向到其他任何主机都会被拒绝。
+- **私钥永远留在本机。** 认证优先使用运行中的 ssh-agent；`~/.ssh/config` 引用的密钥文件只在本地读取用于握手签名——从不复制、缓存或传输。
+- **严格 host key 验证，绝不挂起。** 未知或变化的 host key 立即失败，返回结构化错误和 `sshq trust` 提示。没有会把 agent 挂住的交互确认，也没有静默接受。
+- **daemon 仅当前用户可用。** 连接池监听用户配置目录下权限为 `0600` 的 Unix socket，不开任何 TCP 端口。`--no-daemon` 可完全绕过。
+- **你的 `~/.ssh/config` 还是你的。** sshq 原样读取，只在你显式执行 `sshq config add/update/remove` 时原子写入，并在旁边留一份备份。密码、策略、审计日志都放在独立的 `config.toml` 里。
+- **卸载只删两个东西。** 二进制文件和 sshq 配置目录，系统其他任何地方都不会被碰。
+
+sshq 处于 1.0 之前：JSON 信封带 `schema_version` 字段，任何破坏性输出变更都会递增版本号并记录在 [CHANGELOG](CHANGELOG.md)。
 
 ### 加密凭据
 

@@ -66,7 +66,7 @@ sshq version
 
 > If you are unsure which folders are on PATH, run `echo %PATH%` in cmd or `$env:PATH -split ';'` in PowerShell to see the list. Pick any folder from that list and put `sshq.exe` there.
 
-**Alternative: install from source (requires Go 1.23+):**
+**Alternative: install from source (requires Go 1.26+):**
 
 ```bash
 go install github.com/shayuc137/sshq/cmd/sshq@latest

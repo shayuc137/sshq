@@ -66,7 +66,7 @@ sshq version
 
 > 不确定哪些文件夹在 PATH 里？在 cmd 里运行 `echo %PATH%`，或在 PowerShell 里运行 `$env:PATH -split ';'` 查看列表。选一个文件夹把 `sshq.exe` 放进去即可。
 
-**备选：从源码安装（需要 Go 1.23+）：**
+**备选：从源码安装（需要 Go 1.26+）：**
 
 ```bash
 go install github.com/shayuc137/sshq/cmd/sshq@latest

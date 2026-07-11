@@ -4,7 +4,7 @@
 
 Agent-safe SSH in one cross-platform binary.
 
-[![Go](https://img.shields.io/badge/Go-1.23+-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev)
+[![Go](https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-blue?style=for-the-badge)]()
 
@@ -12,9 +12,9 @@ Agent-safe SSH in one cross-platform binary.
 
 </div>
 
-AI agents call SSH through subprocesses. What comes back is unstructured text, mixed with connection banners, progress bars, and encoding surprises. The agent parses it with regex and hopes for the best.
+AI agents call SSH through subprocesses. An unknown host key or a password prompt hangs the call until it times out. What does come back is unstructured text — banners, progress bars, encoding surprises — that the agent parses with regex and hopes for the best.
 
-sshq cleans up the plumbing. Pipe calls get JSON automatically. Terminal sessions get readable text. Remote stdout is never polluted by sshq's own messages. Shell differences between bash, ash, PowerShell, and cmd are sorted out before the caller sees anything.
+sshq cleans up the plumbing. Anything that would prompt fails fast with a structured error and the exact command that fixes it. Pipe calls get JSON automatically. Terminal sessions get readable text. Remote stdout is never polluted by sshq's own messages. Shell differences between bash, ash, PowerShell, and cmd are sorted out before the caller sees anything.
 
 ```bash
 # Human in a terminal: stdout is a TTY, so sshq prints text.
@@ -59,7 +59,7 @@ sudo mv sshq /usr/local/bin/
 
 Windows: download [`sshq_windows_amd64.zip`](https://github.com/shayuc137/sshq/releases/latest/download/sshq_windows_amd64.zip), extract it, and put `sshq.exe` somewhere on PATH.
 
-If you have Go 1.23+: `go install github.com/shayuc137/sshq/cmd/sshq@latest`
+If you have Go 1.26+: `go install github.com/shayuc137/sshq/cmd/sshq@latest`
 
 ```bash
 sshq version
@@ -146,6 +146,7 @@ sshq tunnel stop tun-1
 | Behavior | Why it matters |
 | --- | --- |
 | TTY auto-detection | Agents get JSON without passing `--json`; humans get readable terminal output without passing `--pretty`. |
+| Fail fast, never prompt | Unknown host keys, missing auth, and policy blocks return structured errors with a ready-to-run fix instead of hanging on an interactive prompt. |
 | stdout purity for `exec` | stdout is exactly the remote stdout. sshq's own status, progress, and diagnostics go to stderr. |
 | Daemon connection pool | Repeat calls reuse SSH sessions. If the daemon is unavailable, commands fall back to direct SSH. |
 | SFTP with raw fallback | File transfer works on normal servers and on minimal BusyBox/OpenWrt-style hosts without `sftp-server`. |
@@ -192,7 +193,18 @@ In JSON mode, remote output lands in `data.stdout`:
 
 ## Security model
 
-Passwords, access rules, and audit logs live in `config.toml`, separate from `~/.ssh/config`.
+Two trust questions matter for a tool like this: can you trust sshq itself, and can you hand it to an agent. Both get concrete answers.
+
+### Trust & privacy
+
+- **No telemetry.** sshq makes no network connections beyond the SSH sessions you request. The only HTTP client in the codebase belongs to the updater — it runs solely when you invoke `sshq update`, talks only to GitHub, and rejects redirects to any other host.
+- **Private keys never leave your machine.** Authentication prefers your running ssh-agent. Key files referenced in `~/.ssh/config` are read only to sign the SSH handshake locally — never copied, cached, or transmitted.
+- **Strict host key verification, no hangs.** An unknown or changed host key fails immediately with a structured error and a `sshq trust` hint. There is no interactive prompt to hang an agent, and no silent accept.
+- **The daemon is private to your user.** The connection pool listens on a Unix socket with `0600` permissions inside your user config directory — no TCP port is opened. `--no-daemon` bypasses it entirely.
+- **Your `~/.ssh/config` stays yours.** sshq reads it as-is and writes only on an explicit `sshq config add/update/remove` — atomically, with a backup file left next to it. Passwords, access rules, and audit logs live in a separate `config.toml`.
+- **Uninstall is two deletions.** The binary and the sshq config directory. Nothing else on the system is touched.
+
+sshq is pre-1.0: the JSON envelope carries a `schema_version` field, and any breaking output change bumps it and is documented in the [CHANGELOG](CHANGELOG.md).
 
 ### Encrypted credentials
 
