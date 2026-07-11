@@ -46,7 +46,6 @@ func TestConfigSetJSONRendersResolvedHostAndDoctor(t *testing.T) {
 	}
 
 	var envelope struct {
-		OK   bool `json:"ok"`
 		Data struct {
 			Alias        string `json:"alias"`
 			HostName     string `json:"hostname"`
@@ -60,7 +59,7 @@ func TestConfigSetJSONRendersResolvedHostAndDoctor(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
 		t.Fatalf("invalid JSON: %v\n%s", err, out.String())
 	}
-	if !envelope.OK || envelope.Data.Alias != "win" || envelope.Data.HostName != "192.0.2.10" || envelope.Data.User != "tester" || envelope.Data.Port != "22" {
+	if envelope.Data.Alias != "win" || envelope.Data.HostName != "192.0.2.10" || envelope.Data.User != "tester" || envelope.Data.Port != "22" {
 		t.Fatalf("resolved data = %+v", envelope.Data)
 	}
 	if envelope.Data.ProxyJump != "jump" || envelope.Data.Next != "sshq doctor win" {

@@ -3,6 +3,7 @@ package output
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"testing"
 )
@@ -36,8 +37,8 @@ func TestNew_PipeDefaultsToJSON(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
 		t.Fatalf("pipe should default to JSON, got %q: %v", out.String(), err)
 	}
-	if env["ok"] != true {
-		t.Errorf("ok = %v, want true", env["ok"])
+	if _, ok := env["data"]; !ok {
+		t.Errorf("data missing from envelope: %v", env)
 	}
 }
 
@@ -110,15 +111,15 @@ func TestRender_JSONMode(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if env["ok"] != true {
-		t.Errorf("ok = %v, want true", env["ok"])
+	if len(env) != 1 {
+		t.Fatalf("data envelope keys = %v, want only data", env)
 	}
 	data := env["data"].(map[string]any)
 	if data["v"] != "hello" {
 		t.Errorf("data.v = %v, want hello", data["v"])
 	}
-	if env["schema_version"].(float64) != SchemaVersion {
-		t.Errorf("schema_version = %v, want %d", env["schema_version"], SchemaVersion)
+	if _, ok := env["error"]; ok {
+		t.Errorf("data envelope unexpectedly has error: %v", env["error"])
 	}
 	if _, ok := env["exit_code"]; ok {
 		t.Errorf("non-exec envelope unexpectedly has exit_code: %v", env["exit_code"])
@@ -167,9 +168,6 @@ func TestExec_JSONMode_NonZeroExit(t *testing.T) {
 	var env map[string]any
 	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
-	}
-	if env["ok"] != true {
-		t.Errorf("ok = %v, want true", env["ok"])
 	}
 	if env["exit_code"].(float64) != 3 {
 		t.Errorf("exit_code = %v, want 3", env["exit_code"])
@@ -300,15 +298,12 @@ func TestSuccess_JSONMode(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if env["ok"] != true {
-		t.Errorf("ok = %v, want true", env["ok"])
-	}
 	data := env["data"].(map[string]any)
 	if data["message"] != "started" {
 		t.Errorf("data.message = %v, want started", data["message"])
 	}
-	if env["schema_version"].(float64) != SchemaVersion {
-		t.Errorf("schema_version = %v, want %d", env["schema_version"], SchemaVersion)
+	if _, ok := env["error"]; ok {
+		t.Errorf("data envelope unexpectedly has error: %v", env["error"])
 	}
 }
 
@@ -338,13 +333,19 @@ func TestError_JSONMode(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if env["ok"] != false {
-		t.Errorf("ok = %v, want false", env["ok"])
+	if _, ok := env["data"]; ok {
+		t.Errorf("error envelope unexpectedly has data: %v", env["data"])
 	}
 	if _, ok := env["exit_code"]; ok {
 		t.Errorf("error envelope unexpectedly has exit_code: %v", env["exit_code"])
 	}
 	errObj := env["error"].(map[string]any)
+	if len(env) != 1 || len(errObj) != 3 {
+		t.Fatalf("error envelope = %v, want only code/hint/action", env)
+	}
+	if errObj["code"] != "internal_error" {
+		t.Errorf("error.code = %v, want internal_error", errObj["code"])
+	}
 	if errObj["hint"] != "denied" {
 		t.Errorf("error.hint = %v, want denied", errObj["hint"])
 	}
@@ -353,9 +354,19 @@ func TestError_JSONMode(t *testing.T) {
 	}
 }
 
-func TestSchemaVersion(t *testing.T) {
-	if SchemaVersion != 2 {
-		t.Fatalf("SchemaVersion = %d, want 2", SchemaVersion)
+func TestError_JSONModeWithCode(t *testing.T) {
+	w, out, _ := jsonWriter()
+	w.Error(Errorf("authentication failed", "check credentials").WithCode("auth_failed"))
+	var env struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if env.Error.Code != "auth_failed" {
+		t.Fatalf("error.code = %q, want auth_failed", env.Error.Code)
 	}
 }
 
@@ -369,11 +380,21 @@ func TestError_JSONModeDetails(t *testing.T) {
 		t.Fatalf("invalid JSON: %v", err)
 	}
 	errObj := env["error"].(map[string]any)
-	if errObj["alias"] != "target" {
+	details := errObj["details"].(map[string]any)
+	if details["alias"] != "target" {
 		t.Fatalf("error details = %+v", errObj)
 	}
-	if len(errObj["lookup_keys"].([]any)) != 2 {
-		t.Fatalf("lookup_keys = %+v", errObj["lookup_keys"])
+	if len(details["lookup_keys"].([]any)) != 2 {
+		t.Fatalf("lookup_keys = %+v", details["lookup_keys"])
+	}
+}
+
+func TestRender_JSONModeNilSliceUsesEmptyArray(t *testing.T) {
+	w, out, _ := jsonWriter()
+	var values []string
+	w.Render(values)
+	if got := out.String(); got != "{\"data\":[]}\n" {
+		t.Fatalf("nil slice envelope = %q, want empty array data", got)
 	}
 }
 
@@ -414,10 +435,17 @@ func TestDetectEnvJSONMode(t *testing.T) {
 }
 
 func TestCmdErrorProcessExitCode(t *testing.T) {
-	if got := Errorf("failed", "").ProcessExitCode(); got != 1 {
-		t.Fatalf("default exit code = %d, want 1", got)
+	if got := Errorf("failed", "").ProcessExitCode(); got != 2 {
+		t.Fatalf("error exit code = %d, want 2", got)
 	}
-	if got := Errorf("failed", "").WithExitCode(2).ProcessExitCode(); got != 2 {
-		t.Fatalf("custom exit code = %d, want 2", got)
+	if got := Errorf("failed", "").WithCode("auth_failed").ProcessExitCode(); got != 2 {
+		t.Fatalf("coded error exit code = %d, want 2", got)
+	}
+}
+
+func TestBadNewsProcessExitCode(t *testing.T) {
+	var err *BadNewsError
+	if !errors.As(BadNews(), &err) || err.ProcessExitCode() != 1 {
+		t.Fatalf("BadNews() = %v, want process exit 1", err)
 	}
 }

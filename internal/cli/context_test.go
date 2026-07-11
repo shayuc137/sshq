@@ -50,11 +50,12 @@ func TestConnErrorToOutputHostKeyDetails(t *testing.T) {
 	for _, tt := range []struct {
 		name    string
 		kind    sshclient.ConnErrorKind
+		code    string
 		action  string
 		knownFP string
 	}{
-		{name: "unknown", kind: sshclient.ErrHostKeyUnknown, action: "run: sshq trust target"},
-		{name: "mismatch", kind: sshclient.ErrHostKeyMismatch, action: "run: sshq trust target --replace", knownFP: "SHA256:known"},
+		{name: "unknown", kind: sshclient.ErrHostKeyUnknown, code: "host_key_unknown", action: "run: sshq trust target"},
+		{name: "mismatch", kind: sshclient.ErrHostKeyMismatch, code: "host_key_mismatch", action: "run: sshq trust target --replace", knownFP: "SHA256:known"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			cmdErr := connErrorToOutput(&sshclient.ConnError{
@@ -64,6 +65,9 @@ func TestConnErrorToOutputHostKeyDetails(t *testing.T) {
 			}, "outer")
 			if cmdErr.Action != tt.action {
 				t.Fatalf("action = %q, want %q", cmdErr.Action, tt.action)
+			}
+			if cmdErr.Code != tt.code {
+				t.Fatalf("code = %q, want %q", cmdErr.Code, tt.code)
 			}
 			for key, want := range map[string]any{
 				"alias": "target", "hostname": "192.0.2.10", "port": "2222",
@@ -77,6 +81,18 @@ func TestConnErrorToOutputHostKeyDetails(t *testing.T) {
 				t.Errorf("known fingerprint = %v", cmdErr.Details["known_fingerprint"])
 			}
 		})
+	}
+}
+
+func TestConnErrorToOutputConnectionCodes(t *testing.T) {
+	for kind, want := range map[sshclient.ConnErrorKind]string{
+		sshclient.ErrNetwork: "network_error",
+		sshclient.ErrAuth:    "auth_failed",
+	} {
+		cmdErr := connErrorToOutput(&sshclient.ConnError{Kind: kind, Host: "192.0.2.10", Port: "22"}, "target")
+		if cmdErr.Code != want {
+			t.Errorf("kind %v code = %q, want %q", kind, cmdErr.Code, want)
+		}
 	}
 }
 

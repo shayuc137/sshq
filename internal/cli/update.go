@@ -127,7 +127,7 @@ func updateCommandError(err error) error {
 			WithDetails(map[string]any{
 				"target_path": permissionErr.TargetPath,
 				"staged_path": permissionErr.StagedPath,
-			}).WithExitCode(2)
+			})
 	}
 	var rollbackErr *updater.RollbackError
 	if errors.As(err, &rollbackErr) {
@@ -136,9 +136,9 @@ func updateCommandError(err error) error {
 				"target_path": rollbackErr.TargetPath,
 				"old_path":    rollbackErr.OldPath,
 				"new_path":    rollbackErr.NewPath,
-			}).WithExitCode(2)
+			})
 	}
-	return output.Errorf(err.Error(), "").WithExitCode(2)
+	return output.Errorf(err.Error(), "")
 }
 
 func refreshSkillsWithNewBinary(ctx context.Context, targetPath string) (skillUpdateResult, string, error) {
@@ -149,16 +149,15 @@ func refreshSkillsWithNewBinary(ctx context.Context, targetPath string) (skillUp
 	runErr := cmd.Run()
 
 	var envelope struct {
-		OK    bool              `json:"ok"`
 		Data  skillUpdateResult `json:"data"`
-		Error struct {
+		Error *struct {
 			Hint string `json:"hint"`
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
 		return skillUpdateResult{}, strings.TrimSpace(stderr.String()), fmt.Errorf("decode new binary skill result: %w", err)
 	}
-	if !envelope.OK {
+	if envelope.Error != nil {
 		if envelope.Error.Hint == "" {
 			envelope.Error.Hint = "new binary reported an unknown skill update error"
 		}

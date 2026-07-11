@@ -252,16 +252,16 @@ func connErrorToOutput(err error, alias string) *output.CmdError {
 		return output.Errorf(
 			fmt.Sprintf("host key CHANGED for %s (%s:%s)", errorAlias, ce.Host, ce.Port),
 			fmt.Sprintf("run: sshq trust %s --replace", errorAlias),
-		).WithDetails(details)
+		).WithCode("host_key_mismatch").WithDetails(details)
 	case sshclient.ErrHostKeyUnknown:
 		return output.Errorf(
 			fmt.Sprintf("host key unknown for %s (%s:%s)", errorAlias, ce.Host, ce.Port),
 			fmt.Sprintf("run: sshq trust %s", errorAlias),
-		).WithDetails(details)
+		).WithCode("host_key_unknown").WithDetails(details)
 	case sshclient.ErrAuth:
-		return output.Errorf(ce.Error(), "check credentials and key file")
+		return output.Errorf(ce.Error(), "check credentials and key file").WithCode("auth_failed")
 	case sshclient.ErrNetwork:
-		return output.Errorf(ce.Error(), "check network connectivity")
+		return output.Errorf(ce.Error(), "check network connectivity").WithCode("network_error")
 	default:
 		return output.Errorf(ce.Error(), "check connectivity and credentials")
 	}

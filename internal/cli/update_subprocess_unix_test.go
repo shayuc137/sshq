@@ -12,7 +12,7 @@ import (
 func TestRefreshSkillsWithNewBinaryParsesChildEnvelope(t *testing.T) {
 	script := filepath.Join(t.TempDir(), "sshq")
 	content := `#!/bin/sh
-printf '%s\n' '{"ok":true,"data":{"current_version":"0.4.0","updates":[{"target":"claude","scope":"user","path":"/tmp/skill","from_version":"0.3.0","to_version":"0.4.0","updated":true}]},"schema_version":2}'
+printf '%s\n' '{"data":{"current_version":"0.4.0","updates":[{"target":"claude","scope":"user","path":"/tmp/skill","from_version":"0.3.0","to_version":"0.4.0","updated":true}]}}'
 `
 	if err := os.WriteFile(script, []byte(content), 0755); err != nil {
 		t.Fatal(err)

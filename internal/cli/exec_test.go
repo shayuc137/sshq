@@ -180,19 +180,14 @@ func TestVersionJSONEnvelope(t *testing.T) {
 	}
 
 	var env struct {
-		OK   bool `json:"ok"`
 		Data struct {
 			Version string `json:"version"`
 			Commit  string `json:"commit"`
 			Date    string `json:"date"`
 		} `json:"data"`
-		SchemaVersion int `json:"schema_version"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
 		t.Fatalf("invalid JSON: %v\n%s", err, out.String())
-	}
-	if !env.OK || env.SchemaVersion != output.SchemaVersion {
-		t.Fatalf("envelope = %+v", env)
 	}
 	if env.Data.Version == "" {
 		t.Fatalf("version data = %+v", env.Data)
@@ -231,8 +226,7 @@ func TestRecvExecFramesJSONEnvelope(t *testing.T) {
 			}
 
 			var env struct {
-				OK       bool `json:"ok"`
-				ExitCode int  `json:"exit_code"`
+				ExitCode int `json:"exit_code"`
 				Data     struct {
 					ExitCode int    `json:"exit_code"`
 					Stdout   string `json:"stdout"`
@@ -241,8 +235,8 @@ func TestRecvExecFramesJSONEnvelope(t *testing.T) {
 			if err := json.Unmarshal(out.Bytes(), &env); err != nil {
 				t.Fatalf("invalid JSON: %v\n%s", err, out.String())
 			}
-			if !env.OK || env.ExitCode != tt.wantCode || env.Data.ExitCode != tt.wantCode {
-				t.Fatalf("envelope = %+v, want ok=true and exit_code=%d", env, tt.wantCode)
+			if env.ExitCode != tt.wantCode || env.Data.ExitCode != tt.wantCode {
+				t.Fatalf("envelope = %+v, want exit_code=%d", env, tt.wantCode)
 			}
 			if env.Data.Stdout != "hello\n" {
 				t.Fatalf("data.stdout = %q, want hello", env.Data.Stdout)

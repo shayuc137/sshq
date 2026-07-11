@@ -29,7 +29,7 @@ func TestCacheClearAliasRendersJSONEnvelope(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	assertCacheClearEnvelope(t, out.Bytes(), true, 1)
+	assertCacheClearEnvelope(t, out.Bytes(), 1)
 	if _, ok := cache.Get("192.0.2.10", "22"); ok {
 		t.Fatal("target profile remains cached")
 	}
@@ -56,9 +56,8 @@ func TestCacheClearUnknownAliasReturnsStandardErrorEnvelope(t *testing.T) {
 	w.Error(cmdErr)
 
 	var envelope struct {
-		OK            bool `json:"ok"`
-		SchemaVersion int  `json:"schema_version"`
-		Error         struct {
+		Error struct {
+			Code   string `json:"code"`
 			Hint   string `json:"hint"`
 			Action string `json:"action"`
 		} `json:"error"`
@@ -66,8 +65,8 @@ func TestCacheClearUnknownAliasReturnsStandardErrorEnvelope(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
 		t.Fatalf("invalid JSON: %v\n%s", err, out.String())
 	}
-	if envelope.OK || envelope.SchemaVersion != output.SchemaVersion {
-		t.Fatalf("envelope = %+v", envelope)
+	if envelope.Error.Code != "internal_error" {
+		t.Fatalf("error code = %q, want internal_error", envelope.Error.Code)
 	}
 	if envelope.Error.Hint != `host "missing" not found` || envelope.Error.Action != "run 'sshq ls' to see available hosts" {
 		t.Fatalf("error = %+v", envelope.Error)
@@ -88,7 +87,7 @@ func TestCacheClearAllReportsExactCount(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	assertCacheClearEnvelope(t, out.Bytes(), true, 2)
+	assertCacheClearEnvelope(t, out.Bytes(), 2)
 	if got := cache.Clear(); got != 0 {
 		t.Fatalf("second clear count = %d, want 0", got)
 	}
@@ -114,19 +113,17 @@ func cachedTestProfile() *remote.Profile {
 	return &remote.Profile{OS: remote.Linux, Shell: remote.Bash, DetectedAt: time.Now().Unix()}
 }
 
-func assertCacheClearEnvelope(t *testing.T, data []byte, wantOK bool, wantCleared int) {
+func assertCacheClearEnvelope(t *testing.T, data []byte, wantCleared int) {
 	t.Helper()
 	var envelope struct {
-		OK            bool `json:"ok"`
-		SchemaVersion int  `json:"schema_version"`
-		Data          struct {
+		Data struct {
 			Cleared int `json:"cleared"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(data, &envelope); err != nil {
 		t.Fatalf("invalid JSON: %v\n%s", err, data)
 	}
-	if envelope.OK != wantOK || envelope.SchemaVersion != output.SchemaVersion || envelope.Data.Cleared != wantCleared {
-		t.Fatalf("envelope = %+v, want ok=%v cleared=%d", envelope, wantOK, wantCleared)
+	if envelope.Data.Cleared != wantCleared {
+		t.Fatalf("envelope = %+v, want cleared=%d", envelope, wantCleared)
 	}
 }

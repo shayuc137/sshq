@@ -121,7 +121,6 @@ func TestSkillStatusReportsInstalledVersions(t *testing.T) {
 	}
 
 	var env struct {
-		OK   bool `json:"ok"`
 		Data struct {
 			CurrentVersion string `json:"current_version"`
 			Installations  []struct {
@@ -134,9 +133,6 @@ func TestSkillStatusReportsInstalledVersions(t *testing.T) {
 	}
 	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
 		t.Fatalf("invalid status JSON: %v\n%s", err, out.String())
-	}
-	if !env.OK {
-		t.Fatalf("status envelope ok=false: %+v", env)
 	}
 	if env.Data.CurrentVersion != currentSkillVersion() {
 		t.Fatalf("current version = %q", env.Data.CurrentVersion)
@@ -174,7 +170,6 @@ func TestSkillUpdateRefreshesExistingInstallationsOnly(t *testing.T) {
 	}
 
 	var env struct {
-		OK   bool `json:"ok"`
 		Data struct {
 			Updates []skillUpdateStatus `json:"updates"`
 		} `json:"data"`
@@ -182,7 +177,7 @@ func TestSkillUpdateRefreshesExistingInstallationsOnly(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
 		t.Fatalf("invalid update JSON: %v\n%s", err, out.String())
 	}
-	if !env.OK || len(env.Data.Updates) != 2 {
+	if len(env.Data.Updates) != 2 {
 		t.Fatalf("update result = %+v", env)
 	}
 	for _, update := range env.Data.Updates {

@@ -42,7 +42,7 @@ func TestUpdateCheckAvailableJSONAndExitCode(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
 		t.Fatalf("invalid JSON: %v\n%s", err, out.String())
 	}
-	if envelope["ok"] != true || envelope["exit_code"] != nil {
+	if _, hasError := envelope["error"]; hasError || envelope["exit_code"] != nil {
 		t.Fatalf("envelope = %#v", envelope)
 	}
 	data := envelope["data"].(map[string]any)
@@ -86,7 +86,6 @@ func TestUpdateApplySkillPartialFailureIsSingleResult(t *testing.T) {
 		t.Fatalf("stdout has %d lines: %q", lines, out.String())
 	}
 	var envelope struct {
-		OK   bool `json:"ok"`
 		Data struct {
 			BinaryUpdated bool                `json:"binary_updated"`
 			SkillUpdates  []skillUpdateStatus `json:"skill_updates"`
@@ -96,7 +95,7 @@ func TestUpdateApplySkillPartialFailureIsSingleResult(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if !envelope.OK || !envelope.Data.BinaryUpdated || len(envelope.Data.SkillUpdates) != 1 || envelope.Data.SkillError == "" {
+	if !envelope.Data.BinaryUpdated || len(envelope.Data.SkillUpdates) != 1 || envelope.Data.SkillError == "" {
 		t.Fatalf("envelope = %+v", envelope)
 	}
 }

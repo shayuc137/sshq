@@ -20,7 +20,7 @@ func main() {
 	if err := cmd.ExecuteContext(ctx); err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
-			os.Exit(exitErr.Code)
+			os.Exit(processExitCode(err))
 		}
 
 		var opts []output.Option
@@ -35,10 +35,28 @@ func main() {
 		var cmdErr *output.CmdError
 		if errors.As(err, &cmdErr) {
 			w.Error(cmdErr)
-			os.Exit(cmdErr.ProcessExitCode())
-		} else {
-			w.Error(output.Errorf(err.Error(), ""))
+			os.Exit(processExitCode(err))
 		}
-		os.Exit(1)
+
+		var badNews *output.BadNewsError
+		if errors.As(err, &badNews) {
+			os.Exit(processExitCode(err))
+		}
+
+		w.Error(output.Errorf(err.Error(), "").WithCode("internal_error"))
+		os.Exit(processExitCode(err))
 	}
+}
+
+func processExitCode(err error) int {
+	var remoteExit *exec.ExitError
+	if errors.As(err, &remoteExit) {
+		return 1
+	}
+
+	var coded interface{ ProcessExitCode() int }
+	if errors.As(err, &coded) {
+		return coded.ProcessExitCode()
+	}
+	return 2
 }

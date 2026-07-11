@@ -291,17 +291,15 @@ func TestDoctorCommandRendersSuccessEnvelopeBeforeExitOne(t *testing.T) {
 		t.Fatalf("Execute() error = %v, want exit 1", err)
 	}
 	var envelope struct {
-		OK            bool `json:"ok"`
-		SchemaVersion int  `json:"schema_version"`
-		ExitCode      *int `json:"exit_code"`
-		Data          struct {
+		ExitCode *int `json:"exit_code"`
+		Data     struct {
 			FailedCheck string `json:"failed_check"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
 		t.Fatalf("invalid JSON: %v\n%s", err, out.String())
 	}
-	if !envelope.OK || envelope.SchemaVersion != output.SchemaVersion || envelope.ExitCode != nil {
+	if envelope.ExitCode != nil {
 		t.Fatalf("envelope = %+v", envelope)
 	}
 	if envelope.Data.FailedCheck != string(doctorConfigValid) {

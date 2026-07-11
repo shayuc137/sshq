@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/shayuc137/sshq/internal/config"
-	"github.com/shayuc137/sshq/internal/exec"
 	"github.com/shayuc137/sshq/internal/ipc"
 	"github.com/shayuc137/sshq/internal/output"
 )
@@ -68,8 +67,7 @@ func runRecvCluster(t *testing.T, jsonMode bool, frames ...ipc.Frame) (out, errO
 }
 
 type clusterEnvelope struct {
-	OK       bool `json:"ok"`
-	ExitCode int  `json:"exit_code"`
+	ExitCode int `json:"exit_code"`
 	Data     struct {
 		Results []struct {
 			Alias    string `json:"alias"`
@@ -97,9 +95,6 @@ func TestRecvClusterFramesMultiHostJSON(t *testing.T) {
 	var env clusterEnvelope
 	if e := json.Unmarshal(out.Bytes(), &env); e != nil {
 		t.Fatalf("invalid JSON output: %v\n%s", e, out.String())
-	}
-	if !env.OK {
-		t.Error("envelope ok = false")
 	}
 	if env.ExitCode != 0 {
 		t.Errorf("envelope exit_code = %d, want 0", env.ExitCode)
@@ -135,8 +130,8 @@ func TestRecvClusterFramesNonZeroExitJSON(t *testing.T) {
 		resultFrame(t, ipc.ClusterSummary{Total: 2, Success: 1, Failed: 1}),
 	)
 
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.Code != 1 {
+	var badNews *output.BadNewsError
+	if !errors.As(err, &badNews) || badNews.ProcessExitCode() != 1 {
 		t.Fatalf("expected unchanged process exit status 1, got %v", err)
 	}
 
@@ -144,8 +139,8 @@ func TestRecvClusterFramesNonZeroExitJSON(t *testing.T) {
 	if e := json.Unmarshal(out.Bytes(), &env); e != nil {
 		t.Fatalf("invalid JSON output: %v", e)
 	}
-	if !env.OK || env.ExitCode != 3 {
-		t.Fatalf("envelope ok=%v exit_code=%d, want true and 3", env.OK, env.ExitCode)
+	if env.ExitCode != 3 {
+		t.Fatalf("envelope exit_code=%d, want 3", env.ExitCode)
 	}
 	if env.Data.Results[1].ExitCode != 3 {
 		t.Fatalf("data.results[1].exit_code = %d, want 3", env.Data.Results[1].ExitCode)
@@ -160,9 +155,9 @@ func TestRecvClusterFramesPartialFailureJSON(t *testing.T) {
 		resultFrame(t, ipc.ClusterSummary{Total: 2, Success: 1, Failed: 1}),
 	)
 
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.Code != 1 {
-		t.Fatalf("expected *exec.ExitError{Code:1} on partial failure, got %v", err)
+	var badNews *output.BadNewsError
+	if !errors.As(err, &badNews) || badNews.ProcessExitCode() != 1 {
+		t.Fatalf("expected bad-news process status 1 on partial failure, got %v", err)
 	}
 
 	var env clusterEnvelope
@@ -172,8 +167,8 @@ func TestRecvClusterFramesPartialFailureJSON(t *testing.T) {
 	if len(env.Data.Results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(env.Data.Results))
 	}
-	if !env.OK || env.ExitCode != 1 {
-		t.Fatalf("envelope ok=%v exit_code=%d, want true and 1", env.OK, env.ExitCode)
+	if env.ExitCode != 1 {
+		t.Fatalf("envelope exit_code=%d, want 1", env.ExitCode)
 	}
 	var web2 *struct {
 		Alias    string `json:"alias"`
@@ -199,9 +194,9 @@ func TestRecvClusterFramesNonZeroExitText(t *testing.T) {
 		resultFrame(t, ipc.ClusterSummary{Total: 1, Success: 0, Failed: 1}),
 	)
 
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.Code != 1 {
-		t.Fatalf("expected *exec.ExitError{Code:1} on non-zero exit, got %v", err)
+	var badNews *output.BadNewsError
+	if !errors.As(err, &badNews) || badNews.ProcessExitCode() != 1 {
+		t.Fatalf("expected bad-news process status 1 on non-zero exit, got %v", err)
 	}
 	if !strings.Contains(out.String(), "[web1] hello") {
 		t.Errorf("stdout missing host output: %q", out.String())

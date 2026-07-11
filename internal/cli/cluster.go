@@ -259,7 +259,7 @@ func recvClusterFrames(w *output.Writer, conn net.Conn) error {
 
 			w.Render(clusterResult{Results: results, Summary: summary})
 			if hasError {
-				return &exec.ExitError{Code: 1}
+				return output.BadNews()
 			}
 			return nil
 
@@ -372,7 +372,7 @@ func clusterExecDirectCLI(cmd *cobra.Command, w *output.Writer, store *config.St
 	})
 
 	if hasError {
-		return &exec.ExitError{Code: 1}
+		return output.BadNews()
 	}
 	return nil
 }

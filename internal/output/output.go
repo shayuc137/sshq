@@ -5,20 +5,19 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"strings"
 
 	"github.com/shayuc137/sshq/internal/humanize"
 	"golang.org/x/term"
 )
 
-const SchemaVersion = 2
-
 // Mode is the resolved output form. After construction it is only ModeJSON or ModePretty.
 type Mode int
 
 const (
 	ModeAuto   Mode = iota // resolved from env var and TTY detection
-	ModeJSON               // {ok, data, schema_version} envelope
+	ModeJSON               // {data} or {error} envelope
 	ModePretty             // human-readable form
 )
 
@@ -32,6 +31,16 @@ type Renderable interface {
 type ExitCoder interface {
 	RemoteExitCode() (int, bool)
 }
+
+// BadNewsError marks a completed command whose result is an unsuccessful
+// outcome. The command has already rendered its data before returning it.
+type BadNewsError struct{}
+
+func (*BadNewsError) Error() string        { return "command completed with an unsuccessful result" }
+func (*BadNewsError) ProcessExitCode() int { return 1 }
+
+// BadNews declares that a command completed but its data represents a bad result.
+func BadNews() error { return &BadNewsError{} }
 
 // ProgressInfo is a transfer progress snapshot. It is defined here rather than
 // reusing transfer.ProgressInfo to keep output free of a transfer dependency;
@@ -197,14 +206,12 @@ func (w *Writer) Success(msg string) {
 // Error writes an error: a JSON error envelope to stdout in JSON mode, stderr otherwise.
 func (w *Writer) Error(e *CmdError) {
 	if w.isJSON() {
-		errorData := map[string]any{"hint": e.Hint, "action": e.Action}
-		for key, value := range e.Details {
-			errorData[key] = value
+		errorData := map[string]any{"code": e.Code, "hint": e.Hint, "action": e.Action}
+		if len(e.Details) > 0 {
+			errorData["details"] = e.Details
 		}
 		envelope := map[string]any{
-			"ok":             false,
-			"error":          errorData,
-			"schema_version": SchemaVersion,
+			"error": errorData,
 		}
 		b, _ := json.Marshal(envelope)
 		w.writeln(w.out, string(b))
@@ -217,10 +224,9 @@ func (w *Writer) Error(e *CmdError) {
 }
 
 func (w *Writer) writeEnvelope(data any) {
+	data = normalizeNilSlice(data)
 	envelope := map[string]any{
-		"ok":             true,
-		"data":           data,
-		"schema_version": SchemaVersion,
+		"data": data,
 	}
 	if result, ok := data.(ExitCoder); ok {
 		if exitCode, present := result.RemoteExitCode(); present {
@@ -229,6 +235,17 @@ func (w *Writer) writeEnvelope(data any) {
 	}
 	b, _ := json.Marshal(envelope)
 	w.writeln(w.out, string(b))
+}
+
+func normalizeNilSlice(data any) any {
+	if data == nil {
+		return data
+	}
+	v := reflect.ValueOf(data)
+	if v.Kind() == reflect.Slice && v.IsNil() {
+		return reflect.MakeSlice(v.Type(), 0, 0).Interface()
+	}
+	return data
 }
 
 func (w *Writer) writeln(dest io.Writer, s string) {
@@ -242,7 +259,7 @@ type CmdError struct {
 	Hint    string
 	Action  string
 	Details map[string]any
-	code    int
+	Code    string
 }
 
 func (e *CmdError) Error() string {
@@ -253,21 +270,16 @@ func (e *CmdError) Error() string {
 }
 
 func Errorf(hint, action string) *CmdError {
-	return &CmdError{Hint: hint, Action: action}
+	return &CmdError{Hint: hint, Action: action, Code: "internal_error"}
 }
 
-// WithExitCode assigns a process exit code while preserving 1 as the default
-// for existing command errors.
-func (e *CmdError) WithExitCode(code int) *CmdError {
-	e.code = code
+func (e *CmdError) WithCode(code string) *CmdError {
+	e.Code = code
 	return e
 }
 
 func (e *CmdError) ProcessExitCode() int {
-	if e.code > 0 {
-		return e.code
-	}
-	return 1
+	return 2
 }
 
 func (e *CmdError) WithDetails(details map[string]any) *CmdError {
