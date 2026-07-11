@@ -12,9 +12,9 @@
 
 </div>
 
-agent 调 SSH 最头疼的事：碰上未知 host key 或密码提示，调用直接挂到超时；就算跑通了，拿回来的也是一堆文本，混着连接提示、进度条、各种编码问题，得靠正则猜着 parse。
+让 agent 在子进程里跑 `ssh`，会坏在两个地方。一是各种提示会把调用挂死：碰上未知 host key 或者密码询问，就那么干等到超时。二是就算跑通了，拿回来的也是一锅粥，连接横幅、进度条、编码乱码全混在一起，agent 只能靠正则猜着解析。
 
-sshq 解决的就是这个。所有会触发交互提示的场景都立即失败，返回结构化错误和能直接执行的修复命令。通过管道调用时自动输出 JSON，在终端里用时自动输出易读格式。远程命令的 stdout 就是远端的 stdout，sshq 自己的信息全走 stderr，不会混进去。远端是 bash 还是 PowerShell，sshq 替你处理好。
+sshq 把这些管道问题都处理掉了。所有会触发交互提示的场景一律立即失败，返回结构化错误和一条能直接执行的修复命令。stdout 接管道时自动输出 JSON 信封，接终端时自动输出易读文本。远程命令的输出永远和 sshq 自己的信息分开。远端是 bash 还是 PowerShell，在调用方看到结果之前就已经处理好了。
 
 ```bash
 # 人在终端里执行：stdout 是 TTY，所以输出文本。
@@ -41,7 +41,7 @@ sshq web-1 "hostname" | jq .
 
 ### 安装
 
-不需要安装 Go 或其他工具链。以下稳定下载地址会始终指向最新版本：
+不需要 Go 或其他工具链。稳定下载地址始终指向最新版本：
 
 ```bash
 # Linux amd64
@@ -57,69 +57,27 @@ curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_darwin_a
 sudo mv sshq /usr/local/bin/
 ```
 
-Windows：下载 [`sshq_windows_amd64.zip`](https://github.com/shayuc137/sshq/releases/latest/download/sshq_windows_amd64.zip)，解压后把 `sshq.exe` 放到 PATH 中的文件夹。
+Windows：下载 [`sshq_windows_amd64.zip`](https://github.com/shayuc137/sshq/releases/latest/download/sshq_windows_amd64.zip)，解压后把 `sshq.exe` 放进 PATH 里的目录。
 
 有 Go 1.26+ 的话：`go install github.com/shayuc137/sshq/cmd/sshq@latest`
 
-```bash
-sshq version
-```
+之后升级只需要 `sshq update`，二进制和已安装的 agent skill 一步到位。
 
-详细的各平台安装步骤见[快速开始指南](docs/zh-CN/guide/getting-started.md)。
-
-### 升级
-
-一条命令更新发布版二进制和全部已安装的 agent skill：
-
-```bash
-sshq update
-```
-
-只更新现有 skill 安装时使用：
-
-```bash
-sshq skill update
-```
-
-源码安装仍可使用 `go install github.com/shayuc137/sshq/cmd/sshq@latest`，随后运行 `sshq skill update`。
-
-### 添加主机
+### 添加主机，跑第一条命令
 
 ```bash
 sshq config add myhost \
   --hostname 10.0.0.1 \
   --user root \
   --identity ~/.ssh/id_ed25519
+
+sshq trust myhost        # 获取并固定 host key
+sshq myhost "uname -a"   # 跑点什么
 ```
 
-遇到只能用密码登录的设备时，不要把密码写进 `~/.ssh/config`，用加密凭据库保存：
+`trust` 把 host key 写进 `known_hosts`，只写一次。之后 key 一旦变化，sshq 会拒绝连接，直到你核实后执行 `sshq trust myhost --replace`。只有密码的设备用 `sshq credential set myhost`，密码加密存储，配置文件里不留明文。
 
-```bash
-sshq credential set myhost
-```
-
-### 信任主机密钥
-
-```bash
-sshq trust myhost
-sshq probe myhost
-```
-
-`trust` 会把主机密钥写入 `known_hosts`。如果以后密钥变化，sshq 会拒绝覆盖；确认变更可信后再运行 `sshq trust myhost --replace`。
-
-### 执行命令
-
-```bash
-sshq myhost "uname -a"
-```
-
-上面的快捷写法和下面的显式写法走同一条执行路径：
-
-```bash
-sshq exec myhost "uname -a"
-```
-
-需要命令专属参数时使用 `exec`：
+快捷形式 `sshq myhost "cmd"` 和 `sshq exec myhost "cmd"` 走同一条执行路径。需要命令级 flag 时用 `exec`：
 
 ```bash
 sshq exec --script-file ./scripts/health-check.sh myhost
@@ -127,12 +85,12 @@ sshq exec --shell powershell win-1 "Get-ComputerInfo | Select-Object CsName,Wind
 sshq --timeout 10s myhost "hostname"
 ```
 
-### 传输、批量执行、隧道
+### 传文件、批量跑、开隧道
 
 ```bash
 sshq cp ./deploy.tar.gz myhost:/tmp/
 sshq cp myhost:/var/log/app.log ./logs/
-sshq cp web-1:/data/export.tar.gz backup-1:/srv/backups/
+sshq cp web-1:/data/export.tar.gz backup-1:/srv/backups/   # 服务器到服务器，流式中转
 
 sshq cluster exec "systemctl is-active nginx" --tag web --env production --concurrency 5
 
@@ -141,26 +99,27 @@ sshq tunnel list
 sshq tunnel stop tun-1
 ```
 
+哪里不对劲就跑 `sshq doctor myhost`：按顺序做七项检查，返回第一个失败点和一条能直接粘贴执行的修复命令。
+
 ## 有什么不同
 
 | 特性 | 说明 |
 | --- | --- |
 | TTY 自动检测 | 管道调用自动 JSON，终端自动易读格式，不用加任何 flag |
-| 立即失败，绝不提示 | 未知 host key、认证缺失、策略拦截都立即返回结构化错误和可直接执行的修复命令，绝不弹交互提示把 agent 挂住 |
+| 立即失败，绝不提示 | 未知 host key、认证缺失、策略拦截都立即返回结构化错误和修复命令，绝不弹交互提示把 agent 挂住 |
 | stdout 干净 | `exec` 的 stdout 就是远端 stdout，sshq 自己的信息全走 stderr |
 | 连接池 | daemon 后台复用 SSH 会话，没有 daemon 时自动直连，不影响使用 |
 | 传输降级 | 有 SFTP 就用 SFTP，没有（比如 OpenWrt）就走原始字节流 |
 | shell 适配 | 自动探测远端 bash/ash/PowerShell/cmd，用对应语法包装命令。PowerShell 脚本走 `-EncodedCommand` 执行，多行和中文稳定可靠 |
-| 一步诊断 | `sshq doctor <alias>` 按顺序跑七项检查（从配置到 shell 探测），返回第一个失败点和可直接执行的 `next_action` |
 | 服务器中转 | `sshq cp hostA:/path hostB:/path` 直接流式中转，不落本地 |
 | 安全策略 | 命令黑白名单、路径白名单、隧道转发白名单、临时授权、审计日志 |
-| skill 安装 | `sshq skill install` 一键安装到 Claude Code 或 Codex |
+| skill 安装 | `sshq skill install` 让 Claude Code 或 Codex 把 SSH 操作全部路由到 sshq |
 
 ## 输出规则
 
-sshq 按以下优先级决定输出格式：`--json` > `--pretty` > 环境变量 `SSHQ_OUTPUT=json` > TTY 检测。
+输出格式按优先级决定：`--json` > `--pretty` > 环境变量 `SSHQ_OUTPUT=json` > TTY 检测。
 
-`exec` 有一条硬规则：stdout 只放远端命令的输出，sshq 自己的东西全走 stderr。
+`exec` 有一条硬规则：stdout 只承载远程命令的输出，其他一切走 stderr。
 
 ```bash
 # 远端 stdout 保持干净。
@@ -168,152 +127,71 @@ sshq myhost "printf 'one\ntwo\n'"
 # one
 # two
 
-# sshq 诊断信息写入 stderr。
+# sshq 的诊断信息全在 stderr。
 sshq -v myhost "hostname" >/tmp/remote.out 2>/tmp/sshq.log
 ```
 
-JSON 模式下，同样的保证体现在 `data.stdout`：
-
-```json
-{
-  "ok": true,
-  "exit_code": 0,
-  "data": {
-    "exit_code": 0,
-    "stdout": "one\ntwo\n",
-    "stderr": "",
-    "host": "myhost",
-    "duration_ms": 42
-  },
-  "schema_version": 2
-}
-```
-
-`ok: true` 表示 sshq 调用本身完成了，远端命令的执行结果要看顶层 `exit_code`——非零值表示远端进程失败，即使 `ok` 为 `true`。
+JSON 模式下，`ok: true` 只代表 sshq 这次调用本身成功。远程命令的结果看顶层 `exit_code`，它非零就说明远端进程失败了，哪怕 `ok` 是 `true`。两个都要看。
 
 ## 安全模型
 
-这类工具有两个信任问题：sshq 本身可不可信，以及敢不敢把它交给 agent。两个问题都有具体答案。
+这类工具有两个信任问题：sshq 本身可不可信，以及敢不敢把它交给 agent。
 
 ### 信任与隐私
 
-- **零遥测。** 除了你主动发起的 SSH 会话，sshq 没有任何网络连接。整个代码库唯一的 HTTP 客户端属于更新器——只在你执行 `sshq update` 时运行，只连 GitHub，重定向到其他任何主机都会被拒绝。
-- **私钥永远留在本机。** 认证优先使用运行中的 ssh-agent；`~/.ssh/config` 引用的密钥文件只在本地读取用于握手签名——从不复制、缓存或传输。
-- **严格 host key 验证，绝不挂起。** 未知或变化的 host key 立即失败，返回结构化错误和 `sshq trust` 提示。没有会把 agent 挂住的交互确认，也没有静默接受。
-- **daemon 仅当前用户可用。** 连接池监听用户配置目录下权限为 `0600` 的 Unix socket，不开任何 TCP 端口。`--no-daemon` 可完全绕过。
-- **你的 `~/.ssh/config` 还是你的。** sshq 原样读取，只在你显式执行 `sshq config add/update/remove` 时原子写入，并在旁边留一份备份。密码、策略、审计日志都放在独立的 `config.toml` 里。
-- **卸载只删两个东西。** 二进制文件和 sshq 配置目录，系统其他任何地方都不会被碰。
+一个握着你所有服务器钥匙的工具，它自己拿这些钥匙做了什么？这个问题值得问。
 
-sshq 处于 1.0 之前：JSON 信封带 `schema_version` 字段，任何破坏性输出变更都会递增版本号并记录在 [CHANGELOG](CHANGELOG.md)。
+什么都不会离开你的机器。没有遥测。整个代码库唯一的 HTTP 客户端属于 `sshq update`，只在你主动执行时运行，重定向到 GitHub 以外的任何地方都会被拒绝。认证优先用你正在运行的 ssh-agent；`~/.ssh/config` 里引用的密钥文件只在本地读取、用于握手签名，用途仅此而已。
 
-### 加密凭据
+daemon 监听的是用户配置目录下权限 `0600` 的 Unix socket，不开任何 TCP 端口，加 `--no-daemon` 可以完全绕过它。你的 `~/.ssh/config` 会被原样读取，只在你显式执行 `sshq config add/update/remove` 时才原子写入，旁边留一份备份。sshq 自己的东西（密码、策略、审计日志）都放在独立的 `config.toml` 里。卸载就是删掉二进制和这个配置目录，别的地方不会留下任何东西。
 
-```bash
-sshq credential set router-1
-sshq credential list
-sshq credential delete router-1
-```
+sshq 还在 1.0 之前。JSON 信封带 `schema_version` 字段，破坏性的输出变更会递增版本号并记录在 [CHANGELOG](CHANGELOG.md)。
 
-密码用 age 加密存储。认证优先级：ssh-agent > 私钥 > 存储的密码。没有命令会打印密码明文。
+### 交给 agent
 
-无终端环境（daemon、agent 管道）下需要凭据库时，启动前设好 `SSHQ_CREDENTIAL_PASSPHRASE` 环境变量。
+密码进加密存储，不进配置文件。`sshq credential set myhost` 问一次密码，用 age 加密；认证顺序是 ssh-agent、密钥文件、存储的密码。没有任何命令会把存储的密码打印出来。
 
-### 能力策略
-
-策略写在系统配置目录下的 `config.toml`，Linux 上通常是 `~/.config/sshq/config.toml`。
+能力策略限制 agent 实际能做什么，可以按主机配，也可以全局配：
 
 ```toml
 [policy.default]
-command_whitelist = ["^hostname(\\s|$)", "^uptime(\\s|$)", "^df(\\s|$)"]
 command_blacklist = ["(?i)(^|[;&|])\\s*(rm|dd|mkfs|shutdown)\\b"]
-local_path_whitelist = ["."]
-remote_path_whitelist = ["/tmp", "/var/log"]
-local_forward_whitelist = ["localhost:*", "127.0.0.1:*", "db.internal:5432"]
-remote_forward_whitelist = ["localhost:3000", "127.0.0.1:8000-9000"]
 
 [policy.hosts.prod-db]
 mode = "override"
 command_whitelist = ["^journalctl(\\s|$)", "^systemctl\\s+status\\s"]
-command_blacklist = ["(?i)\\b(reboot|shutdown|mkfs)\\b"]
 remote_path_whitelist = ["/var/log"]
-local_forward_whitelist = ["db.internal:5432"]
 ```
 
-CLI 直连和 daemon 路径都走策略检查。隧道方面，`-L` 检查远端目标，`-R` 检查本地目标。
+CLI 和 daemon 两条路径都会执行策略检查。`sshq policy check prod-db --command "..."` 可以在不执行任何操作的前提下测试一条决策；`sshq policy grant` 签发只能在终端操作的临时授权，按 TTL 过期，永远不能越过黑名单。
 
-执行前可以先试一下会不会被拦：
+审计日志把每一次 `exec`、`cp`、`tunnel`、`cluster` 和被策略拦截的操作记成 JSONL 元数据。命令输出、密码、脚本内容都不入日志，脚本只记 SHA-256 哈希和字节数。审计开着但日志写不进去时，sshq 会直接拒绝执行操作，绝不悄悄绕过。
 
-```bash
-sshq policy validate
-sshq policy check prod-db --command "journalctl -u app -n 100"
-sshq policy check prod-db --remote-path /var/log/app.log
-sshq policy check prod-db --local-forward db.internal:5432
-```
-
-临时授权需要终端交互，到期自动失效，黑名单永远不能绕过：
-
-```bash
-sshq policy grant prod-db "^journalctl(\\s|$)" --ttl 15m
-sshq policy grant prod-db db.internal:5432 --kind local-forward --ttl 15m
-sshq policy revoke --alias prod-db
-```
-
-### 审计日志
-
-```toml
-[audit]
-enabled = true
-path = "~/.config/sshq/audit.jsonl"
-max_size = "10MB"
-```
-
-记录每次 `exec`、`cp`、`tunnel`、`cluster` 操作和被策略拦截的请求。只记元数据，不存命令输出、密码或脚本内容（脚本只记 SHA-256 和字节数）。
-
-```bash
-sshq audit --last 50
-sshq audit --alias prod-db --operation exec
-```
-
-审计开了但日志写不进去时，sshq 会拒绝执行，不会静默跳过。
+策略字段和授权类型的完整说明见[安全指南](docs/zh-CN/guide/security.md)。
 
 ## 架构
 
 ```mermaid
 graph LR
-    A[Agent / Human] --> B[sshq CLI]
-    B --> P[Policy + Audit]
-    P --> C{Daemon running?}
-    C -->|yes| D[Connection Pool]
-    C -->|no| E[Direct SSH Dial]
-    D --> F[SSH Sessions]
+    A[Agent / 人] --> B[sshq CLI]
+    B --> P[策略 + 审计]
+    P --> C{daemon 在运行?}
+    C -->|是| D[连接池]
+    C -->|否| E[直连 SSH]
+    D --> F[SSH 会话]
     E --> F
-    F --> G[Remote Hosts]
+    F --> G[远程主机]
 
-    B --> H{stdout is TTY?}
-    H -->|yes| I[Pretty Output]
-    H -->|no| J[JSON Output]
+    B --> H{stdout 是 TTY?}
+    H -->|是| I[易读输出]
+    H -->|否| J[JSON 输出]
 ```
 
-daemon 管连接池、profile 缓存和后台隧道。没有 daemon 也能用，只是每次重新连。
+daemon 管理连接复用、shell 探测缓存和后台隧道。没有它一切照常工作，只是重复调用会慢一些。
 
 ## Agent 集成
 
-Claude Code、Codex、Cursor 这类工具可以直接通过子进程调用 sshq。
-
-```bash
-# Agent 通过子进程调用：stdout 是管道，所以输出 JSON。
-result=$(sshq myhost "df -h")
-# → {"ok":true,"exit_code":0,"data":{"exit_code":0,"stdout":"...","stderr":"","host":"myhost","duration_ms":42},"schema_version":2}
-
-# 人在终端里输入：stdout 是 TTY，所以输出易读文本。
-sshq myhost "df -h"
-# → Filesystem      Size  Used Avail Use% Mounted on
-#   /dev/sda1        50G   12G   35G  26% /
-```
-
-`ok: true` 表示 sshq 调用完成。远端命令的结果在顶层 `exit_code` 里——非零值意味着远端进程失败，即便 `ok` 为 `true`。
-
-安装内置 skill：
+Claude Code、Codex、Cursor，任何能跑子进程的工具都可以直接调 sshq，页面开头演示的管道检测就是全部要求。配套的 skill 更进一步，让 agent 把所有 SSH 操作路由到 sshq，替代裸的 `ssh` 和 `scp`：
 
 ```bash
 sshq skill install                       # Claude Code，用户级
@@ -322,48 +200,23 @@ sshq skill install --project             # 项目级安装
 sshq skill status
 ```
 
-skill 让 agent 的 SSH 操作都走 sshq，按场景加载命令参考，不再直接调 `ssh` / `scp`。
-
 ## 文档
 
-| 资源 | 适用场景 |
+| 资源 | 什么时候看 |
 | --- | --- |
-| [快速开始](docs/zh-CN/guide/getting-started.md) | 安装 sshq、添加主机、信任密钥、运行第一条命令 |
-| [远程执行](docs/zh-CN/guide/remote-execution.md) | 命令执行、脚本文件、shell 覆盖、超时、Windows 编码 |
-| [文件传输](docs/zh-CN/guide/file-transfer.md) | 上传、下载、递归复制、远端到远端中转、传输引擎回退 |
-| [集群操作](docs/zh-CN/guide/cluster-operations.md) | 对筛选出的多台主机执行同一条命令并控制并发 |
-| [SSH 隧道](docs/zh-CN/guide/tunnels.md) | 创建本地/远端端口转发，管理 daemon 持有的隧道 |
-| [主机管理](docs/zh-CN/guide/host-management.md) | 编辑 SSH config、元数据、ProxyJump 链、凭据、主机密钥 |
+| [快速开始](docs/zh-CN/guide/getting-started.md) | 安装 sshq、添加主机、信任 host key、跑第一条命令 |
+| [远程执行](docs/zh-CN/guide/remote-execution.md) | 执行命令、脚本文件、shell 覆盖、超时、Windows 编码 |
+| [文件传输](docs/zh-CN/guide/file-transfer.md) | 上传、下载、递归复制、远程到远程中转、引擎降级 |
+| [集群操作](docs/zh-CN/guide/cluster-operations.md) | 在选定主机上并发执行同一条命令 |
+| [隧道](docs/zh-CN/guide/tunnels.md) | 建立本地或远程端口转发，管理 daemon 托管的隧道 |
+| [主机管理](docs/zh-CN/guide/host-management.md) | 编辑 SSH 配置、元数据、ProxyJump 链、凭据、信任 key |
 | [安全](docs/zh-CN/guide/security.md) | 配置凭据加密、能力策略、临时授权、审计日志 |
 | [Agent 集成](docs/zh-CN/guide/agent-integration.md) | 理解 JSON 信封、stdout 纯净性、错误处理和 skill 用法 |
 | [Skill 包](skills/sshq/SKILL.md) | 查看 agent 使用的路由表 |
-| [Skill 参考](skills/sshq/references/) | 查看按场景拆分的命令参考 |
 
-## 项目结构
+## 贡献
 
-```text
-sshq/
-├── cmd/sshq/              # 入口
-├── internal/
-│   ├── audit/             # JSONL 操作审计日志
-│   ├── cli/               # Cobra 命令定义
-│   ├── config/            # SSH 配置解析 + sshq 元数据
-│   ├── credential/        # 加密密码凭据库
-│   ├── exec/              # 远程命令执行
-│   ├── output/            # TTY 检测，JSON/易读渲染
-│   ├── policy/            # 能力策略、临时授权、转发/路径检查
-│   ├── pool/              # 连接池 daemon
-│   ├── remote/            # shell 探测、编码、profile 缓存
-│   ├── sshclient/         # SSH 连接、ProxyJump、主机密钥处理
-│   ├── transfer/          # SFTP + 原始字节流文件传输
-│   └── tunnel/            # SSH 隧道管理
-├── skills/sshq/           # AI skill 包
-└── docs/                  # 指南和命令参考
-```
-
-## 参与贡献
-
-见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+开发环境、工作流、测试、文档同步和提交规范见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 许可证
 

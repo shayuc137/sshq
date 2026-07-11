@@ -12,9 +12,9 @@ Agent-safe SSH in one cross-platform binary.
 
 </div>
 
-AI agents call SSH through subprocesses. An unknown host key or a password prompt hangs the call until it times out. What does come back is unstructured text — banners, progress bars, encoding surprises — that the agent parses with regex and hopes for the best.
+Let an AI agent run `ssh` in a subprocess and two things go wrong. Prompts hang it: an unknown host key or a password question sits there until the call times out. And the output that does come back is a soup of banners, progress bars, and encoding accidents that the agent parses with regex, hoping for the best.
 
-sshq cleans up the plumbing. Anything that would prompt fails fast with a structured error and the exact command that fixes it. Pipe calls get JSON automatically. Terminal sessions get readable text. Remote stdout is never polluted by sshq's own messages. Shell differences between bash, ash, PowerShell, and cmd are sorted out before the caller sees anything.
+sshq fixes the plumbing. Anything that would prompt fails immediately with a structured error and the command that fixes it. When stdout is a pipe you get a JSON envelope; in a terminal you get readable text. Remote output is never mixed with sshq's own messages, and shell differences (bash, ash, PowerShell, cmd) are handled before the caller sees anything.
 
 ```bash
 # Human in a terminal: stdout is a TTY, so sshq prints text.
@@ -61,65 +61,23 @@ Windows: download [`sshq_windows_amd64.zip`](https://github.com/shayuc137/sshq/r
 
 If you have Go 1.26+: `go install github.com/shayuc137/sshq/cmd/sshq@latest`
 
-```bash
-sshq version
-```
+Later, `sshq update` upgrades the binary and every installed agent skill in one step.
 
-See the [Getting Started guide](docs/en/guide/getting-started.md) for detailed platform instructions.
-
-### Upgrade
-
-Update the release binary and every installed agent skill in one command:
-
-```bash
-sshq update
-```
-
-To update only existing skill installations:
-
-```bash
-sshq skill update
-```
-
-Source installations can continue to use `go install github.com/shayuc137/sshq/cmd/sshq@latest`, followed by `sshq skill update`.
-
-### Add a host
+### Add a host and run a command
 
 ```bash
 sshq config add myhost \
   --hostname 10.0.0.1 \
   --user root \
   --identity ~/.ssh/id_ed25519
+
+sshq trust myhost        # fetch and pin the host key
+sshq myhost "uname -a"   # run something
 ```
 
-For a password-only device, keep the password out of `~/.ssh/config` and store it in the encrypted credential store:
+`trust` writes the host key to `known_hosts` once. If the key ever changes, sshq refuses the connection until you verify and run `sshq trust myhost --replace`. For password-only devices, `sshq credential set myhost` stores the password encrypted instead of leaving it in a config file.
 
-```bash
-sshq credential set myhost
-```
-
-### Trust the host key
-
-```bash
-sshq trust myhost
-sshq probe myhost
-```
-
-`trust` writes the host key to `known_hosts`. If a key changes later, sshq refuses to overwrite it unless you run `sshq trust myhost --replace` after verifying the change.
-
-### Run a command
-
-```bash
-sshq myhost "uname -a"
-```
-
-The shortcut above is the same execution path as:
-
-```bash
-sshq exec myhost "uname -a"
-```
-
-Use `exec` when you need command-specific flags:
+The shortcut form `sshq myhost "cmd"` is the same execution path as `sshq exec myhost "cmd"`. Use `exec` when you need its flags:
 
 ```bash
 sshq exec --script-file ./scripts/health-check.sh myhost
@@ -132,7 +90,7 @@ sshq --timeout 10s myhost "hostname"
 ```bash
 sshq cp ./deploy.tar.gz myhost:/tmp/
 sshq cp myhost:/var/log/app.log ./logs/
-sshq cp web-1:/data/export.tar.gz backup-1:/srv/backups/
+sshq cp web-1:/data/export.tar.gz backup-1:/srv/backups/   # server to server, streamed
 
 sshq cluster exec "systemctl is-active nginx" --tag web --env production --concurrency 5
 
@@ -140,6 +98,8 @@ sshq tunnel start bastion -L 15432:db.internal:5432
 sshq tunnel list
 sshq tunnel stop tun-1
 ```
+
+When something misbehaves, `sshq doctor myhost` runs seven ordered checks and returns the first failure with a command you can paste to fix it.
 
 ## What sshq does differently
 
@@ -150,11 +110,10 @@ sshq tunnel stop tun-1
 | stdout purity for `exec` | stdout is exactly the remote stdout. sshq's own status, progress, and diagnostics go to stderr. |
 | Daemon connection pool | Repeat calls reuse SSH sessions. If the daemon is unavailable, commands fall back to direct SSH. |
 | SFTP with raw fallback | File transfer works on normal servers and on minimal BusyBox/OpenWrt-style hosts without `sftp-server`. |
-| Remote shell detection | sshq probes bash, ash, zsh, sh, PowerShell, and cmd paths, then wraps commands with the right syntax. PowerShell scripts run through `-EncodedCommand` for reliable multi-line and CJK support. |
-| One-step diagnostics | `sshq doctor <alias>` runs seven ordered checks (config through shell detection) and returns the first failure with a directly executable `next_action`. |
+| Remote shell detection | sshq probes bash, ash, zsh, sh, PowerShell, and cmd, then wraps commands with the right syntax. PowerShell scripts run through `-EncodedCommand` for reliable multi-line and CJK support. |
 | Server-to-server relay | `sshq cp hostA:/path hostB:/path` streams through the local sshq process without writing a local temp file. |
-| Capability policy | Command allow/deny lists, file path allowlists, tunnel forward allowlists, temporary grants, and audit logging live in one policy layer. |
-| AI skill install | `sshq skill install` installs routing instructions for Claude Code or Codex. |
+| Capability policy | Command allow/deny lists, path allowlists, tunnel allowlists, temporary grants, and audit logging in one policy layer. |
+| AI skill install | `sshq skill install` teaches Claude Code or Codex to route SSH work through sshq. |
 
 ## Output contract
 
@@ -172,109 +131,43 @@ sshq myhost "printf 'one\ntwo\n'"
 sshq -v myhost "hostname" >/tmp/remote.out 2>/tmp/sshq.log
 ```
 
-In JSON mode, remote output lands in `data.stdout`:
-
-```json
-{
-  "ok": true,
-  "exit_code": 0,
-  "data": {
-    "exit_code": 0,
-    "stdout": "one\ntwo\n",
-    "stderr": "",
-    "host": "myhost",
-    "duration_ms": 42
-  },
-  "schema_version": 2
-}
-```
-
-`ok: true` means the sshq call completed, but the remote command may still have failed — always check the top-level `exit_code` for the remote result.
+In JSON mode, `ok: true` means the sshq call itself completed. The remote command's result is the top-level `exit_code`, and a non-zero value there means the remote process failed even though `ok` is `true`. Check both.
 
 ## Security model
 
-Two trust questions matter for a tool like this: can you trust sshq itself, and can you hand it to an agent. Both get concrete answers.
+Two trust questions matter for a tool like this: can you trust sshq itself, and can you hand it to an agent.
 
-### Trust & privacy
+### Trust and privacy
 
-- **No telemetry.** sshq makes no network connections beyond the SSH sessions you request. The only HTTP client in the codebase belongs to the updater — it runs solely when you invoke `sshq update`, talks only to GitHub, and rejects redirects to any other host.
-- **Private keys never leave your machine.** Authentication prefers your running ssh-agent. Key files referenced in `~/.ssh/config` are read only to sign the SSH handshake locally — never copied, cached, or transmitted.
-- **Strict host key verification, no hangs.** An unknown or changed host key fails immediately with a structured error and a `sshq trust` hint. There is no interactive prompt to hang an agent, and no silent accept.
-- **The daemon is private to your user.** The connection pool listens on a Unix socket with `0600` permissions inside your user config directory — no TCP port is opened. `--no-daemon` bypasses it entirely.
-- **Your `~/.ssh/config` stays yours.** sshq reads it as-is and writes only on an explicit `sshq config add/update/remove` — atomically, with a backup file left next to it. Passwords, access rules, and audit logs live in a separate `config.toml`.
-- **Uninstall is two deletions.** The binary and the sshq config directory. Nothing else on the system is touched.
+Fair question for a tool that holds the keys to your servers: what does sshq do with them?
 
-sshq is pre-1.0: the JSON envelope carries a `schema_version` field, and any breaking output change bumps it and is documented in the [CHANGELOG](CHANGELOG.md).
+Nothing leaves your machine. There is no telemetry. The only HTTP client in the codebase belongs to `sshq update`, runs only when you invoke it, and refuses redirects away from GitHub. Authentication goes through your running ssh-agent when there is one; key files named in `~/.ssh/config` are read locally to sign the SSH handshake, and that is all they are used for.
 
-### Encrypted credentials
+The daemon listens on a Unix socket with `0600` permissions inside your user config directory. It opens no TCP port, and `--no-daemon` skips it entirely. Your `~/.ssh/config` is read as-is and written only on an explicit `sshq config add/update/remove`, atomically, with a backup left next to it. Everything sshq owns (passwords, policy, audit logs) lives in a separate `config.toml`. Uninstalling means deleting the binary and that config directory.
 
-```bash
-sshq credential set router-1
-sshq credential list
-sshq credential delete router-1
-```
+sshq is pre-1.0. The JSON envelope carries a `schema_version` field, and breaking output changes bump it and are documented in the [CHANGELOG](CHANGELOG.md).
 
-Passwords are encrypted with age. Auth priority: ssh-agent > key file > stored password. No command prints stored passwords.
+### Handing it to an agent
 
-Headless environments (daemon, agent pipe): set `SSHQ_CREDENTIAL_PASSPHRASE` before starting sshq.
+Passwords go in an encrypted store, never in config files. `sshq credential set myhost` prompts once and encrypts with age; auth order is ssh-agent, then key file, then stored password. No command prints a stored password back.
 
-### Capability policy
-
-Policy lives in `config.toml` under the OS config directory, such as `~/.config/sshq/config.toml` on Linux.
+The capability policy limits what an agent can actually do, per host or globally:
 
 ```toml
 [policy.default]
-command_whitelist = ["^hostname(\\s|$)", "^uptime(\\s|$)", "^df(\\s|$)"]
 command_blacklist = ["(?i)(^|[;&|])\\s*(rm|dd|mkfs|shutdown)\\b"]
-local_path_whitelist = ["."]
-remote_path_whitelist = ["/tmp", "/var/log"]
-local_forward_whitelist = ["localhost:*", "127.0.0.1:*", "db.internal:5432"]
-remote_forward_whitelist = ["localhost:3000", "127.0.0.1:8000-9000"]
 
 [policy.hosts.prod-db]
 mode = "override"
 command_whitelist = ["^journalctl(\\s|$)", "^systemctl\\s+status\\s"]
-command_blacklist = ["(?i)\\b(reboot|shutdown|mkfs)\\b"]
 remote_path_whitelist = ["/var/log"]
-local_forward_whitelist = ["db.internal:5432"]
 ```
 
-Both CLI and daemon paths run policy checks. For tunnels, `-L` checks the remote target, `-R` checks the local target.
+Both the CLI and daemon paths enforce it. `sshq policy check prod-db --command "..."` tests a decision without running anything, and `sshq policy grant` issues terminal-only temporary permissions that expire by TTL and never override a blacklist.
 
-Test a decision before running the operation:
+The audit log records every `exec`, `cp`, `tunnel`, `cluster`, and policy-blocked operation as JSONL metadata. Command output, passwords, and script contents stay out of it; scripts are logged as a SHA-256 hash and byte count. If audit is enabled but the log cannot be written, sshq refuses to run the operation rather than proceed unrecorded.
 
-```bash
-sshq policy validate
-sshq policy check prod-db --command "journalctl -u app -n 100"
-sshq policy check prod-db --remote-path /var/log/app.log
-sshq policy check prod-db --local-forward db.internal:5432
-```
-
-Temporary grants require a terminal, expire by TTL, and never override blacklists:
-
-```bash
-sshq policy grant prod-db "^journalctl(\\s|$)" --ttl 15m
-sshq policy grant prod-db db.internal:5432 --kind local-forward --ttl 15m
-sshq policy revoke --alias prod-db
-```
-
-### Audit log
-
-```toml
-[audit]
-enabled = true
-path = "~/.config/sshq/audit.jsonl"
-max_size = "10MB"
-```
-
-Records every `exec`, `cp`, `tunnel`, `cluster`, and policy-blocked operation as JSONL metadata. No command output, passwords, or script contents are stored (scripts get a SHA-256 hash and byte count).
-
-```bash
-sshq audit --last 50
-sshq audit --alias prod-db --operation exec
-```
-
-If audit is on but the log can't be written, sshq refuses to run the operation. No silent bypass.
+Full reference with all policy fields and grant kinds: [Security guide](docs/en/guide/security.md).
 
 ## Architecture
 
@@ -294,26 +187,11 @@ graph LR
     H -->|no| J[JSON Output]
 ```
 
-The daemon manages pooled connections, cached profiles, and background tunnels. Everything works without it too — just slower on repeat calls.
+The daemon manages pooled connections, cached shell profiles, and background tunnels. Everything works without it too, just slower on repeat calls.
 
 ## Agent integration
 
-Claude Code, Codex, Cursor, or any tool that can run a subprocess can call sshq directly.
-
-```bash
-# Agent calls via subprocess: stdout is a pipe, so output is JSON.
-result=$(sshq myhost "df -h")
-# → {"ok":true,"exit_code":0,"data":{"exit_code":0,"stdout":"...","stderr":"","host":"myhost","duration_ms":42},"schema_version":2}
-
-# Human types in a terminal: stdout is a TTY, so output is readable.
-sshq myhost "df -h"
-# → Filesystem      Size  Used Avail Use% Mounted on
-#   /dev/sda1        50G   12G   35G  26% /
-```
-
-`ok: true` confirms the sshq call completed. The remote command result is in the top-level `exit_code` — a non-zero value means the remote process failed, even when `ok` is `true`.
-
-Install the bundled skill:
+Claude Code, Codex, Cursor, or any tool that runs subprocesses can call sshq directly; the pipe detection shown at the top of this page is all it takes. The bundled skill goes further and teaches the agent to route all SSH work through sshq instead of raw `ssh` and `scp`:
 
 ```bash
 sshq skill install                       # Claude Code, user scope
@@ -321,8 +199,6 @@ sshq skill install --codex               # Codex
 sshq skill install --project             # project-level install
 sshq skill status
 ```
-
-The skill makes agents route SSH work through sshq, load command references on demand, and stop using raw `ssh` / `scp`.
 
 ## Documentation
 
@@ -337,29 +213,6 @@ The skill makes agents route SSH work through sshq, load command references on d
 | [Security](docs/en/guide/security.md) | configure credential encryption, capability policy, temporary grants, audit logs |
 | [Agent Integration](docs/en/guide/agent-integration.md) | understand JSON envelopes, stdout purity, error handling, and skill usage |
 | [Skill package](skills/sshq/SKILL.md) | see the routing table agents use |
-| [Skill references](skills/sshq/references/) | inspect scenario-specific command references |
-
-## Project structure
-
-```text
-sshq/
-├── cmd/sshq/              # entry point
-├── internal/
-│   ├── audit/             # JSONL operation audit log
-│   ├── cli/               # Cobra command definitions
-│   ├── config/            # SSH config parser + sshq metadata
-│   ├── credential/        # encrypted password store
-│   ├── exec/              # remote command execution
-│   ├── output/            # TTY detection, JSON/pretty rendering
-│   ├── policy/            # capability policy, grants, forward/path checks
-│   ├── pool/              # connection pool daemon
-│   ├── remote/            # shell detection, encoding, profile cache
-│   ├── sshclient/         # SSH dial, ProxyJump, host key handling
-│   ├── transfer/          # SFTP + raw stream file transfer
-│   └── tunnel/            # SSH tunnel management
-├── skills/sshq/           # AI skill package
-└── docs/                  # guides and command references
-```
 
 ## Contributing
 
