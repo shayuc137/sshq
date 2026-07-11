@@ -12,9 +12,16 @@ Agent-safe SSH in one cross-platform binary.
 
 </div>
 
-Let an AI agent run `ssh` in a subprocess and two things go wrong. Prompts hang it: an unknown host key or a password question sits there until the call times out. And the output that does come back is a soup of banners, progress bars, and encoding accidents that the agent parses with regex, hoping for the best.
+Let an AI agent run `ssh` against a remote host and two problems show up fast:
 
-sshq fixes the plumbing. Anything that would prompt fails immediately with a structured error and the command that fixes it. When stdout is a pipe you get a JSON envelope; in a terminal you get readable text. Remote output is never mixed with sshq's own messages, and shell differences (bash, ash, PowerShell, cmd) are handled before the caller sees anything.
+1. Anything interactive stalls the call. An unknown host key or a password prompt has no one to answer it, so the agent just waits until the timeout kills it.
+2. Even when the command works, what comes back is a mess: login banners, progress-bar redraws, encoding accidents. Hundreds of junk lines land straight in the agent's context, and extracting the answer means guessing with regexes.
+
+sshq exists to give agents a decent ssh experience:
+
+1. Agents can't answer prompts, so anything that would prompt fails immediately with a structured error and the exact command that fixes it.
+2. When an agent calls sshq, stdout is a JSON envelope it can parse directly, no guessing; remote command output is never mixed with sshq's own messages.
+3. On first connect sshq detects the remote shell and caches the result, with stale-shell detection and config hot-reload. Every later command is wrapped in that shell's syntax, and output is transcoded to UTF-8 on the way back.
 
 ```bash
 # Human in a terminal: stdout is a TTY, so sshq prints text.
@@ -22,18 +29,16 @@ sshq web-1 "hostname"
 # web-1
 
 # Agent or script: stdout is a pipe, so sshq prints a JSON envelope.
+# jq here only pretty-prints; any pipe or redirect triggers JSON, jq is not the switch.
 sshq web-1 "hostname" | jq .
 # {
-#   "ok": true,
 #   "exit_code": 0,
 #   "data": {
-#     "exit_code": 0,
 #     "stdout": "web-1\n",
 #     "stderr": "",
-#     "host": "web-1",
+#     "alias": "web-1",
 #     "duration_ms": 42
-#   },
-#   "schema_version": 2
+#   }
 # }
 ```
 
@@ -41,21 +46,22 @@ sshq web-1 "hostname" | jq .
 
 ### Install
 
-No Go or other toolchain required. The stable download URLs always resolve to the latest release:
+No Go toolchain, no sudo. The stable download URLs always resolve to the latest release:
 
 ```bash
+mkdir -p ~/.local/bin
+
 # Linux amd64
-curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_linux_amd64.tar.gz | tar xz
-sudo mv sshq /usr/local/bin/
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_linux_amd64.tar.gz | tar xz -C ~/.local/bin
 
 # macOS (Apple Silicon)
-curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_darwin_arm64.tar.gz | tar xz
-sudo mv sshq /usr/local/bin/
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_darwin_arm64.tar.gz | tar xz -C ~/.local/bin
 
 # macOS (Intel)
-curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_darwin_amd64.tar.gz | tar xz
-sudo mv sshq /usr/local/bin/
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_darwin_amd64.tar.gz | tar xz -C ~/.local/bin
 ```
+
+If the shell can't find sshq afterwards, add `~/.local/bin` to PATH (most Linux distributions already have it; macOS needs it added).
 
 Windows: download [`sshq_windows_amd64.zip`](https://github.com/shayuc137/sshq/releases/latest/download/sshq_windows_amd64.zip), extract it, and put `sshq.exe` somewhere on PATH.
 
@@ -63,7 +69,16 @@ If you have Go 1.26+: `go install github.com/shayuc137/sshq/cmd/sshq@latest`
 
 Later, `sshq update` upgrades the binary and every installed agent skill in one step.
 
-### Add a host and run a command
+### Run your first command
+
+sshq reads your existing `~/.ssh/config` and `~/.ssh/known_hosts` directly. Any host you can already `ssh` into works the moment sshq is installed, nothing to migrate:
+
+```bash
+sshq ls                  # list every host already in your config
+sshq myhost "uname -a"   # just run it
+```
+
+To add a new host, one command writes it into `~/.ssh/config` (atomically, with a backup):
 
 ```bash
 sshq config add myhost \
@@ -72,7 +87,7 @@ sshq config add myhost \
   --identity ~/.ssh/id_ed25519
 
 sshq trust myhost        # fetch and pin the host key
-sshq myhost "uname -a"   # run something
+sshq myhost "uname -a"
 ```
 
 `trust` writes the host key to `known_hosts` once. If the key ever changes, sshq refuses the connection until you verify and run `sshq trust myhost --replace`. For password-only devices, `sshq credential set myhost` stores the password encrypted instead of leaving it in a config file.
@@ -80,8 +95,8 @@ sshq myhost "uname -a"   # run something
 The shortcut form `sshq myhost "cmd"` is the same execution path as `sshq exec myhost "cmd"`. Use `exec` when you need its flags:
 
 ```bash
-sshq exec --script-file ./scripts/health-check.sh myhost
-sshq exec --shell powershell win-1 "Get-ComputerInfo | Select-Object CsName,WindowsVersion"
+sshq exec myhost --script-file ./scripts/health-check.sh
+sshq exec win-1 --shell powershell "Get-ComputerInfo | Select-Object CsName,WindowsVersion"
 sshq --timeout 10s myhost "hostname"
 ```
 
@@ -131,7 +146,37 @@ sshq myhost "printf 'one\ntwo\n'"
 sshq -v myhost "hostname" >/tmp/remote.out 2>/tmp/sshq.log
 ```
 
-In JSON mode, `ok: true` means the sshq call itself completed. The remote command's result is the top-level `exit_code`, and a non-zero value there means the remote process failed even though `ok` is `true`. Check both.
+The JSON envelope has exactly two shapes, and the shape alone tells you what happened:
+
+```bash
+# Shape one: sshq did its job, data holds the result.
+# The remote command's exit code sits at the top level; non-zero means the remote command failed.
+sshq myhost "ls /nonexistent" | jq .
+# {
+#   "exit_code": 2,
+#   "data": {
+#     "stdout": "",
+#     "stderr": "ls: cannot access '/nonexistent': No such file or directory\n",
+#     "alias": "myhost",
+#     "duration_ms": 215
+#   }
+# }
+
+# Shape two: sshq itself failed, error holds the reason.
+# code is for machines, hint is for humans, action can be run as-is.
+sshq exec badhost "uname"
+# {
+#   "error": {
+#     "code": "host_not_found",
+#     "hint": "host \"badhost\" not found",
+#     "action": "run 'sshq ls' to see available hosts"
+#   }
+# }
+```
+
+The two shapes are safety information for agents: an `error` means the command never reached the remote host, so fix it per `action` and retry (the one exception is `error.code` of `result_indeterminate`, meaning the command may have run and you should verify remote state first); `data` with a non-zero `exit_code` means the command already ran remotely, so think about side effects before retrying.
+
+The process exit code tells the same story: `0` = done and the answer is good; `1` = done but the answer is bad news (remote command failed, probe unreachable, doctor found problems); `2` = sshq itself failed and the envelope carries `error`. A shell script reading `$?` and an agent reading the envelope always reach the same conclusion.
 
 ## Security model
 
@@ -145,7 +190,7 @@ Nothing leaves your machine. There is no telemetry. The only HTTP client in the 
 
 The daemon listens on a Unix socket with `0600` permissions inside your user config directory. It opens no TCP port, and `--no-daemon` skips it entirely. Your `~/.ssh/config` is read as-is and written only on an explicit `sshq config add/update/remove`, atomically, with a backup left next to it. Everything sshq owns (passwords, policy, audit logs) lives in a separate `config.toml`. Uninstalling means deleting the binary and that config directory.
 
-sshq is pre-1.0. The JSON envelope carries a `schema_version` field, and breaking output changes bump it and are documented in the [CHANGELOG](CHANGELOG.md).
+sshq is pre-1.0. Breaking changes to the JSON envelope ship with a version bump and are called out prominently in the [CHANGELOG](CHANGELOG.md).
 
 ### Handing it to an agent
 

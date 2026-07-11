@@ -28,43 +28,52 @@ Pick your platform and run the commands below. No Go or other toolchain required
 **Linux (amd64):**
 
 ```bash
-curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_linux_amd64.tar.gz | tar xz
-sudo mv sshq /usr/local/bin/
+mkdir -p ~/.local/bin
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_linux_amd64.tar.gz | tar xz -C ~/.local/bin
 sshq version
 ```
 
 **Linux (arm64, e.g. Raspberry Pi):**
 
 ```bash
-curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_linux_arm64.tar.gz | tar xz
-sudo mv sshq /usr/local/bin/
+mkdir -p ~/.local/bin
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_linux_arm64.tar.gz | tar xz -C ~/.local/bin
 sshq version
 ```
 
 **macOS (Apple Silicon):**
 
 ```bash
-curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_darwin_arm64.tar.gz | tar xz
-sudo mv sshq /usr/local/bin/
+mkdir -p ~/.local/bin
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_darwin_arm64.tar.gz | tar xz -C ~/.local/bin
 sshq version
 ```
 
 **macOS (Intel):**
 
 ```bash
-curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_darwin_amd64.tar.gz | tar xz
-sudo mv sshq /usr/local/bin/
+mkdir -p ~/.local/bin
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_darwin_amd64.tar.gz | tar xz -C ~/.local/bin
 sshq version
 ```
+
+> [!TIP]
+> If `sshq version` reports command not found, add `~/.local/bin` to PATH: most Linux distributions include it already; on macOS add `export PATH="$HOME/.local/bin:$PATH"` to `~/.zshrc` and open a new terminal.
 
 **Windows:**
 
 1. Download [`sshq_windows_amd64.zip`](https://github.com/shayuc137/sshq/releases/latest/download/sshq_windows_amd64.zip)
-2. Extract the zip — you get `sshq.exe`
-3. Move `sshq.exe` to a folder that is already on your PATH, for example `C:\Windows\` or `C:\Users\YourName\bin\`
-4. Open a new terminal and run: `sshq version`
+2. In PowerShell, extract it into a per-user programs folder and add that folder to your user PATH (one-time):
 
-> If you are unsure which folders are on PATH, run `echo %PATH%` in cmd or `$env:PATH -split ';'` in PowerShell to see the list. Pick any folder from that list and put `sshq.exe` there.
+```powershell
+mkdir "$env:LOCALAPPDATA\Programs\sshq" -Force
+Expand-Archive .\sshq_windows_amd64.zip "$env:LOCALAPPDATA\Programs\sshq" -Force
+[Environment]::SetEnvironmentVariable("Path", "$env:LOCALAPPDATA\Programs\sshq;" + [Environment]::GetEnvironmentVariable("Path", "User"), "User")
+```
+
+3. Open a new terminal and run: `sshq version`
+
+> No administrator rights needed at any step. If you already keep a personal tools folder on PATH (like `C:\Users\YourName\bin\`), dropping `sshq.exe` there works just as well.
 
 **Alternative: install from source (requires Go 1.26+):**
 
@@ -170,7 +179,7 @@ sshq --json myhost "hostname"
 Example JSON output:
 
 ```json
-{"ok":true,"exit_code":0,"data":{"exit_code":0,"stdout":"myhost\n","stderr":"","host":"myhost","duration_ms":42},"schema_version":2}
+{"exit_code":0,"data":{"stdout":"myhost\n","stderr":"","alias":"myhost","duration_ms":42}}
 ```
 
 ## Understand Output Modes
@@ -194,7 +203,7 @@ JSON mode is meant for tools:
 result=$(sshq myhost "df -h")
 ```
 
-For `exec`, JSON mode returns `exit_code`, `stdout`, `stderr`, `host`, and `duration_ms` under `data`.
+For `exec`, JSON mode returns the exact remote `exit_code` at the top level, with `stdout`, `stderr`, `alias`, and `duration_ms` under `data`.
 
 sshq informational messages, progress, and verbose diagnostics go to stderr. In pretty mode, process stdout for `exec` is the remote stdout exactly. In JSON mode, the exact remote stdout is in `data.stdout`.
 

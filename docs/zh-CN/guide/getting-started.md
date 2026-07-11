@@ -28,43 +28,52 @@ ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519
 **Linux (amd64)：**
 
 ```bash
-curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_linux_amd64.tar.gz | tar xz
-sudo mv sshq /usr/local/bin/
+mkdir -p ~/.local/bin
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_linux_amd64.tar.gz | tar xz -C ~/.local/bin
 sshq version
 ```
 
 **Linux (arm64，如树莓派)：**
 
 ```bash
-curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_linux_arm64.tar.gz | tar xz
-sudo mv sshq /usr/local/bin/
+mkdir -p ~/.local/bin
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_linux_arm64.tar.gz | tar xz -C ~/.local/bin
 sshq version
 ```
 
 **macOS (Apple Silicon)：**
 
 ```bash
-curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_darwin_arm64.tar.gz | tar xz
-sudo mv sshq /usr/local/bin/
+mkdir -p ~/.local/bin
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_darwin_arm64.tar.gz | tar xz -C ~/.local/bin
 sshq version
 ```
 
 **macOS (Intel)：**
 
 ```bash
-curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_darwin_amd64.tar.gz | tar xz
-sudo mv sshq /usr/local/bin/
+mkdir -p ~/.local/bin
+curl -L https://github.com/shayuc137/sshq/releases/latest/download/sshq_darwin_amd64.tar.gz | tar xz -C ~/.local/bin
 sshq version
 ```
+
+> [!TIP]
+> 如果 `sshq version` 提示找不到命令，把 `~/.local/bin` 加进 PATH：Linux 主流发行版默认已包含；macOS 在 `~/.zshrc` 里加一行 `export PATH="$HOME/.local/bin:$PATH"` 后重开终端。
 
 **Windows：**
 
 1. 下载 [`sshq_windows_amd64.zip`](https://github.com/shayuc137/sshq/releases/latest/download/sshq_windows_amd64.zip)
-2. 解压得到 `sshq.exe`
-3. 把 `sshq.exe` 移到一个已在 PATH 中的文件夹，比如 `C:\Windows\` 或 `C:\Users\你的用户名\bin\`
-4. 打开新终端，运行 `sshq version`
+2. 在 PowerShell 里解压到用户程序目录，并把该目录加进用户 PATH（只需执行一次）：
 
-> 不确定哪些文件夹在 PATH 里？在 cmd 里运行 `echo %PATH%`，或在 PowerShell 里运行 `$env:PATH -split ';'` 查看列表。选一个文件夹把 `sshq.exe` 放进去即可。
+```powershell
+mkdir "$env:LOCALAPPDATA\Programs\sshq" -Force
+Expand-Archive .\sshq_windows_amd64.zip "$env:LOCALAPPDATA\Programs\sshq" -Force
+[Environment]::SetEnvironmentVariable("Path", "$env:LOCALAPPDATA\Programs\sshq;" + [Environment]::GetEnvironmentVariable("Path", "User"), "User")
+```
+
+3. 打开新终端，运行 `sshq version`
+
+> 全程不需要管理员权限。已经有自己的工具目录（比如 `C:\Users\你的用户名\bin\`）的话，把 `sshq.exe` 放那里也一样。
 
 **备选：从源码安装（需要 Go 1.26+）：**
 
@@ -170,7 +179,7 @@ sshq --json myhost "hostname"
 示例 `JSON` 输出：
 
 ```json
-{"ok":true,"exit_code":0,"data":{"exit_code":0,"stdout":"myhost\n","stderr":"","host":"myhost","duration_ms":42},"schema_version":2}
+{"exit_code":0,"data":{"stdout":"myhost\n","stderr":"","alias":"myhost","duration_ms":42}}
 ```
 
 ## 理解输出模式
@@ -194,7 +203,7 @@ sshq myhost "df -h"
 result=$(sshq myhost "df -h")
 ```
 
-对于 `exec`，`JSON` 模式会在 `data` 下返回 `exit_code`、`stdout`、`stderr`、`host` 和 `duration_ms`。
+对于 `exec`，`JSON` 模式会在顶层返回精确的远端 `exit_code`，并在 `data` 下返回 `stdout`、`stderr`、`alias` 和 `duration_ms`。
 
 `sshq` 的信息消息、进度和详细诊断都会写入标准错误。在易读模式下，`exec` 的进程标准输出会精确等于远端标准输出。在 `JSON` 模式下，精确的远端标准输出位于 `data.stdout`。
 

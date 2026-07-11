@@ -62,14 +62,14 @@ In pretty mode, process stdout is the remote stdout exactly — sshq never write
 | `exit_code` | int | Remote process exit code (0 = success) |
 | `stdout` | string | Remote stdout verbatim |
 | `stderr` | string | Remote stderr verbatim |
-| `host` | string | Alias used |
+| `alias` | string | SSH config alias used |
 | `duration_ms` | int | Wall-clock milliseconds |
 
-`ok:true` means the sshq call succeeded; ALWAYS check top-level `exit_code` for the remote command result. The same value remains in `data.exit_code` for compatibility.
+A completed exec has `data` plus one top-level `exit_code`; `data` does not repeat the code. An sshq-level failure has `error.code`, `error.hint`, and `error.action`, with no `data` or `exit_code`.
 
-Wrong: treat `{"ok":true,"exit_code":3,...}` as remote command success.
+Remote success: `{"exit_code":0,"data":{"stdout":"web-1\n","stderr":"","alias":"web-1","duration_ms":42}}`
 
-Correct: treat `ok:true` as a completed sshq call, then read top-level `exit_code`; `3` means the remote command failed with exit code 3.
+Remote failure: `{"exit_code":3,"data":{"stdout":"","stderr":"command failed\n","alias":"web-1","duration_ms":42}}`
 
 ### PowerShell script files
 
@@ -88,9 +88,9 @@ For complex Windows commands, prefer `--script-file <path> --shell powershell`; 
 
 ### Exit behavior
 
-- Exit 0: operation succeeded (for exec, the remote result is in top-level `exit_code`)
-- Exit 1: connection failure, policy block, or local error
-- Exit N (exec only): matches the remote exit code from `sshq exec <alias> "cmd"`
+- Exit 0: sshq completed and the result is successful
+- Exit 1: sshq completed but the result is unsuccessful; for exec, read the exact remote code from top-level `exit_code`
+- Exit 2: sshq could not complete the operation; inspect `error.code`, `error.hint`, and `error.action`
 
 ### Security
 

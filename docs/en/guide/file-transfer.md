@@ -71,12 +71,11 @@ Without `--mkdirs`, copying to a path whose parent directory doesn't exist retur
 
 ```json
 {
-  "ok": false,
   "error": {
+    "code": "transfer_failed",
     "hint": "remote destination parent directory does not exist: /srv/app/releases/v2.1.0",
     "action": "sshq cp --mkdirs ./release.tar.gz web-1:/srv/app/releases/v2.1.0/release.tar.gz"
-  },
-  "schema_version": 2
+  }
 }
 ```
 

@@ -233,7 +233,7 @@ Show installed sshq skill versions
 
 ### doctor output contract
 
-`doctor <alias>` runs ordered configuration, identity file, ProxyJump, TCP, host key, authentication, and shell checks. Later checks are `"skipped"` after a failed prerequisite; an unconfigured identity file is `null`. A completed diagnosis returns `ok:true`, uses exit 0 when every applicable check passes and exit 1 when any check fails, and provides `next_action` only when the command is executable in the current state.
+`doctor <alias>` runs ordered configuration, identity file, ProxyJump, TCP, host key, authentication, and shell checks. Later checks are `"skipped"` after a failed prerequisite; an unconfigured identity file is `null`. A completed diagnosis returns a `data` envelope, uses exit 0 when every applicable check passes and exit 1 when any check fails, and provides `next_action` only when the command is executable in the current state.
 
 ### Security-sensitive commands
 
@@ -248,7 +248,7 @@ Returns `{running, uptime_seconds, connections: [{alias, host, idle}]}`.
 
 ### update exit codes
 
-`update --check` returns exit 0 when current, exit 1 when an update is available, and exit 2 when the check fails. In JSON mode, inspect `data.update_available`; top-level `exit_code` remains reserved for remote command results.
+`update --check` returns exit 0 when the check completes, whether current or an update is available, and exit 2 when the check fails. In JSON mode, inspect `data.update_available`; top-level `exit_code` is only present for a single remote command result.
 
 ### skill commands
 

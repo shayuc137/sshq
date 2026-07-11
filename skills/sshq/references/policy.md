@@ -99,7 +99,7 @@ Query structured audit logs
 
 ### policy check output
 
-Returns `{decision: {allowed, alias, kind, reason, pattern, input}}`. Exit 0 regardless of allowed/denied — the decision is in the data, not the exit code.
+Returns `{decision: {allowed, alias, kind, reason, pattern, input}}`. Exit 0 means allowed; exit 1 means denied. Both are completed data results.
 
 ### policy grant behavior
 

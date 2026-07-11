@@ -82,11 +82,11 @@ List active tunnels
 
 ### cluster output contract
 
-JSON mode returns an envelope with top-level `exit_code` and `data: {results: [{alias, stdout, stderr, exit_code, error}], summary: {total, success, failed}}`. The aggregate exit code is the first non-zero host exit code in alias order, or 1 for a host transport error when no remote command returned non-zero.
+JSON mode returns `data: {results: [{alias, stdout, stderr, exit_code, error}], summary: {total, success, failed}}`. Cluster envelopes have no top-level `exit_code`; read `summary` for the aggregate result and each `results[].exit_code` for an individual remote command. The process exits 1 when any host fails.
 
 ### cluster policy pre-flight
 
-After selector resolution, sshq checks policy for all targets before execution. If any host is blocked, no hosts execute. Pre-flight block is exit 1 with a policy error, not a partial-failure result.
+After selector resolution, sshq checks policy for all targets before execution. If any host is blocked, no hosts execute. A pre-flight block is a `policy_blocked` error envelope with process exit 2, not a partial-failure data result.
 
 ### tunnel output contract
 

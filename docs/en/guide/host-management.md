@@ -164,7 +164,6 @@ All checks pass:
 
 ```json
 {
-  "ok": true,
   "data": {
     "alias": "api-prod",
     "resolved": {
@@ -189,8 +188,7 @@ All checks pass:
       "home_dir": "/home/deploy",
       "detected_at": 1783615160
     }
-  },
-  "schema_version": 2
+  }
 }
 ```
 
@@ -198,14 +196,12 @@ A failure — host key not in `known_hosts`:
 
 ```json
 {
-  "ok": true,
   "data": {
     "alias": "api-prod",
     "failed_check": "host_key_known",
     "hint": "host key is not present in known_hosts",
     "next_action": "sshq trust api-prod"
-  },
-  "schema_version": 2
+  }
 }
 ```
 
@@ -225,7 +221,6 @@ The result includes a `probe_path` field that indicates how the connection was m
 
 ```json
 {
-  "ok": true,
   "data": {
     "alias": "api-prod",
     "host": "10.0.1.100",
@@ -234,8 +229,7 @@ The result includes a `probe_path` field that indicates how the connection was m
     "probe_path": "via-proxy",
     "reachable": true,
     "latency_ms": 277
-  },
-  "schema_version": 2
+  }
 }
 ```
 

@@ -220,7 +220,7 @@ sshq auto-detects: pipe → JSON, terminal → pretty. Override with flags:
 
 | Flag | Format | Use case |
 |------|--------|----------|
-| _(pipe default)_ | structured JSON `{ok, data, schema_version}` | agent — zero flags needed |
+| _(pipe default)_ | structured JSON `{data: ...}` or `{error: {code, hint, action}}` | agent — zero flags needed |
 | _(terminal default)_ | aligned pretty tables | human interactive use |
 | `--json` | force JSON | override terminal to JSON |
 | `--pretty` | force pretty | override pipe to pretty |
@@ -229,15 +229,36 @@ sshq auto-detects: pipe → JSON, terminal → pretty. Override with flags:
 
 ## error handling
 
-Parse stdout JSON first. **`ok:true` means the sshq call succeeded; ALWAYS check top-level `exit_code` for the remote command result.** Use stderr only as diagnostics. `data.exit_code` remains available for compatibility.
+Parse stdout JSON first. The envelope shape carries the sshq-level outcome: `data` means sshq completed the operation; `error` means sshq could not complete it. Use stderr only as diagnostics.
 
+```json
+{"exit_code":0,"data":{"stdout":"web-1\n","stderr":"","alias":"web-1","duration_ms":42}}
+{"exit_code":3,"data":{"stdout":"","stderr":"command failed\n","alias":"web-1","duration_ms":42}}
+{"error":{"code":"auth_failed","hint":"authentication failed for deploy@web-1:22","action":"check credentials and key file"}}
 ```
-Wrong:   {"ok":true,"exit_code":3,...} → remote command succeeded
-Correct: {"ok":true,"exit_code":3,...} → sshq call succeeded; remote command exited 3
 
-stdout JSON → ok: true  → for exec/cluster exec, check top-level exit_code
-            → ok: false → read error.hint + error.action
-```
+Only a single remote command result carries top-level `exit_code`; `0` means remote success and any non-zero value is the exact remote failure code. Other completed commands return `data` without top-level `exit_code`. Error envelopes contain neither `data` nor `exit_code`.
+
+Process exit status is always tri-state: `0` = completed with a successful result, `1` = completed with an unsuccessful result, `2` = sshq could not complete the operation. For exec, process status `1` still requires reading top-level `exit_code` for the exact remote code.
+
+### Error code quick reference
+
+| `code` | Meaning | Suggested action |
+|--------|---------|------------------|
+| `invalid_usage` | Invalid argument or flag usage | Fix the command line and retry |
+| `host_not_found` | Alias is absent from SSH config | Run `sshq ls` and choose a valid alias |
+| `config_unavailable` | SSH config is missing, unreadable, or cannot be saved | Check `~/.ssh/config` and its permissions |
+| `network_error` | Dial, DNS, or port connectivity failed | Fix connectivity, then retry |
+| `auth_failed` | Authentication was rejected | Check credentials and key files |
+| `host_key_unknown` | The host key has not been trusted yet | Ask the user, then run `sshq trust <alias>` |
+| `host_key_mismatch` | The stored host key changed | Verify the change, then run `sshq trust <alias> --replace` |
+| `policy_blocked` | Capability policy denied the operation | Run `sshq policy check`; ask the user to grant access if appropriate |
+| `credential_error` | The credential store is locked, missing an entry, or damaged | Run `sshq credential set` or check the passphrase |
+| `result_indeterminate` | The operation may have run, but its result was lost | Do not retry blindly; verify remote state first |
+| `transfer_failed` | The transfer stopped with a known incomplete result | Follow `error.hint`, then retry |
+| `daemon_error` | The daemon returned an invalid response or protocol error | Run `sshq daemon status`, or retry with `--no-daemon` |
+| `audit_write_failed` | Fail-closed audit logging could not write | Fix the `[audit]` path or permissions |
+| `internal_error` | An unclassified internal failure occurred | Follow `error.hint`; report an issue when needed |
 
 Common recovery patterns:
 

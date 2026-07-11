@@ -342,12 +342,12 @@ const execTransferAppendix = "---\n" +
 	"| `exit_code` | int | Remote process exit code (0 = success) |\n" +
 	"| `stdout` | string | Remote stdout verbatim |\n" +
 	"| `stderr` | string | Remote stderr verbatim |\n" +
-	"| `host` | string | Alias used |\n" +
+	"| `alias` | string | SSH config alias used |\n" +
 	"| `duration_ms` | int | Wall-clock milliseconds |\n\n" +
-	"`ok:true` means the sshq call succeeded; ALWAYS check top-level `exit_code` for the remote command result. " +
-	"The same value remains in `data.exit_code` for compatibility.\n\n" +
-	"Wrong: treat `{\"ok\":true,\"exit_code\":3,...}` as remote command success.\n\n" +
-	"Correct: treat `ok:true` as a completed sshq call, then read top-level `exit_code`; `3` means the remote command failed with exit code 3.\n\n" +
+	"A completed exec has `data` plus one top-level `exit_code`; `data` does not repeat the code. " +
+	"An sshq-level failure has `error.code`, `error.hint`, and `error.action`, with no `data` or `exit_code`.\n\n" +
+	"Remote success: `{\"exit_code\":0,\"data\":{\"stdout\":\"web-1\\n\",\"stderr\":\"\",\"alias\":\"web-1\",\"duration_ms\":42}}`\n\n" +
+	"Remote failure: `{\"exit_code\":3,\"data\":{\"stdout\":\"\",\"stderr\":\"command failed\\n\",\"alias\":\"web-1\",\"duration_ms\":42}}`\n\n" +
 	"### PowerShell script files\n\n" +
 	"For complex Windows commands, prefer `--script-file <path> --shell powershell`; this avoids local-shell expansion of PowerShell `$variables` and nested quoting. " +
 	"Scripts up to 8 KiB run as `powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand <base64(UTF-16LE(script))>`. " +
@@ -363,9 +363,9 @@ const execTransferAppendix = "---\n" +
 	"| `engine` | string | sftp / raw / sftp→sftp |\n" +
 	"| `files` | int | File count |\n\n" +
 	"### Exit behavior\n\n" +
-	"- Exit 0: operation succeeded (for exec, the remote result is in top-level `exit_code`)\n" +
-	"- Exit 1: connection failure, policy block, or local error\n" +
-	"- Exit N (exec only): matches the remote exit code from `sshq exec <alias> \"cmd\"`\n\n" +
+	"- Exit 0: sshq completed and the result is successful\n" +
+	"- Exit 1: sshq completed but the result is unsuccessful; for exec, read the exact remote code from top-level `exit_code`\n" +
+	"- Exit 2: sshq could not complete the operation; inspect `error.code`, `error.hint`, and `error.action`\n\n" +
 	"### Security\n\n" +
 	"- exec: checked against `command_whitelist` / `command_blacklist`\n" +
 	"- cp: local and remote paths checked against `local_path_whitelist` / `remote_path_whitelist`\n" +
@@ -491,11 +491,12 @@ Finally remove sshq-temp-sshd if it was created only for the support window, and
 const clusterTunnelAppendix = "---\n" +
 	"\n## Agent notes\n\n" +
 	"### cluster output contract\n\n" +
-	"JSON mode returns an envelope with top-level `exit_code` and `data: {results: [{alias, stdout, stderr, exit_code, error}], summary: {total, success, failed}}`. " +
-	"The aggregate exit code is the first non-zero host exit code in alias order, or 1 for a host transport error when no remote command returned non-zero.\n\n" +
+	"JSON mode returns `data: {results: [{alias, stdout, stderr, exit_code, error}], summary: {total, success, failed}}`. " +
+	"Cluster envelopes have no top-level `exit_code`; read `summary` for the aggregate result and each `results[].exit_code` for an individual remote command. " +
+	"The process exits 1 when any host fails.\n\n" +
 	"### cluster policy pre-flight\n\n" +
 	"After selector resolution, sshq checks policy for all targets before execution. " +
-	"If any host is blocked, no hosts execute. Pre-flight block is exit 1 with a policy error, not a partial-failure result.\n\n" +
+	"If any host is blocked, no hosts execute. A pre-flight block is a `policy_blocked` error envelope with process exit 2, not a partial-failure data result.\n\n" +
 	"### tunnel output contract\n\n" +
 	"tunnel start returns `{id, direction, local_addr, remote_addr}`. " +
 	"tunnel list returns an array of `{id, direction, alias, local_addr, remote_addr, active_connections}`.\n\n" +
@@ -512,7 +513,7 @@ const policyAppendix = "---\n" +
 	"\n## Agent notes\n\n" +
 	"### policy check output\n\n" +
 	"Returns `{decision: {allowed, alias, kind, reason, pattern, input}}`. " +
-	"Exit 0 regardless of allowed/denied — the decision is in the data, not the exit code.\n\n" +
+	"Exit 0 means allowed; exit 1 means denied. Both are completed data results.\n\n" +
 	"### policy grant behavior\n\n" +
 	"- Requires a controlling TTY (agents cannot self-grant)\n" +
 	"- TTL maximum is 1 hour\n" +
@@ -528,7 +529,7 @@ const discoveryAppendix = "---\n" +
 	"### doctor output contract\n\n" +
 	"`doctor <alias>` runs ordered configuration, identity file, ProxyJump, TCP, host key, authentication, and shell checks. " +
 	"Later checks are `\"skipped\"` after a failed prerequisite; an unconfigured identity file is `null`. " +
-	"A completed diagnosis returns `ok:true`, uses exit 0 when every applicable check passes and exit 1 when any check fails, and provides `next_action` only when the command is executable in the current state.\n\n" +
+	"A completed diagnosis returns a `data` envelope, uses exit 0 when every applicable check passes and exit 1 when any check fails, and provides `next_action` only when the command is executable in the current state.\n\n" +
 	"### Security-sensitive commands\n\n" +
 	"- `trust --replace`: overwrites a known host key — ask user first (possible MITM)\n" +
 	"- `credential set`: requires TTY for password input — relay to user\n" +
@@ -537,8 +538,8 @@ const discoveryAppendix = "---\n" +
 	"### daemon status output\n\n" +
 	"Returns `{running, uptime_seconds, connections: [{alias, host, idle}]}`.\n\n" +
 	"### update exit codes\n\n" +
-	"`update --check` returns exit 0 when current, exit 1 when an update is available, and exit 2 when the check fails. " +
-	"In JSON mode, inspect `data.update_available`; top-level `exit_code` remains reserved for remote command results.\n\n" +
+	"`update --check` returns exit 0 when the check completes, whether current or an update is available, and exit 2 when the check fails. " +
+	"In JSON mode, inspect `data.update_available`; top-level `exit_code` is only present for a single remote command result.\n\n" +
 	"### skill commands\n\n" +
 	"- `skill install`: installs sshq skill to Claude Code (`--codex` for Codex, `--project` for project-level)\n" +
 	"- `skill update`: refreshes every existing installation in place and skips targets that are not installed\n" +
