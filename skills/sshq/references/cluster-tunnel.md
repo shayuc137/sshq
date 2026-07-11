@@ -1,6 +1,6 @@
 # Cluster & Tunnel
 
-Documentation version: `sshq v0.3.1`.
+Documentation version: `sshq v0.4.0`.
 
 Commands for concurrent multi-host operations and port forwarding.
 

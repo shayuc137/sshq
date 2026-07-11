@@ -1,6 +1,6 @@
 # Discovery & Daemon
 
-Documentation version: `sshq v0.3.1`.
+Documentation version: `sshq v0.4.0`.
 
 Commands for listing, searching, inspecting hosts, credentials, and managing the daemon.
 

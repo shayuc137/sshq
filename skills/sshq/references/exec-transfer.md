@@ -1,6 +1,6 @@
 # Execution & File Transfer
 
-Documentation version: `sshq v0.3.1`.
+Documentation version: `sshq v0.4.0`.
 
 Commands for running remote commands and transferring files.
 

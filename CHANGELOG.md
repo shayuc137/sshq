@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.4.0 (2026-07-11)
+
+### BREAKING: envelope schema v3
+
+JSON envelopes and process exit codes are redesigned around one rule: the output explains itself. Anything consuming the v2 envelope must update.
+
+- Success output is `{"data": ...}`; remote command execution adds a top-level `exit_code`. The `ok` and `schema_version` fields are gone — the presence of an `error` object is the failure signal.
+- Errors are `{"error": {"code", "hint", "action"}}` with 14 machine-readable codes. `code` tells an agent what to do next; `result_indeterminate` marks operations that may have already executed and must never be blindly retried.
+- Process exit codes are tri-state: `0` done with a good answer, `1` done with a bad answer (remote command failed, probe unreachable, doctor found problems, policy check denied), `2` sshq itself failed. Remote exit code passthrough is removed — remote exit 1 was indistinguishable from sshq's own errors; the exact remote code lives in the envelope.
+- exec data: `host` is renamed to `alias` (the value always was the alias); the duplicated `exit_code` inside `data` is removed.
+- cluster: top-level `exit_code` is removed; read `summary` and per-host `results`.
+- `update --check` now exits `0` when an update is available — that is the answer the caller asked for, not a failure. (This reverses the v0.3.1 exit-1 behavior.)
+- `trust --all` reports per-host results in `data.results`; list commands render empty results as `[]`, never `null`.
+
+### Daemon freshness
+
+- The daemon hot-reloads `~/.ssh/config` per request, and the shell profile cache is shared between CLI and daemon through the file (write-through with mtime detection): `config add`/`set` and cache changes apply without restarting the daemon.
+- Stale shell profiles self-heal: a strong shell-mismatch signal invalidates the cached entry and appends a retry hint. Commands are never re-executed automatically.
+- `sshq doctor`'s shell check bypasses the cache and repairs it with what it actually finds.
+- New command: `sshq cache clear [alias]`.
+
+### Documentation
+
+- README rewritten in both languages: problem/answer intro, a Trust & privacy section, and sudo-free installation to `~/.local/bin`.
+- Every JSON example across the skill package and guides shows the v3 envelope; the skill includes an `error.code` quick-reference table for agents.
+
+### CI
+
+- GitHub Actions bumped to Node 24 native majors (checkout v7, setup-go v6, goreleaser-action v7).
+
 ## v0.3.1 (2026-07-10)
 
 ### Self-update
