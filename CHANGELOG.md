@@ -6,6 +6,10 @@
 
 - New `--raw` flag for `exec`: mirrors remote stdout/stderr byte-for-byte with no envelope, and the process exit code mirrors the remote exit code verbatim (the one deliberate exception to the tri-state `0/1/2` contract). Mutually exclusive with `--json`/`--pretty`; other commands reject it. Fixes the surprise where `sshq exec web "cat conf" > conf` saved an envelope instead of the file.
 
+### Skill docs
+
+- New `references/windows-encoding.md`: base64 recipes for round-tripping non-ASCII (e.g. Chinese) text with Windows hosts whose sshd chain performs lossy code-page conversion.
+
 ### JSON envelope contract
 
 - Every data and error envelope now carries `protocol: "sshq/3"`.

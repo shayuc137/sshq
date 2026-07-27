@@ -20,6 +20,7 @@ All SSH operations route through `sshq`. Never shell out to `ssh` or `scp` direc
 - [`references/policy.md`](references/policy.md) — when validating capability policy, managing temporary grants, or querying audit logs: policy validate/check/list/grant/revoke, audit
 - [`references/discovery.md`](references/discovery.md) — when listing/searching/inspecting or diagnosing hosts: ls, search, info, probe, doctor, trust, daemon, cache clear
 - [`references/windows-paths.md`](references/windows-paths.md) — when using Windows local or remote paths, especially paths containing spaces
+- [`references/windows-encoding.md`](references/windows-encoding.md) — when remote Windows output contains non-ASCII text (Chinese filenames, localized messages) or arrives garbled (乱码)
 - [`references/windows-background.md`](references/windows-background.md) — when starting, querying, or cleaning up durable Windows background tasks
 - [`references/remote-windows-support.md`](references/remote-windows-support.md) — when establishing temporary WireGuard + OpenSSH support access to Windows
 
