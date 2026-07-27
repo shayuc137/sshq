@@ -14,10 +14,20 @@ const MaxBufferedBytes = 10 * 1024 * 1024 // 10MB
 
 type ExitError struct {
 	Code int
+	// Passthrough marks --raw mode: the process exit code mirrors the remote
+	// exit code verbatim instead of normalizing to the tri-state 1.
+	Passthrough bool
 }
 
 func (e *ExitError) Error() string {
 	return fmt.Sprintf("exit %d", e.Code)
+}
+
+func (e *ExitError) ProcessExitCode() int {
+	if e.Passthrough {
+		return e.Code
+	}
+	return 1
 }
 
 func Run(ctx context.Context, client *sshclient.Client, command string, stdout, stderr io.Writer) (int, error) {

@@ -101,7 +101,7 @@ sshq exec <alias> --script-file <path> --shell bash --no-daemon
 
 Human convenience — agents use `sshq exec`: people may run `sshq <alias> "<cmd>"`. Cobra resolves a colliding built-in subcommand before an alias, so agents always use the canonical form.
 
-Flags: `--timeout <dur>`, `--no-daemon`, `--script-file <path>`, `--shell <bash|ash|powershell|cmd>`.
+Flags: `--timeout <dur>`, `--no-daemon`, `--script-file <path>`, `--shell <bash|ash|powershell|cmd>`, `--raw` (see output modes — mirrors remote stdout and exit code exactly).
 
 For complex Windows commands, prefer `--script-file <path> --shell powershell`. sshq runs PowerShell scripts up to 8 KiB with `-EncodedCommand` using a UTF-16LE payload; larger scripts automatically upload a UTF-8-with-BOM temporary `.ps1`, run it with `-File`, and remove it. Bash, ash, sh, and zsh scripts continue to execute through stdin.
 
@@ -230,8 +230,12 @@ sshq auto-detects: pipe → JSON, terminal → pretty. Override with flags:
 | _(terminal default)_ | aligned pretty tables | human interactive use |
 | `--json` | force JSON | override terminal to JSON |
 | `--pretty` | force pretty | override pipe to pretty |
+| `--raw` | exec only: mirror remote stdout/stderr byte-for-byte, no envelope | piping remote output into a file or another tool: `sshq exec web-1 "cat nginx.conf" --raw > nginx.conf` |
 | `--verbose` | extra debug info to stderr | connection timing, shell detection, engine choice |
 | `--no-progress` | suppress transfer progress | cleaner agent output during cp |
+
+> [!WARNING]
+> `--raw` changes process exit code semantics: it mirrors the remote command's exit code verbatim (like plain `ssh`) instead of the tri-state `0/1/2`. All other modes keep the tri-state contract. `--raw` cannot be combined with `--json` or `--pretty`, and only `exec` accepts it.
 
 ## error handling
 

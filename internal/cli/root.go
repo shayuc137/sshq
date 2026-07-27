@@ -28,14 +28,28 @@ func NewRootCommand() *cobra.Command {
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			jsonFlag, _ := cmd.Flags().GetBool("json")
 			prettyFlag, _ := cmd.Flags().GetBool("pretty")
+			rawFlag, _ := cmd.Flags().GetBool("raw")
 			noProgress, _ := cmd.Flags().GetBool("no-progress")
 			verbose, _ := cmd.Flags().GetBool("verbose")
+
+			if rawFlag {
+				if jsonFlag || prettyFlag {
+					return output.Errorf("--raw cannot be combined with --json or --pretty", "pick exactly one output mode").WithCode(output.CodeInvalidUsage)
+				}
+				if p := cmd.CommandPath(); p != "sshq" && p != "sshq exec" {
+					return output.Errorf("--raw is only supported for exec", "drop --raw or use sshq exec").WithCode(output.CodeInvalidUsage)
+				}
+			}
 
 			var opts []output.Option
 			if jsonFlag {
 				opts = append(opts, output.WithJSON())
 			}
-			if prettyFlag {
+			// Raw shares the pretty rendering path: exec mirrors remote
+			// stdout/stderr verbatim and errors go to stderr as text, which is
+			// exactly the raw contract. The extra raw semantics (remote exit
+			// code passthrough) live in exec.ExitError.Passthrough.
+			if prettyFlag || rawFlag {
 				opts = append(opts, output.WithPretty())
 			}
 			if noProgress {
@@ -101,6 +115,7 @@ func NewRootCommand() *cobra.Command {
 
 	cmd.PersistentFlags().Bool("json", false, "output in JSON format")
 	cmd.PersistentFlags().Bool("pretty", false, "human-readable output")
+	cmd.PersistentFlags().Bool("raw", false, "exec only: mirror remote stdout/stderr and exit code exactly, no envelope")
 	cmd.PersistentFlags().Bool("no-progress", false, "disable progress output")
 	cmd.PersistentFlags().String("config", "", "SSH config file path")
 	cmd.PersistentFlags().BoolP("verbose", "v", false, "verbose output")

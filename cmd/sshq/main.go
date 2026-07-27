@@ -30,6 +30,11 @@ func main() {
 		if cmd.Flag("pretty") != nil && cmd.Flag("pretty").Changed {
 			opts = append(opts, output.WithPretty())
 		}
+		// Raw promises envelope-free stdout, so failures render as pretty
+		// text on stderr instead of a JSON envelope on stdout.
+		if cmd.Flag("raw") != nil && cmd.Flag("raw").Changed {
+			opts = append(opts, output.WithPretty())
+		}
 		w := output.New(cmd.OutOrStdout(), cmd.ErrOrStderr(), opts...)
 
 		var cmdErr *output.CmdError
@@ -49,11 +54,8 @@ func main() {
 }
 
 func processExitCode(err error) int {
-	var remoteExit *exec.ExitError
-	if errors.As(err, &remoteExit) {
-		return 1
-	}
-
+	// exec.ExitError implements ProcessExitCode: tri-state 1 normally,
+	// verbatim remote code in --raw passthrough mode.
 	var coded interface{ ProcessExitCode() int }
 	if errors.As(err, &coded) {
 		return coded.ProcessExitCode()

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"os"
 	"strings"
@@ -41,6 +42,17 @@ func registerExecFlags(cmd *cobra.Command) {
 }
 
 func runExecCommand(cmd *cobra.Command, args []string) error {
+	err := runExecPipeline(cmd, args)
+	if raw, _ := cmd.Flags().GetBool("raw"); raw {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			exitErr.Passthrough = true
+		}
+	}
+	return err
+}
+
+func runExecPipeline(cmd *cobra.Command, args []string) error {
 	alias := args[0]
 
 	store := configFrom(cmd.Context())

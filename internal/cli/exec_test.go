@@ -295,3 +295,30 @@ func rootCommandForTest(t *testing.T, aliases ...string) (*cobra.Command, *bytes
 	cmd.SetErr(errOut)
 	return cmd, out, errOut
 }
+
+func TestRawFlagValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "raw with json", args: []string{"exec", "web-1", "hostname", "--raw", "--json"}},
+		{name: "raw with pretty", args: []string{"exec", "web-1", "hostname", "--raw", "--pretty"}},
+		{name: "raw outside exec", args: []string{"ls", "--raw"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd, _, _ := rootCommandForTest(t, "web-1")
+			cmd.SetArgs(tt.args)
+			err := cmd.Execute()
+
+			var cmdErr *output.CmdError
+			if !errors.As(err, &cmdErr) {
+				t.Fatalf("error = %v, want CmdError", err)
+			}
+			if cmdErr.Code != output.CodeInvalidUsage {
+				t.Fatalf("error.code = %q, want %q", cmdErr.Code, output.CodeInvalidUsage)
+			}
+		})
+	}
+}
