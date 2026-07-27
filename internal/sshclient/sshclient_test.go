@@ -89,6 +89,38 @@ func TestCategorizeHostKeyErrorDetails(t *testing.T) {
 	}
 }
 
+func TestCategorizeConnectionError(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		err  error
+		kind ConnErrorKind
+	}{
+		{
+			name: "dial error",
+			err:  &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("network unreachable")},
+			kind: ErrNetwork,
+		},
+		{
+			name: "authentication error",
+			err:  errors.New("ssh: unable to authenticate"),
+			kind: ErrAuth,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := categorizeError(tt.err, ConnConfig{Alias: "target", Host: "192.0.2.10", Port: "22"}).(*ConnError)
+			if !ok {
+				t.Fatalf("categorizeError returned %T", got)
+			}
+			if got.Kind != tt.kind {
+				t.Fatalf("ConnError.Kind = %v, want %v", got.Kind, tt.kind)
+			}
+			if !errors.Is(got, tt.err) {
+				t.Fatal("categorized error does not preserve its cause")
+			}
+		})
+	}
+}
+
 func newTestPublicKey(t *testing.T) ssh.PublicKey {
 	t.Helper()
 	_, private, err := ed25519.GenerateKey(rand.Reader)

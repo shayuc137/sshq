@@ -632,7 +632,8 @@ func (dc *daemonContext) handleExec(conn net.Conn, raw json.RawMessage) {
 		if !dc.sendAudit(conn, entry) {
 			return
 		}
-		ipc.SendError(conn, output.CodeResultIndeterminate, err.Error(), "")
+		ce := runErrorToOutput(err)
+		ipc.SendError(conn, ce.Code, ce.Hint, ce.Action)
 		return
 	}
 	staleProfile := payload.Shell == "" && invalidateSuspectedStaleProfile(dc.cache, host.HostName, host.Port, profile, result)

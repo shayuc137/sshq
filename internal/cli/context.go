@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 
 	"github.com/shayuc137/sshq/internal/appconfig"
@@ -230,9 +231,34 @@ func resolveProxyChainGuardedWithCredentials(store *config.Store, proxyJump stri
 	return &cfg, nil
 }
 
+// runErrorToOutput classifies errors from the run phase, after a connection was
+// established. The command may already have reached the remote host, so
+// unclassified failures map to result_indeterminate — never internal_error —
+// to stop callers from blindly retrying side-effectful commands.
+func runErrorToOutput(err error) *output.CmdError {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return output.Errorf(
+			err.Error()+"; the remote command may still be running",
+			"increase --timeout or run the command in background",
+		).WithCode(output.CodeTimeout)
+	}
+	return output.Errorf(err.Error(), "verify remote state before retrying").
+		WithCode(output.CodeResultIndeterminate)
+}
+
 func connErrorToOutput(err error, alias string) *output.CmdError {
 	var ce *sshclient.ConnError
 	if !errors.As(err, &ce) {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return output.Errorf(
+				err.Error()+"; the remote command may still be running",
+				"increase --timeout or run the command in background",
+			).WithCode(output.CodeTimeout)
+		}
+		var netErr net.Error
+		if errors.As(err, &netErr) {
+			return output.Errorf(err.Error(), "check network connectivity").WithCode(output.CodeNetworkError)
+		}
 		return output.Errorf(err.Error(), "check connectivity and credentials").WithCode(output.CodeInternalError)
 	}
 	errorAlias := ce.Alias

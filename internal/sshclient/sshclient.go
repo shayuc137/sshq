@@ -94,7 +94,7 @@ func DialTCP(ctx context.Context, cfg ConnConfig) (net.Conn, io.Closer, error) {
 		addr := net.JoinHostPort(cfg.Host, cfg.Port)
 		conn, err := dialTCPContext(ctx, addr, cfg.Timeout)
 		if err != nil {
-			return nil, nil, fmt.Errorf("connect to %s: %w", addr, err)
+			return nil, nil, categorizeError(err, cfg)
 		}
 		return conn, newDialCloser(conn, nil), nil
 	}

@@ -1,7 +1,10 @@
 package cli
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,8 +12,15 @@ import (
 
 	"github.com/shayuc137/sshq/internal/config"
 	"github.com/shayuc137/sshq/internal/credential"
+	"github.com/shayuc137/sshq/internal/output"
 	"github.com/shayuc137/sshq/internal/sshclient"
 )
+
+type testNetError struct{}
+
+func (testNetError) Error() string   { return "network unavailable" }
+func (testNetError) Timeout() bool   { return true }
+func (testNetError) Temporary() bool { return true }
 
 // TestHostToConnConfigCredentialErrorSurfaced verifies M2: a real
 // credential-store error (here a corrupt file) is returned instead of being
@@ -93,6 +103,96 @@ func TestConnErrorToOutputConnectionCodes(t *testing.T) {
 		if cmdErr.Code != want {
 			t.Errorf("kind %v code = %q, want %q", kind, cmdErr.Code, want)
 		}
+	}
+}
+
+func TestConnErrorToOutputFallbackCodes(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantCode   string
+		wantAction string
+		wantHint   string
+	}{
+		{
+			name:       "deadline takes precedence over net error",
+			err:        context.DeadlineExceeded,
+			wantCode:   output.CodeTimeout,
+			wantAction: "increase --timeout or run the command in background",
+			wantHint:   "remote command may still be running",
+		},
+		{
+			name:       "wrapped deadline",
+			err:        fmt.Errorf("execution cancelled: %w", context.DeadlineExceeded),
+			wantCode:   output.CodeTimeout,
+			wantAction: "increase --timeout or run the command in background",
+			wantHint:   "remote command may still be running",
+		},
+		{
+			name:       "network error",
+			err:        &net.OpError{Op: "dial", Net: "tcp", Err: testNetError{}},
+			wantCode:   output.CodeNetworkError,
+			wantAction: "check network connectivity",
+		},
+		{
+			name:       "generic error",
+			err:        errors.New("unexpected"),
+			wantCode:   output.CodeInternalError,
+			wantAction: "check connectivity and credentials",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmdErr := connErrorToOutput(tt.err, "target")
+			if cmdErr.Code != tt.wantCode {
+				t.Fatalf("code = %q, want %q", cmdErr.Code, tt.wantCode)
+			}
+			if cmdErr.Action != tt.wantAction {
+				t.Fatalf("action = %q, want %q", cmdErr.Action, tt.wantAction)
+			}
+			if tt.wantHint != "" && !strings.Contains(cmdErr.Hint, tt.wantHint) {
+				t.Fatalf("hint = %q, want substring %q", cmdErr.Hint, tt.wantHint)
+			}
+		})
+	}
+}
+
+// TestRunErrorToOutput verifies run-phase classification: after a connection
+// is established, the only two outcomes are timeout (local deadline) and
+// result_indeterminate — internal_error must never appear here because the
+// command may already have reached the remote host.
+func TestRunErrorToOutput(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantCode   string
+		wantAction string
+	}{
+		{
+			name:       "wrapped deadline",
+			err:        fmt.Errorf("execution cancelled: %w", context.DeadlineExceeded),
+			wantCode:   output.CodeTimeout,
+			wantAction: "increase --timeout or run the command in background",
+		},
+		{
+			name:       "connection lost mid-run",
+			err:        errors.New("session channel closed"),
+			wantCode:   output.CodeResultIndeterminate,
+			wantAction: "verify remote state before retrying",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmdErr := runErrorToOutput(tt.err)
+			if cmdErr.Code != tt.wantCode {
+				t.Fatalf("code = %q, want %q", cmdErr.Code, tt.wantCode)
+			}
+			if cmdErr.Action != tt.wantAction {
+				t.Fatalf("action = %q, want %q", cmdErr.Action, tt.wantAction)
+			}
+		})
 	}
 }
 

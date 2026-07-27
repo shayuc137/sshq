@@ -181,7 +181,7 @@ func execScriptDirect(cmd *cobra.Command, w *output.Writer, alias string, script
 		if auditErr := recordAudit(ctx, audit.ScriptErrorEntry(alias, script, audit.ResultError, durationMs, audit.SourceDirect, err)); auditErr != nil {
 			return auditErr
 		}
-		return output.Errorf(err.Error(), "").WithCode(output.CodeInternalError)
+		return runErrorToOutput(err)
 	}
 	normalizeRemoteResult(result, profile, shell)
 	auditResult := audit.ResultSuccess
@@ -308,7 +308,7 @@ func execDirect(cmd *cobra.Command, w *output.Writer, alias, command string) err
 		if auditErr := recordAudit(ctx, audit.ExecErrorEntry(alias, command, audit.ResultError, durationMs, audit.SourceDirect, err)); auditErr != nil {
 			return auditErr
 		}
-		return output.Errorf(err.Error(), "").WithCode(output.CodeInternalError)
+		return runErrorToOutput(err)
 	}
 	staleProfile := shellOverride == "" && invalidateSuspectedStaleProfile(cache, host.HostName, host.Port, profile, result)
 	if staleProfile {

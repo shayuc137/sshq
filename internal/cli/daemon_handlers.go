@@ -136,7 +136,8 @@ func (dc *daemonContext) handleScript(conn net.Conn, raw json.RawMessage) {
 		if !dc.sendAudit(conn, entry) {
 			return
 		}
-		ipc.SendError(conn, output.CodeResultIndeterminate, err.Error(), "")
+		ce := runErrorToOutput(err)
+		ipc.SendError(conn, ce.Code, ce.Hint, ce.Action)
 		return
 	}
 	normalizeRemoteResult(result, profile, shell)
