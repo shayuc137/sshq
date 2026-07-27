@@ -111,8 +111,11 @@ func TestRender_JSONMode(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if len(env) != 1 {
-		t.Fatalf("data envelope keys = %v, want only data", env)
+	if len(env) != 2 {
+		t.Fatalf("data envelope keys = %v, want data and protocol", env)
+	}
+	if env["protocol"] != ProtocolVersion {
+		t.Fatalf("protocol = %v, want %q", env["protocol"], ProtocolVersion)
 	}
 	data := env["data"].(map[string]any)
 	if data["v"] != "hello" {
@@ -230,6 +233,9 @@ func TestProgress_JSONMode(t *testing.T) {
 	if info["percent"].(float64) != 50 {
 		t.Errorf("percent = %v, want 50", info["percent"])
 	}
+	if _, ok := info["protocol"]; ok {
+		t.Errorf("progress unexpectedly contains protocol: %v", info)
+	}
 }
 
 func TestProgress_Disabled(t *testing.T) {
@@ -343,8 +349,11 @@ func TestError_JSONMode(t *testing.T) {
 		t.Errorf("error envelope unexpectedly has exit_code: %v", env["exit_code"])
 	}
 	errObj := env["error"].(map[string]any)
-	if len(env) != 1 || len(errObj) != 3 {
+	if len(env) != 2 || len(errObj) != 3 {
 		t.Fatalf("error envelope = %v, want only code/hint/action", env)
+	}
+	if env["protocol"] != ProtocolVersion {
+		t.Fatalf("protocol = %v, want %q", env["protocol"], ProtocolVersion)
 	}
 	if errObj["code"] != CodeInternalError {
 		t.Errorf("error.code = %v, want internal_error", errObj["code"])
@@ -382,6 +391,7 @@ func TestAllErrorCodeConstantsRenderExpectedValue(t *testing.T) {
 		{CodeHostNotFound, "host_not_found"},
 		{CodeConfigUnavailable, "config_unavailable"},
 		{CodeNetworkError, "network_error"},
+		{CodeTimeout, "timeout"},
 		{CodeAuthFailed, "auth_failed"},
 		{CodeHostKeyUnknown, "host_key_unknown"},
 		{CodeHostKeyMismatch, "host_key_mismatch"},
@@ -439,7 +449,7 @@ func TestRender_JSONModeNilSliceUsesEmptyArray(t *testing.T) {
 	w, out, _ := jsonWriter()
 	var values []string
 	w.Render(values)
-	if got := out.String(); got != "{\"data\":[]}\n" {
+	if got := out.String(); got != "{\"data\":[],\"protocol\":\"sshq/3\"}\n" {
 		t.Fatalf("nil slice envelope = %q, want empty array data", got)
 	}
 }

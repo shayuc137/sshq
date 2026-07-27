@@ -214,7 +214,8 @@ func (w *Writer) Error(e *CmdError) {
 			errorData["details"] = e.Details
 		}
 		envelope := map[string]any{
-			"error": errorData,
+			"error":    errorData,
+			"protocol": ProtocolVersion,
 		}
 		b, _ := json.Marshal(envelope)
 		w.writeln(w.out, string(b))
@@ -229,7 +230,8 @@ func (w *Writer) Error(e *CmdError) {
 func (w *Writer) writeEnvelope(data any) {
 	data = normalizeNilSlice(data)
 	envelope := map[string]any{
-		"data": data,
+		"data":     data,
+		"protocol": ProtocolVersion,
 	}
 	if result, ok := data.(ExitCoder); ok {
 		if exitCode, present := result.RemoteExitCode(); present {
@@ -265,11 +267,14 @@ type CmdError struct {
 	Code    string
 }
 
+const ProtocolVersion = "sshq/3"
+
 const (
 	CodeInvalidUsage        = "invalid_usage"
 	CodeHostNotFound        = "host_not_found"
 	CodeConfigUnavailable   = "config_unavailable"
 	CodeNetworkError        = "network_error"
+	CodeTimeout             = "timeout"
 	CodeAuthFailed          = "auth_failed"
 	CodeHostKeyUnknown      = "host_key_unknown"
 	CodeHostKeyMismatch     = "host_key_mismatch"
