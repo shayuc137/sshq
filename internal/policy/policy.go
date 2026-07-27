@@ -3,11 +3,11 @@ package policy
 import "github.com/shayuc137/sshq/internal/appconfig"
 
 const (
-	KindCommand        = "command"
-	KindLocalPath      = "local-path"
-	KindRemotePath     = "remote-path"
-	KindLocalForward   = "local-forward"
-	KindRemoteForward  = "remote-forward"
+	KindCommand       = "command"
+	KindLocalPath     = "local-path"
+	KindRemotePath    = "remote-path"
+	KindLocalForward  = "local-forward"
+	KindRemoteForward = "remote-forward"
 
 	ReasonWhitelistMiss    = "whitelist_miss"
 	ReasonBlacklistMatch   = "blacklist_match"

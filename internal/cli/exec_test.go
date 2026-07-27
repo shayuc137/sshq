@@ -228,10 +228,10 @@ func TestRecvExecFramesJSONEnvelope(t *testing.T) {
 			var env struct {
 				ExitCode int `json:"exit_code"`
 				Data     struct {
-					Alias    string `json:"alias"`
-					ExitCode *int   `json:"exit_code"`
+					Alias    string  `json:"alias"`
+					ExitCode *int    `json:"exit_code"`
 					Host     *string `json:"host"`
-					Stdout   string `json:"stdout"`
+					Stdout   string  `json:"stdout"`
 				} `json:"data"`
 			}
 			if err := json.Unmarshal(out.Bytes(), &env); err != nil {
