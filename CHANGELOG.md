@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### JSON envelope contract
+
+- Every data and error envelope now carries `protocol: "sshq/3"`.
+- Execution deadlines now return the machine-readable `timeout` code and advise increasing `--timeout` or running the command in the background.
+- Cluster hosts that never produced a remote exit status now return `exit_code: null` instead of the misleading zero value.
+
 ## v0.4.0 (2026-07-11)
 
 ### BREAKING: envelope schema v3

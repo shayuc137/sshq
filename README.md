@@ -32,6 +32,7 @@ sshq web-1 "hostname"
 # jq here only pretty-prints; any pipe or redirect triggers JSON, jq is not the switch.
 sshq web-1 "hostname" | jq .
 # {
+#   "protocol": "sshq/3",
 #   "exit_code": 0,
 #   "data": {
 #     "stdout": "web-1\n",
@@ -153,6 +154,7 @@ The JSON envelope has exactly two shapes, and the shape alone tells you what hap
 # The remote command's exit code sits at the top level; non-zero means the remote command failed.
 sshq myhost "ls /nonexistent" | jq .
 # {
+#   "protocol": "sshq/3",
 #   "exit_code": 2,
 #   "data": {
 #     "stdout": "",
@@ -166,6 +168,7 @@ sshq myhost "ls /nonexistent" | jq .
 # code is for machines, hint is for humans, action can be run as-is.
 sshq exec badhost "uname"
 # {
+#   "protocol": "sshq/3",
 #   "error": {
 #     "code": "host_not_found",
 #     "hint": "host \"badhost\" not found",
@@ -174,7 +177,9 @@ sshq exec badhost "uname"
 # }
 ```
 
-The two shapes are safety information for agents: an `error` means the command never reached the remote host, so fix it per `action` and retry (the one exception is `error.code` of `result_indeterminate`, meaning the command may have run and you should verify remote state first); `data` with a non-zero `exit_code` means the command already ran remotely, so think about side effects before retrying.
+The two shapes are safety information for agents: an `error` means the command never reached the remote host, so fix it per `action` and retry (two exceptions: `error.code` of `result_indeterminate` means the command may have run, and `timeout` means the local deadline expired while the remote command may still be running — in both cases verify remote state first); `data` with a non-zero `exit_code` means the command already ran remotely, so think about side effects before retrying.
+
+Every envelope carries `protocol: "sshq/3"`, and the full contract lives in [`schemas/envelope-v3.schema.json`](schemas/envelope-v3.schema.json) — pin your parser to both instead of guessing.
 
 The process exit code tells the same story: `0` = done and the answer is good; `1` = done but the answer is bad news (remote command failed, probe unreachable, doctor found problems); `2` = sshq itself failed and the envelope carries `error`. A shell script reading `$?` and an agent reading the envelope always reach the same conclusion.
 

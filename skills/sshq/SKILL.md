@@ -132,6 +132,12 @@ sshq cluster exec "systemctl status nginx" --all
 
 After selector resolution, sshq runs a policy pre-flight check on all targets. If any host is blocked, no hosts execute. Once pre-flight passes, runtime failures are per-host — surviving hosts complete independently.
 
+JSON output keeps each host's remote exit status separate from connection or execution failures. A host that never produced a remote exit status has `exit_code: null` and a non-empty `error`:
+
+```json
+{"protocol":"sshq/3","data":{"results":[{"alias":"web-1","stdout":"web-1","exit_code":0},{"alias":"web-2","exit_code":null,"error":"network error connecting to 192.0.2.20:22"}],"summary":{"total":2,"success":1,"failed":1}}}
+```
+
 Flags: `--hosts <a,b>`, `--tag <t>`, `--env <e>`, `--all`, `--concurrency <n>` (default 10), `--no-daemon`.
 
 ## tunnel
@@ -232,12 +238,14 @@ sshq auto-detects: pipe → JSON, terminal → pretty. Override with flags:
 Parse stdout JSON first. The envelope shape carries the sshq-level outcome: `data` means sshq completed the operation; `error` means sshq could not complete it. Use stderr only as diagnostics.
 
 ```json
-{"exit_code":0,"data":{"stdout":"web-1\n","stderr":"","alias":"web-1","duration_ms":42}}
-{"exit_code":3,"data":{"stdout":"","stderr":"command failed\n","alias":"web-1","duration_ms":42}}
-{"error":{"code":"auth_failed","hint":"authentication failed for deploy@web-1:22","action":"check credentials and key file"}}
+{"protocol":"sshq/3","exit_code":0,"data":{"stdout":"web-1\n","stderr":"","alias":"web-1","duration_ms":42}}
+{"protocol":"sshq/3","exit_code":3,"data":{"stdout":"","stderr":"command failed\n","alias":"web-1","duration_ms":42}}
+{"protocol":"sshq/3","error":{"code":"auth_failed","hint":"authentication failed for deploy@web-1:22","action":"check credentials and key file"}}
 ```
 
 Only a single remote command result carries top-level `exit_code`; `0` means remote success and any non-zero value is the exact remote failure code. Other completed commands return `data` without top-level `exit_code`. Error envelopes contain neither `data` nor `exit_code`.
+
+Every JSON envelope carries `protocol: "sshq/3"`. The machine-readable contract is [`schemas/envelope-v3.schema.json`](https://github.com/shayuc137/sshq/blob/main/schemas/envelope-v3.schema.json).
 
 Process exit status is always tri-state: `0` = completed with a successful result, `1` = completed with an unsuccessful result, `2` = sshq could not complete the operation. For exec, process status `1` still requires reading top-level `exit_code` for the exact remote code.
 
@@ -249,6 +257,7 @@ Process exit status is always tri-state: `0` = completed with a successful resul
 | `host_not_found` | Alias is absent from SSH config | Run `sshq ls` and choose a valid alias |
 | `config_unavailable` | SSH config is missing, unreadable, or cannot be saved | Check `~/.ssh/config` and its permissions |
 | `network_error` | Dial, DNS, or port connectivity failed | Fix connectivity, then retry |
+| `timeout` | The local execution deadline expired; the remote command may still be running | Increase `--timeout` or run the command in the background |
 | `auth_failed` | Authentication was rejected | Check credentials and key files |
 | `host_key_unknown` | The host key has not been trusted yet | Ask the user, then run `sshq trust <alias>` |
 | `host_key_mismatch` | The stored host key changed | Verify the change, then run `sshq trust <alias> --replace` |

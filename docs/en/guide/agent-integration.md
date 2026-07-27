@@ -41,7 +41,7 @@ result=$(sshq myhost "hostname")
 ```
 
 ```json
-{"exit_code":0,"data":{"stdout":"myhost\n","stderr":"","alias":"myhost","duration_ms":42}}
+{"protocol":"sshq/3","exit_code":0,"data":{"stdout":"myhost\n","stderr":"","alias":"myhost","duration_ms":42}}
 ```
 
 Force either mode when needed:
@@ -61,16 +61,18 @@ Every JSON response is one of two mutually exclusive envelope shapes. A `data` e
 Remote command success:
 
 ```json
-{"exit_code":0,"data":{"stdout":"myhost\n","stderr":"","alias":"myhost","duration_ms":42}}
+{"protocol":"sshq/3","exit_code":0,"data":{"stdout":"myhost\n","stderr":"","alias":"myhost","duration_ms":42}}
 ```
 
 Error:
 
 ```json
-{"error":{"code":"host_key_unknown","hint":"host key unknown for myhost (10.0.0.1:22)","action":"sshq trust myhost"}}
+{"protocol":"sshq/3","error":{"code":"host_key_unknown","hint":"host key unknown for myhost (10.0.0.1:22)","action":"sshq trust myhost"}}
 ```
 
 Agent callers should branch on the presence of `error`. For `exec`, a `data` envelope also carries the exact remote process result in top-level `exit_code` — see [Reading exit_code Correctly](#reading-exit_code-correctly) below.
+
+Every envelope carries `protocol: "sshq/3"`. The machine-readable contract is published as a JSON Schema at [`schemas/envelope-v3.schema.json`](https://github.com/shayuc137/sshq/blob/main/schemas/envelope-v3.schema.json); validate against it instead of guessing field shapes.
 
 ## stdout Purity Guarantee
 
@@ -95,6 +97,7 @@ The full envelope for a successful exec:
 
 ```json
 {
+  "protocol": "sshq/3",
   "exit_code": 0,
   "data": {
     "stdout": "Linux myhost 6.8.0\n",
@@ -107,6 +110,7 @@ The full envelope for a successful exec:
 
 | Field | Meaning |
 |-------|---------|
+| `protocol` | Envelope contract version, always `sshq/3` for this release line |
 | top-level `exit_code` | Exact remote process exit code; present only for a single remote command |
 | `data.stdout` | Remote stdout, preserved exactly |
 | `data.stderr` | Remote stderr |
@@ -120,7 +124,7 @@ A `data` envelope means sshq completed the call. For a single remote command, to
 A remote command that fails with exit code 2:
 
 ```json
-{"exit_code":2,"data":{"stdout":"","stderr":"ls: cannot access '/nonexistent': No such file or directory\n","alias":"myhost","duration_ms":112}}
+{"protocol":"sshq/3","exit_code":2,"data":{"stdout":"","stderr":"ls: cannot access '/nonexistent': No such file or directory\n","alias":"myhost","duration_ms":112}}
 ```
 
 This response has `data` and `exit_code: 2`. The sshq call completed, while the remote `ls` failed.
@@ -135,7 +139,7 @@ printf '%s' "$json" | jq -e 'has("data") and .exit_code == 0'
 When sshq cannot complete the operation, the response carries `error` instead of `data`, and there is no top-level `exit_code`:
 
 ```json
-{"error":{"code":"host_not_found","hint":"host \"myhost\" not found","action":"run 'sshq ls' to see available hosts"}}
+{"protocol":"sshq/3","error":{"code":"host_not_found","hint":"host \"myhost\" not found","action":"run 'sshq ls' to see available hosts"}}
 ```
 
 Summary:
@@ -158,7 +162,7 @@ Error: host key unknown for myhost (10.0.0.1:22)
 JSON errors carry the same information:
 
 ```json
-{"error":{"code":"host_key_unknown","hint":"host key unknown for myhost (10.0.0.1:22)","action":"sshq trust myhost"}}
+{"protocol":"sshq/3","error":{"code":"host_key_unknown","hint":"host key unknown for myhost (10.0.0.1:22)","action":"sshq trust myhost"}}
 ```
 
 Common actions include:
@@ -168,7 +172,7 @@ Common actions include:
 - `run 'sshq ls' to see available hosts`
 - `retry or use --no-daemon`
 
-Agents should branch programmatically on `error.code`, surface `error.hint` to users, and use `error.action` as the next command suggestion. `result_indeterminate` means the operation may already have run; verify remote state instead of retrying blindly.
+Agents should branch programmatically on `error.code`, surface `error.hint` to users, and use `error.action` as the next command suggestion. Two codes ask for extra care before retrying: `result_indeterminate` means the operation may already have run, and `timeout` means the local `--timeout` deadline expired while the remote command may still be running — in both cases verify remote state instead of retrying blindly.
 
 ## Install as a Claude Code Skill
 
