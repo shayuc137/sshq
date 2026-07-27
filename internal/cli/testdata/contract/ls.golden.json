@@ -1,0 +1,15 @@
+{
+  "data": [
+    {
+      "alias": "web-1",
+      "hostname": "192.0.2.10",
+      "metadata": {
+        "environment": "production",
+        "tags": "web"
+      },
+      "port": "22",
+      "user": "deploy"
+    }
+  ],
+  "protocol": "sshq/3"
+}

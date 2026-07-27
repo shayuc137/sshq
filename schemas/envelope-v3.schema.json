@@ -1,0 +1,393 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/shayuc137/sshq/schemas/envelope-v3.schema.json",
+  "title": "sshq JSON envelope v3",
+  "description": "Machine-readable contract for sshq/3 command results.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/dataEnvelope"
+    },
+    {
+      "$ref": "#/$defs/errorEnvelope"
+    }
+  ],
+  "$defs": {
+    "dataEnvelope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "protocol",
+            "exit_code",
+            "data"
+          ],
+          "properties": {
+            "protocol": {
+              "const": "sshq/3"
+            },
+            "exit_code": {
+              "type": "integer"
+            },
+            "data": {
+              "$ref": "#/$defs/execData"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "protocol",
+            "data"
+          ],
+          "properties": {
+            "protocol": {
+              "const": "sshq/3"
+            },
+            "data": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/clusterData"
+                },
+                {
+                  "$ref": "#/$defs/cpData"
+                },
+                {
+                  "$ref": "#/$defs/probeData"
+                },
+                {
+                  "$ref": "#/$defs/hostListData"
+                },
+                {
+                  "$ref": "#/$defs/genericData"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "errorEnvelope": {
+      "type": "object",
+      "required": [
+        "protocol",
+        "error"
+      ],
+      "properties": {
+        "protocol": {
+          "const": "sshq/3"
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "required": [
+        "code",
+        "hint",
+        "action"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "invalid_usage",
+            "host_not_found",
+            "config_unavailable",
+            "network_error",
+            "timeout",
+            "auth_failed",
+            "host_key_unknown",
+            "host_key_mismatch",
+            "policy_blocked",
+            "credential_error",
+            "result_indeterminate",
+            "transfer_failed",
+            "daemon_error",
+            "audit_write_failed",
+            "internal_error"
+          ]
+        },
+        "hint": {
+          "type": "string"
+        },
+        "action": {
+          "type": "string"
+        },
+        "details": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    "execData": {
+      "type": "object",
+      "required": [
+        "stdout",
+        "stderr",
+        "alias",
+        "duration_ms"
+      ],
+      "properties": {
+        "stdout": {
+          "type": "string"
+        },
+        "stderr": {
+          "type": "string"
+        },
+        "alias": {
+          "type": "string"
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "clusterData": {
+      "type": "object",
+      "required": [
+        "results",
+        "summary"
+      ],
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/clusterHostResult"
+          }
+        },
+        "summary": {
+          "$ref": "#/$defs/clusterSummary"
+        }
+      },
+      "additionalProperties": false
+    },
+    "clusterHostResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "alias",
+            "exit_code"
+          ],
+          "properties": {
+            "alias": {
+              "type": "string"
+            },
+            "stdout": {
+              "type": "string"
+            },
+            "stderr": {
+              "type": "string"
+            },
+            "exit_code": {
+              "type": "integer"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "alias",
+            "exit_code",
+            "error"
+          ],
+          "properties": {
+            "alias": {
+              "type": "string"
+            },
+            "stdout": {
+              "type": "string"
+            },
+            "stderr": {
+              "type": "string"
+            },
+            "exit_code": {
+              "type": "null"
+            },
+            "error": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "clusterSummary": {
+      "type": "object",
+      "required": [
+        "total",
+        "success",
+        "failed"
+      ],
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "success": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "cpData": {
+      "type": "object",
+      "required": [
+        "direction",
+        "remote",
+        "size",
+        "duration",
+        "engine",
+        "files"
+      ],
+      "properties": {
+        "direction": {
+          "enum": [
+            "upload",
+            "download",
+            "relay"
+          ]
+        },
+        "remote": {
+          "type": "string"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "duration": {
+          "type": "string"
+        },
+        "engine": {
+          "type": "string"
+        },
+        "files": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "probeData": {
+      "type": "object",
+      "required": [
+        "alias",
+        "host",
+        "port",
+        "resolved_hostname",
+        "proxy_jump",
+        "probe_path",
+        "reachable"
+      ],
+      "properties": {
+        "alias": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "port": {
+          "type": "string"
+        },
+        "resolved_hostname": {
+          "type": "string"
+        },
+        "proxy_jump": {
+          "type": "string"
+        },
+        "probe_path": {
+          "enum": [
+            "direct",
+            "via-proxy"
+          ]
+        },
+        "reachable": {
+          "type": "boolean"
+        },
+        "latency_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "error": {
+          "type": "string"
+        },
+        "profile": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    "hostListData": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/host"
+      }
+    },
+    "host": {
+      "type": "object",
+      "required": [
+        "alias",
+        "hostname",
+        "user",
+        "port"
+      ],
+      "properties": {
+        "alias": {
+          "type": "string"
+        },
+        "hostname": {
+          "type": "string"
+        },
+        "user": {
+          "type": "string"
+        },
+        "port": {
+          "type": "string"
+        },
+        "identity_file": {
+          "type": "string"
+        },
+        "proxy_jump": {
+          "type": "string"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "genericData": {
+      "description": "Data for commands not yet described by a command-specific definition.",
+      "not": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/execData"
+          },
+          {
+            "$ref": "#/$defs/clusterData"
+          },
+          {
+            "$ref": "#/$defs/cpData"
+          }
+        ]
+      }
+    }
+  }
+}

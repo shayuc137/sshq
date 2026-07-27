@@ -1,0 +1,22 @@
+{
+  "data": {
+    "results": [
+      {
+        "alias": "web-1",
+        "exit_code": 0,
+        "stdout": "web-1"
+      },
+      {
+        "alias": "web-2",
+        "error": "network error connecting to 192.0.2.20:22",
+        "exit_code": null
+      }
+    ],
+    "summary": {
+      "failed": 1,
+      "success": 1,
+      "total": 2
+    }
+  },
+  "protocol": "sshq/3"
+}

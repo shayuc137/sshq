@@ -1,0 +1,13 @@
+{
+  "data": {
+    "alias": "web-1",
+    "host": "192.0.2.10",
+    "latency_ms": 7,
+    "port": "22",
+    "probe_path": "direct",
+    "proxy_jump": "",
+    "reachable": true,
+    "resolved_hostname": "192.0.2.10"
+  },
+  "protocol": "sshq/3"
+}

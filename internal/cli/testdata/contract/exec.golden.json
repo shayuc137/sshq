@@ -1,0 +1,10 @@
+{
+  "data": {
+    "alias": "web-1",
+    "duration_ms": 42,
+    "stderr": "",
+    "stdout": "web-1\n"
+  },
+  "exit_code": 0,
+  "protocol": "sshq/3"
+}

@@ -1,0 +1,11 @@
+{
+  "data": {
+    "direction": "upload",
+    "duration": "125ms",
+    "engine": "sftp",
+    "files": 1,
+    "remote": "web-1:/srv/app.tar",
+    "size": 4096
+  },
+  "protocol": "sshq/3"
+}
