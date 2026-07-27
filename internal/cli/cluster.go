@@ -25,7 +25,7 @@ type clusterHostResult struct {
 	Alias    string `json:"alias"`
 	Stdout   string `json:"stdout,omitempty"`
 	Stderr   string `json:"stderr,omitempty"`
-	ExitCode int    `json:"exit_code"`
+	ExitCode *int   `json:"exit_code"`
 	Error    string `json:"error,omitempty"`
 }
 
@@ -52,8 +52,8 @@ func (cr clusterResult) Pretty() string {
 				fmt.Fprintf(&b, "[%s] stderr: %s\n", r.Alias, line)
 			}
 		}
-		if r.ExitCode != 0 {
-			fmt.Fprintf(&b, "[%s] exit=%d\n", r.Alias, r.ExitCode)
+		if r.ExitCode != nil && *r.ExitCode != 0 {
+			fmt.Fprintf(&b, "[%s] exit=%d\n", r.Alias, *r.ExitCode)
 		}
 	}
 	fmt.Fprintf(&b, "total=%d success=%d failed=%d", cr.Summary.Total, cr.Summary.Success, cr.Summary.Failed)
@@ -221,7 +221,8 @@ func recvClusterFrames(w *output.Writer, conn net.Conn) error {
 			case "stderr":
 				r.Stderr += cf.Data
 			case "exit":
-				r.ExitCode = cf.Code
+				exitCode := cf.Code
+				r.ExitCode = &exitCode
 			case "error":
 				r.Error = cf.Hint
 				hasError = true
@@ -236,7 +237,7 @@ func recvClusterFrames(w *output.Writer, conn net.Conn) error {
 				hr := hostData[a]
 				hr.Stdout = trimTrailingNewline(hr.Stdout)
 				hr.Stderr = trimTrailingNewline(hr.Stderr)
-				if hr.ExitCode != 0 {
+				if hr.ExitCode != nil && *hr.ExitCode != 0 {
 					hasError = true
 				}
 				results = append(results, *hr)
@@ -320,12 +321,13 @@ func clusterExecDirectCLI(cmd *cobra.Command, w *output.Writer, store *config.St
 			}
 			normalizeRemoteResult(result, profile, shell)
 
+			exitCode := result.ExitCode
 			mu.Lock()
 			results = append(results, clusterHostResult{
 				Alias:    alias,
 				Stdout:   trimTrailingNewline(result.Stdout),
 				Stderr:   trimTrailingNewline(result.Stderr),
-				ExitCode: result.ExitCode,
+				ExitCode: &exitCode,
 			})
 			mu.Unlock()
 		}(alias)
@@ -338,7 +340,7 @@ func clusterExecDirectCLI(cmd *cobra.Command, w *output.Writer, store *config.St
 	success := 0
 	hasError := false
 	for _, r := range results {
-		if r.Error != "" || r.ExitCode != 0 {
+		if r.Error != "" || r.ExitCode == nil || *r.ExitCode != 0 {
 			hasError = true
 		} else {
 			success++

@@ -73,7 +73,7 @@ type clusterEnvelope struct {
 			Alias    string `json:"alias"`
 			Stdout   string `json:"stdout"`
 			Stderr   string `json:"stderr"`
-			ExitCode int    `json:"exit_code"`
+			ExitCode *int   `json:"exit_code"`
 			Error    string `json:"error"`
 		} `json:"results"`
 		Summary ipc.ClusterSummary `json:"summary"`
@@ -114,8 +114,9 @@ func TestRecvClusterFramesMultiHostJSON(t *testing.T) {
 }
 
 func TestClusterPrettyIncludesRemoteStderr(t *testing.T) {
+	exitCode := 1
 	result := clusterResult{
-		Results: []clusterHostResult{{Alias: "win", Stderr: "找不到命令", ExitCode: 1}},
+		Results: []clusterHostResult{{Alias: "win", Stderr: "找不到命令", ExitCode: &exitCode}},
 		Summary: ipc.ClusterSummary{Total: 1, Failed: 1},
 	}
 	if got := result.Pretty(); !strings.Contains(got, "[win] stderr: 找不到命令") {
@@ -142,8 +143,8 @@ func TestRecvClusterFramesNonZeroExitJSON(t *testing.T) {
 	if env.ExitCode != nil {
 		t.Fatalf("envelope unexpectedly contains exit_code=%d", *env.ExitCode)
 	}
-	if env.Data.Results[1].ExitCode != 3 {
-		t.Fatalf("data.results[1].exit_code = %d, want 3", env.Data.Results[1].ExitCode)
+	if env.Data.Results[1].ExitCode == nil || *env.Data.Results[1].ExitCode != 3 {
+		t.Fatalf("data.results[1].exit_code = %v, want 3", env.Data.Results[1].ExitCode)
 	}
 }
 
@@ -174,7 +175,7 @@ func TestRecvClusterFramesPartialFailureJSON(t *testing.T) {
 		Alias    string `json:"alias"`
 		Stdout   string `json:"stdout"`
 		Stderr   string `json:"stderr"`
-		ExitCode int    `json:"exit_code"`
+		ExitCode *int   `json:"exit_code"`
 		Error    string `json:"error"`
 	}
 	for i := range env.Data.Results {
@@ -184,6 +185,27 @@ func TestRecvClusterFramesPartialFailureJSON(t *testing.T) {
 	}
 	if web2 == nil || web2.Error != "connect refused" {
 		t.Errorf("expected web2 to carry the error, got %+v", web2)
+	}
+	if web2.ExitCode != nil {
+		t.Errorf("failed host exit_code = %d, want null", *web2.ExitCode)
+	}
+}
+
+func TestClusterHostFailureExitCodeSerializesNull(t *testing.T) {
+	data, err := json.Marshal(clusterHostResult{Alias: "offline", Error: "connect refused"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result map[string]any
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatal(err)
+	}
+	exitCode, ok := result["exit_code"]
+	if !ok {
+		t.Fatalf("exit_code missing from %s", data)
+	}
+	if exitCode != nil {
+		t.Fatalf("exit_code = %v, want null", exitCode)
 	}
 }
 
