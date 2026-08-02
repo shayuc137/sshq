@@ -2,16 +2,20 @@ package cli
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 
+	"github.com/shayuc137/sshq/internal/output"
 	"github.com/shayuc137/sshq/internal/version"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 var (
@@ -19,6 +23,7 @@ var (
 	commentSuffixRE   = regexp.MustCompile(`\s+#.*$`)
 	placeholderRE     = regexp.MustCompile(`<[^>\s]+>`)
 	shellTokenRE      = regexp.MustCompile(`"(?:\\.|[^"\\])*"|'[^']*'|[^\s]+`)
+	flagTokenRE       = regexp.MustCompile(`--?[a-z][a-z0-9-]*`)
 )
 
 type documentedCommand struct {
@@ -81,6 +86,192 @@ func TestRootShortcutAndExecExposeSameExecFlags(t *testing.T) {
 		if err := validateDocumentedCommand(NewRootCommand(), line); err != nil {
 			t.Fatalf("%s: %v", line, err)
 		}
+	}
+}
+
+func TestEnvelopeSchemaErrorCodesMatchOutputCodes(t *testing.T) {
+	path := filepath.Join(repositoryRoot(t), "schemas", "envelope-v3.schema.json")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var schema struct {
+		Defs struct {
+			Error struct {
+				Properties struct {
+					Code struct {
+						Enum []string `json:"enum"`
+					} `json:"code"`
+				} `json:"properties"`
+			} `json:"error"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(content, &schema); err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	assertStringSetEqual(t, "schema error.code enum", schema.Defs.Error.Properties.Code.Enum, output.AllCodes())
+}
+
+func TestSkillErrorCodesMatchOutputCodes(t *testing.T) {
+	content := readSkillMarkdown(t)
+	section := markdownSection(t, content, "### Error code quick reference")
+
+	var codes []string
+	inTable := false
+	for _, line := range strings.Split(section, "\n") {
+		if !strings.HasPrefix(line, "|") {
+			if inTable {
+				break
+			}
+			continue
+		}
+		inTable = true
+		columns := strings.Split(line, "|")
+		if len(columns) < 3 {
+			continue
+		}
+		code := strings.Trim(strings.TrimSpace(columns[1]), "`")
+		if code == "code" || strings.Trim(code, "-") == "" {
+			continue
+		}
+		codes = append(codes, code)
+	}
+	assertStringSetEqual(t, "SKILL.md error code table", codes, output.AllCodes())
+}
+
+func TestSkillExecAndCpFlagsMatchCobraCommands(t *testing.T) {
+	content := readSkillMarkdown(t)
+	root := NewRootCommand()
+
+	for _, name := range []string{"exec", "cp"} {
+		t.Run(name, func(t *testing.T) {
+			cmd, _, err := root.Find([]string{name})
+			if err != nil {
+				t.Fatal(err)
+			}
+			documented := documentedFlags(t, markdownSection(t, content, "## "+name))
+
+			for token := range documented {
+				if !commandHasFlag(cmd, token) {
+					t.Errorf("SKILL.md documents unknown %s flag %s", name, token)
+				}
+			}
+
+			cmd.NonInheritedFlags().VisitAll(func(flag *pflag.Flag) {
+				if flag.Name != "help" && !documented["--"+flag.Name] && (flag.Shorthand == "" || !documented["-"+flag.Shorthand]) {
+					t.Errorf("SKILL.md %s Flags line is missing --%s", name, flag.Name)
+				}
+			})
+		})
+	}
+}
+
+func TestDocsIncludeRootPersistentFlags(t *testing.T) {
+	root := NewRootCommand()
+	dir := t.TempDir()
+	if err := genSkillDocs(root, dir); err != nil {
+		t.Fatalf("generate skill docs: %v", err)
+	}
+
+	var generated strings.Builder
+	for _, name := range listMDFiles(dir) {
+		content, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		generated.Write(content)
+	}
+	if generated.Len() == 0 {
+		t.Fatal("skill docs generator produced no Markdown")
+	}
+
+	root.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
+		if !strings.Contains(generated.String(), "--"+flag.Name) {
+			t.Errorf("generated skill docs are missing root persistent flag --%s", flag.Name)
+		}
+	})
+	if !strings.Contains(generated.String(), "--timeout duration   operation timeout (default 30s)") {
+		t.Error("generated skill docs are missing the --timeout default of 30s")
+	}
+}
+
+func readSkillMarkdown(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(repositoryRoot(t), "skills", "sshq", "SKILL.md")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(content)
+}
+
+func markdownSection(t *testing.T, content, heading string) string {
+	t.Helper()
+	start := strings.Index(content, heading+"\n")
+	if start < 0 {
+		t.Fatalf("missing Markdown heading %q", heading)
+	}
+	section := content[start+len(heading)+1:]
+	level := strings.Fields(heading)[0]
+	if end := strings.Index(section, "\n"+level+" "); end >= 0 {
+		section = section[:end]
+	}
+	return section
+}
+
+func documentedFlags(t *testing.T, section string) map[string]bool {
+	t.Helper()
+	for _, line := range strings.Split(section, "\n") {
+		if strings.HasPrefix(line, "Flags:") {
+			flags := make(map[string]bool)
+			for _, token := range flagTokenRE.FindAllString(line, -1) {
+				flags[token] = true
+			}
+			return flags
+		}
+	}
+	t.Fatal("section has no Flags: line")
+	return nil
+}
+
+func commandHasFlag(cmd *cobra.Command, token string) bool {
+	if strings.HasPrefix(token, "--") {
+		return cmd.Flag(strings.TrimPrefix(token, "--")) != nil
+	}
+	found := false
+	cmd.Flags().VisitAll(func(flag *pflag.Flag) {
+		found = found || flag.Shorthand == strings.TrimPrefix(token, "-")
+	})
+	return found
+}
+
+func assertStringSetEqual(t *testing.T, label string, got, want []string) {
+	t.Helper()
+	gotSet := make(map[string]bool, len(got))
+	wantSet := make(map[string]bool, len(want))
+	for _, item := range got {
+		gotSet[item] = true
+	}
+	for _, item := range want {
+		wantSet[item] = true
+	}
+
+	var missing, extra []string
+	for item := range wantSet {
+		if !gotSet[item] {
+			missing = append(missing, item)
+		}
+	}
+	for item := range gotSet {
+		if !wantSet[item] {
+			extra = append(extra, item)
+		}
+	}
+	sort.Strings(missing)
+	sort.Strings(extra)
+	if len(missing) > 0 || len(extra) > 0 {
+		t.Errorf("%s mismatch: missing=%v extra=%v", label, missing, extra)
 	}
 }
 

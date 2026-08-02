@@ -161,6 +161,16 @@ func genSkillDocs(root *cobra.Command, dir string) error {
 			}
 		}
 
+		// Only command references carry the global flags. Recipe-only files
+		// answer "how do I write this path", and leading them with a flag dump
+		// pushes the answer below the fold for no benefit.
+		globalFlags := root.PersistentFlags()
+		if len(g.cmds) > 0 && globalFlags.HasFlags() {
+			b.WriteString("**Global flags:**\n\n```\n")
+			b.WriteString(strings.TrimRight(globalFlags.FlagUsages(), "\n"))
+			b.WriteString("\n```\n\n")
+		}
+
 		if g.appendix != "" {
 			b.WriteString(g.appendix)
 		}

@@ -14,6 +14,8 @@
 
 ### Skill docs
 
+- Generated command references now include the root global flags once per file, including the 30-second `--timeout` default and the exec-only `--raw` constraint.
+- Error codes now have one authoritative set, with contract tests keeping the JSON schema and `SKILL.md` table synchronized. The exec/cp flag tables are checked against Cobra, and the cp quick reference now includes `--mkdirs`.
 - New `references/windows-encoding.md`: base64 recipes for round-tripping non-ASCII (e.g. Chinese) text with Windows hosts whose sshd chain performs lossy code-page conversion.
 
 ### JSON envelope contract

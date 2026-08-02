@@ -102,7 +102,11 @@ sshq exec <alias> --script-file <path> --shell bash --no-daemon
 
 Human convenience — agents use `sshq exec`: people may run `sshq <alias> "<cmd>"`. Cobra resolves a colliding built-in subcommand before an alias, so agents always use the canonical form.
 
-Flags: `--timeout <dur>`, `--no-daemon`, `--script-file <path>`, `--shell <bash|ash|powershell|cmd>`, `--raw` (see output modes — mirrors remote stdout and exit code exactly).
+Flags: `--timeout <dur>` (default 30s), `--no-daemon`, `--script-file <path>`, `--shell <bash|ash|powershell|cmd>`, `--raw` (see output modes — mirrors remote stdout and exit code exactly).
+
+The 30-second default is a local deadline, not a remote kill. When it expires sshq stops waiting and returns `code: "timeout"`, but **the remote command keeps running**. Check remote state before re-running anything with side effects — a cleanup or migration script that timed out is probably still working.
+
+Operational commands routinely need longer: `docker compose pull`, `du -sh` over a large tree, backups, builds. Pass `--timeout` explicitly for those instead of finding the ceiling by hitting it.
 
 For complex Windows commands, prefer `--script-file <path> --shell powershell`. sshq runs PowerShell scripts up to 8 KiB with `-EncodedCommand` using a UTF-16LE payload; larger scripts automatically upload a UTF-8-with-BOM temporary `.ps1`, run it with `-File`, and remove it. Bash, ash, sh, and zsh scripts continue to execute through stdin.
 
@@ -116,7 +120,11 @@ sshq cp ali:/var/log/app.log ./          # download
 sshq cp ali:/data/dump.sql rn:/backup/   # server-to-server relay
 ```
 
-Flags: `-r` (recursive), `--no-progress`, `--no-daemon`.
+Flags: `-r` (recursive), `--mkdirs`, `--no-progress`, `--no-daemon`.
+
+`cp` is the one command that ignores the 30-second `--timeout` default: transfer time scales with file size, so a fixed deadline would just cap how large a file can be copied. Pass `--timeout` explicitly if you want a ceiling.
+
+A wedged transfer has no ceiling either. If the remote stops responding mid-copy, `cp` waits indefinitely, and `--timeout` will not rescue it — the deadline is checked between chunks, and a stuck read never reaches the next chunk. Wrap the call in your own timeout if a hang would block you.
 
 Transfer engine: tries SFTP first, falls back to raw SSH byte stream when the remote lacks sftp-server (e.g. OpenWrt BusyBox). Server-to-server relay streams through the local host without writing a temp file.
 
@@ -184,13 +192,14 @@ For passphrase-mode credential stores (no SSH key), set `SSHQ_CREDENTIAL_PASSPHR
 
 ## daemon
 
-The daemon manages a connection pool for faster repeat operations. It starts automatically on first use and idles out after inactivity. Manual control is rarely needed:
+The daemon manages a connection pool for faster repeat operations. It starts automatically on first use and idles out after inactivity, so agents never need to start it themselves.
 
 ```bash
-sshq daemon start     # explicit start
 sshq daemon status    # pool stats
 sshq daemon stop      # shutdown
 ```
+
+`sshq daemon start` runs the daemon **in the foreground** and does not return until it shuts down. Never call it from an agent expecting it to exit.
 
 ## policy
 

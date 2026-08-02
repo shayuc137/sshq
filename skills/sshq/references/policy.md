@@ -93,6 +93,18 @@ Query structured audit logs
       --operation string   filter audit entries by operation
 ```
 
+**Global flags:**
+
+```
+      --config string      SSH config file path
+      --json               output in JSON format
+      --no-progress        disable progress output
+      --pretty             human-readable output
+      --raw                exec only: mirror remote stdout/stderr and exit code exactly, no envelope
+      --timeout duration   operation timeout (default 30s)
+  -v, --verbose            verbose output
+```
+
 ---
 
 ## Agent notes

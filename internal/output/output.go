@@ -287,6 +287,29 @@ const (
 	CodeInternalError       = "internal_error"
 )
 
+// AllCodes is the authoritative error-code set. The JSON schema enum and the
+// SKILL.md quick-reference table are both verified against it, so adding a code
+// without updating either contract fails the build.
+func AllCodes() []string {
+	return []string{
+		CodeInvalidUsage,
+		CodeHostNotFound,
+		CodeConfigUnavailable,
+		CodeNetworkError,
+		CodeTimeout,
+		CodeAuthFailed,
+		CodeHostKeyUnknown,
+		CodeHostKeyMismatch,
+		CodePolicyBlocked,
+		CodeCredentialError,
+		CodeResultIndeterminate,
+		CodeTransferFailed,
+		CodeDaemonError,
+		CodeAuditWriteFailed,
+		CodeInternalError,
+	}
+}
+
 func (e *CmdError) Error() string {
 	if e.Action != "" {
 		return fmt.Sprintf("%s (-> %s)", e.Hint, e.Action)
