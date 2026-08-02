@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"time"
 
@@ -44,10 +45,10 @@ func newCpCommand() *cobra.Command {
 			mkdirs, _ := cmd.Flags().GetBool("mkdirs")
 			noDaemon, _ := cmd.Flags().GetBool("no-daemon")
 			// Copy duration scales with payload size, so the root 30s default is
-			// the wrong unit and cp does not inherit it. A wedged transfer is
-			// still unbounded — see the follow-up task on connection-level abort;
-			// a deadline cannot help there because a blocked Read never reaches
-			// the loop's ctx check.
+			// the wrong unit and cp does not inherit it. On the direct path a
+			// wedged transfer is still unbounded — a blocked Read never reaches
+			// the loop's ctx check, and the SSH channel has no deadline. The
+			// daemon path is bounded by recvTransferFrames instead.
 			var timeout time.Duration
 			if cmd.Flags().Changed("timeout") {
 				timeout, _ = cmd.Flags().GetDuration("timeout")
@@ -59,6 +60,14 @@ func newCpCommand() *cobra.Command {
 			timeoutSeconds := 0
 			if timeout > 0 {
 				timeoutSeconds = int((timeout + time.Second - 1) / time.Second)
+			}
+
+			// The daemon enforces the same deadline and reports it precisely, so
+			// this side waits a little longer and only speaks up when that frame
+			// never arrives.
+			var clientDeadline time.Time
+			if timeout > 0 {
+				clientDeadline = time.Now().Add(timeout + daemonDeadlineGrace)
 			}
 
 			progressFn := transferProgress(w)
@@ -76,7 +85,7 @@ func newCpCommand() *cobra.Command {
 					env, _ := ipc.MakeEnvelope("transfer", transferPayload(parsed, recursive, mkdirs, w.IsVerbose(), timeoutSeconds))
 					return daemonDispatch(env,
 						func(conn net.Conn) error {
-							return recvTransferFrames(w, conn)
+							return recvTransferFrames(w, conn, clientDeadline)
 						},
 						func(reason string) error {
 							w.Info(reason + ", falling back to direct connection")
@@ -96,7 +105,7 @@ func newCpCommand() *cobra.Command {
 					})
 					return daemonDispatch(env,
 						func(conn net.Conn) error {
-							return recvTransferFrames(w, conn)
+							return recvTransferFrames(w, conn, clientDeadline)
 						},
 						func(reason string) error {
 							w.Info(reason + ", falling back to direct connection")
@@ -154,10 +163,44 @@ func transferPayload(parsed transfer.ParsedArgs, recursive, mkdirs, verbose bool
 	}
 }
 
-func recvTransferFrames(w *output.Writer, conn net.Conn) error {
+// frameStallTimeout bounds the wait for any daemon frame. It has to clear the
+// pre-transfer phase — connect, shell detection, SFTP negotiation — which the
+// daemon itself budgets 30s for, so it sits well above that. Progress frames
+// are throttled to 5s once bytes are moving, far below this.
+var frameStallTimeout = 60 * time.Second
+
+// daemonDeadlineGrace keeps the daemon's own timeout frame ahead of this side's
+// fallback. Both clocks would otherwise race, and the daemon's message is the
+// better one — it knows the transfer stopped and the temp file was removed.
+const daemonDeadlineGrace = 5 * time.Second
+
+// recvTransferFrames reads daemon frames until the transfer resolves, giving up
+// if the daemon goes quiet. overall bounds the whole exchange when the caller
+// passed an explicit --timeout; the zero value means no overall bound.
+//
+// The lever here is the IPC socket's read deadline, which unix sockets support
+// on every platform sshq targets. That is what makes this fix possible at all —
+// the transfer's own SSH channel has no deadline, which is why a wedged copy
+// cannot be interrupted on the daemon side (see the dev-guide gotcha).
+func recvTransferFrames(w *output.Writer, conn net.Conn, overall time.Time) error {
 	for {
+		deadline := time.Now().Add(frameStallTimeout)
+		if !overall.IsZero() && overall.Before(deadline) {
+			deadline = overall
+		}
+		conn.SetReadDeadline(deadline)
+
 		msg, err := ipc.Recv(conn)
 		if err != nil {
+			if errors.Is(err, os.ErrDeadlineExceeded) {
+				// The daemon may still be transferring, or still wedged. Unlike
+				// the direct path this side cannot promise the remote temp file
+				// was cleaned up, so the hint must not claim it was.
+				return output.Errorf(
+					"daemon stopped responding; the transfer may still be running and the remote temporary file may remain",
+					"check remote state with sshq exec before retrying",
+				).WithCode(output.CodeResultIndeterminate)
+			}
 			return output.Errorf("daemon connection lost", "retry or use --no-daemon").WithCode(output.CodeResultIndeterminate)
 		}
 

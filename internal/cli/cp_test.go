@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -115,7 +116,7 @@ func TestCpErrorToOutputMatchesDaemonFrame(t *testing.T) {
 	go func() {
 		_ = ipc.SendError(serverConn, direct.Code, direct.Hint, direct.Action)
 	}()
-	daemonErr := recvTransferFrames(output.New(io.Discard, io.Discard), clientConn)
+	daemonErr := recvTransferFrames(output.New(io.Discard, io.Discard), clientConn, time.Time{})
 	var daemon *output.CmdError
 	if !errors.As(daemonErr, &daemon) {
 		t.Fatalf("daemon error = %T %v", daemonErr, daemonErr)
@@ -142,5 +143,88 @@ func TestCpCommandRegistersMkdirs(t *testing.T) {
 	flag := newCpCommand().Flags().Lookup("mkdirs")
 	if flag == nil || flag.DefValue != "false" {
 		t.Fatalf("mkdirs flag = %+v", flag)
+	}
+}
+
+// net.Pipe honors deadlines exactly like the unix socket the daemon uses, so a
+// fake connection is a sound stand-in here. That is not true of every transport
+// — the SSH channel a transfer runs over has no deadline at all, which is why
+// the daemon side cannot break out of a wedged copy.
+func TestRecvTransferFramesGivesUpWhenDaemonGoesQuiet(t *testing.T) {
+	old := frameStallTimeout
+	frameStallTimeout = 40 * time.Millisecond
+	t.Cleanup(func() { frameStallTimeout = old })
+
+	_, clientConn := net.Pipe()
+	t.Cleanup(func() { clientConn.Close() })
+
+	start := time.Now()
+	err := recvTransferFrames(output.New(io.Discard, io.Discard), clientConn, time.Time{})
+	elapsed := time.Since(start)
+
+	var cmdErr *output.CmdError
+	if !errors.As(err, &cmdErr) {
+		t.Fatalf("error = %T %v", err, err)
+	}
+	if cmdErr.Code != output.CodeResultIndeterminate {
+		t.Fatalf("code = %q, want %q", cmdErr.Code, output.CodeResultIndeterminate)
+	}
+	if strings.Contains(cmdErr.Hint, "cleaned up") {
+		t.Fatalf("hint claims cleanup the client cannot verify: %q", cmdErr.Hint)
+	}
+	if elapsed < frameStallTimeout || elapsed > 2*time.Second {
+		t.Fatalf("returned after %s, want roughly %s", elapsed, frameStallTimeout)
+	}
+}
+
+func TestRecvTransferFramesKeepsWaitingWhileFramesArrive(t *testing.T) {
+	old := frameStallTimeout
+	frameStallTimeout = 60 * time.Millisecond
+	t.Cleanup(func() { frameStallTimeout = old })
+
+	serverConn, clientConn := net.Pipe()
+	t.Cleanup(func() {
+		serverConn.Close()
+		clientConn.Close()
+	})
+
+	// Five progress frames spaced under the stall window outlive it in total:
+	// the deadline tracks silence, not elapsed time.
+	go func() {
+		for i := 0; i < 5; i++ {
+			payload, _ := json.Marshal(transfer.ProgressInfo{File: "big.bin", Percent: i * 20, Total: 100})
+			_ = ipc.Send(serverConn, ipc.Frame{Type: "progress", Payload: payload})
+			time.Sleep(20 * time.Millisecond)
+		}
+		result, _ := json.Marshal(transfer.Result{Direction: "upload", Engine: "sftp"})
+		_ = ipc.Send(serverConn, ipc.Frame{Type: "result", Payload: result})
+	}()
+
+	if err := recvTransferFrames(output.New(io.Discard, io.Discard), clientConn, time.Time{}); err != nil {
+		t.Fatalf("live transfer was interrupted: %v", err)
+	}
+}
+
+func TestRecvTransferFramesPrefersDaemonTimeoutFrame(t *testing.T) {
+	serverConn, clientConn := net.Pipe()
+	t.Cleanup(func() {
+		serverConn.Close()
+		clientConn.Close()
+	})
+
+	// The daemon reports within the grace window, so its precise message must
+	// win over this side's indeterminate fallback.
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		_ = ipc.SendError(serverConn, output.CodeTimeout, "transfer deadline exceeded", "increase --timeout and retry")
+	}()
+
+	err := recvTransferFrames(output.New(io.Discard, io.Discard), clientConn, time.Now().Add(time.Second))
+	var cmdErr *output.CmdError
+	if !errors.As(err, &cmdErr) {
+		t.Fatalf("error = %T %v", err, err)
+	}
+	if cmdErr.Code != output.CodeTimeout {
+		t.Fatalf("code = %q, want %q — the client fallback preempted the daemon", cmdErr.Code, output.CodeTimeout)
 	}
 }

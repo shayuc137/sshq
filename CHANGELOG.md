@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### cp daemon path
+
+- `cp` through the daemon no longer hangs forever when the daemon stops responding. The client gives up after 60 seconds without a frame and returns `result_indeterminate` — the transfer may still be running on the daemon side, so the hint does not claim the remote temporary file was cleaned up. An explicit `--timeout` also bounds the client, with a small grace period so the daemon's own, more precise `timeout` report wins the race.
+
 ## v0.4.1 (2026-08-02)
 
 ### Transfer timeout semantics
