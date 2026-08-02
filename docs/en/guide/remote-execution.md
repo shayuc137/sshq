@@ -119,7 +119,15 @@ sshq --timeout 2m exec --script-file ./scripts/slow-maintenance.sh web-1
 sshq --timeout 15m web-1 "apt-get update && apt-get install -y jq"
 ```
 
-If the timeout expires during execution, `sshq` cancels the SSH session and returns an error.
+When the deadline expires, `sshq` stops waiting, closes its session, and returns `error.code: "timeout"`. **The remote command is not killed** — it keeps running to completion on the host. Before re-running anything with side effects, check what actually happened:
+
+```bash
+sshq web-1 "pgrep -af maintenance.sh"
+```
+
+A cleanup or migration script that timed out is usually still working, and a second run can collide with the first.
+
+`cp` is the one command that does not inherit this default — see the [File transfer guide](file-transfer.md#transfer-timeouts).
 
 ## Windows Encoding
 

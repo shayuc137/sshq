@@ -119,7 +119,15 @@ sshq --timeout 2m exec --script-file ./scripts/slow-maintenance.sh web-1
 sshq --timeout 15m web-1 "apt-get update && apt-get install -y jq"
 ```
 
-执行期间达到超时时间后，`sshq` 会取消 `SSH` 会话并返回错误。
+超时到期后，`sshq` 停止等待、关闭自己的会话，返回 `error.code: "timeout"`。**远端命令不会被终止**，它会在主机上继续跑完。重跑任何有副作用的命令之前，先确认实际状态：
+
+```bash
+sshq web-1 "pgrep -af maintenance.sh"
+```
+
+超时的清理或迁移脚本通常还在工作，第二次执行会和第一次撞车。
+
+`cp` 是唯一不继承这个默认值的命令，见[文件传输指南](file-transfer.md#传输超时)。
 
 ## Windows 编码
 

@@ -1,6 +1,6 @@
 # Windows Non-ASCII Output Recipes
 
-Documentation version: `sshq v0.4.0`.
+Documentation version: `sshq v0.4.1`.
 
 Reliable round-tripping of non-ASCII (e.g. Chinese) text with Windows hosts.
 

@@ -163,6 +163,24 @@ sshq --no-progress cp ./dist/app.tar.gz web-1:/tmp/
 
 This is useful for agents or scripts that only need the final JSON result. `--no-progress` only suppresses progress snapshots; connection messages, fallback messages, and verbose diagnostics still use stderr.
 
+## Transfer Timeouts
+
+`cp` is the one command that ignores the global `--timeout` default of `30s`. Transfer time scales with file size and link speed, so a fixed deadline would not be a timeout at all — it would be a size limit. On a 1.4 MB/s link, a 30-second ceiling caps transfers at roughly 48 MB.
+
+Pass `--timeout` explicitly when you want a ceiling:
+
+```bash
+sshq cp --timeout 10m ./backup.tar.gz web-1:/srv/backups/
+```
+
+An expired deadline returns `error.code: "timeout"`, and the partial temporary file is removed from the destination.
+
+There is no protection against a wedged transfer. If the remote stops responding mid-copy, `cp` waits indefinitely, and `--timeout` will not rescue it: the deadline is checked between chunks, and a stuck read never reaches the next chunk. Wrap the call in an external timeout when a hang would block a pipeline:
+
+```bash
+timeout 30m sshq cp ./backup.tar.gz web-1:/srv/backups/
+```
+
 ## Binary Integrity
 
 File transfers copy bytes and do not transcode file content. Text encoding conversion applies to command output, not to `cp` payloads.

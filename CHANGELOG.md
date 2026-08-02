@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.4.1 (2026-08-02)
 
 ### Transfer timeout semantics
 

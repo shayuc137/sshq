@@ -1,6 +1,6 @@
 # Remote Windows Support Recipe
 
-Documentation version: `sshq v0.4.0`.
+Documentation version: `sshq v0.4.1`.
 
 A complete temporary-support flow from WireGuard reachability through cleanup.
 
