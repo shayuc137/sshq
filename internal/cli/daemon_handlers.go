@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -174,9 +173,11 @@ func (dc *daemonContext) handleTransfer(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	cfg.Timeout = 30 * time.Second
+	ctx, cancel := contextWithTransferTimeout(payload.Timeout)
+	defer cancel()
 
 	connectStart := time.Now()
-	client, reused, ok := dc.getClientWithStatus(context.Background(), conn, payload.Alias, cfg, transferAuditErr)
+	client, reused, ok := dc.getClientWithStatus(ctx, conn, payload.Alias, cfg, transferAuditErr)
 	if !ok {
 		return
 	}
@@ -184,7 +185,7 @@ func (dc *daemonContext) handleTransfer(conn net.Conn, raw json.RawMessage) {
 		"connection: alias=%s duration=%s daemon reused=%t",
 		payload.Alias, verboseDuration(time.Since(connectStart)), reused)
 
-	profile := dc.getProfile(context.Background(), client, cfg.Host, cfg.Port)
+	profile := dc.getProfile(ctx, client, cfg.Host, cfg.Port)
 	sendDaemonVerbose(conn, payload.Verbose, "%s", verboseProfile(profile))
 	infoFn := func(msg string) {
 		ipc.Send(conn, ipc.Frame{Type: "stderr", Data: msg + "\n"})
@@ -207,7 +208,6 @@ func (dc *daemonContext) handleTransfer(conn net.Conn, raw json.RawMessage) {
 		ipc.Send(conn, ipc.Frame{Type: "progress", Payload: json.RawMessage(b)})
 	}
 
-	ctx := context.Background()
 	var result *transfer.Result
 
 	switch payload.Direction {
@@ -238,12 +238,8 @@ func (dc *daemonContext) handleTransfer(conn net.Conn, raw json.RawMessage) {
 		if !dc.sendAuditError(conn, entry, err) {
 			return
 		}
-		action := ""
-		var missingParent *transfer.RemoteParentMissingError
-		if errors.As(err, &missingParent) {
-			action = cpMkdirsAction(parsedArgsFromTransferPayload(payload), payload.Recursive)
-		}
-		ipc.SendError(conn, output.CodeTransferFailed, err.Error(), action)
+		ce := cpErrorToOutput(ctx, err, parsedArgsFromTransferPayload(payload), payload.Recursive)
+		ipc.SendError(conn, ce.Code, ce.Hint, ce.Action)
 		return
 	}
 
@@ -281,9 +277,11 @@ func (dc *daemonContext) handleRelay(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	dstCfg.Timeout = 30 * time.Second
+	ctx, cancel := contextWithTransferTimeout(payload.Timeout)
+	defer cancel()
 
 	srcConnectStart := time.Now()
-	srcClient, srcReused, ok := dc.getClientWithStatus(context.Background(), conn, payload.SrcAlias, srcCfg, relayAuditErr)
+	srcClient, srcReused, ok := dc.getClientWithStatus(ctx, conn, payload.SrcAlias, srcCfg, relayAuditErr)
 	if !ok {
 		return
 	}
@@ -291,7 +289,7 @@ func (dc *daemonContext) handleRelay(conn net.Conn, raw json.RawMessage) {
 		"connection: alias=%s duration=%s daemon reused=%t",
 		payload.SrcAlias, verboseDuration(time.Since(srcConnectStart)), srcReused)
 	dstConnectStart := time.Now()
-	dstClient, dstReused, ok := dc.getClientWithStatus(context.Background(), conn, payload.DstAlias, dstCfg, relayAuditErr)
+	dstClient, dstReused, ok := dc.getClientWithStatus(ctx, conn, payload.DstAlias, dstCfg, relayAuditErr)
 	if !ok {
 		return
 	}
@@ -299,9 +297,9 @@ func (dc *daemonContext) handleRelay(conn net.Conn, raw json.RawMessage) {
 		"connection: alias=%s duration=%s daemon reused=%t",
 		payload.DstAlias, verboseDuration(time.Since(dstConnectStart)), dstReused)
 
-	srcProfile := dc.getProfile(context.Background(), srcClient, srcCfg.Host, srcCfg.Port)
+	srcProfile := dc.getProfile(ctx, srcClient, srcCfg.Host, srcCfg.Port)
 	sendDaemonVerbose(conn, payload.Verbose, "source %s", verboseProfile(srcProfile))
-	dstProfile := dc.getProfile(context.Background(), dstClient, dstCfg.Host, dstCfg.Port)
+	dstProfile := dc.getProfile(ctx, dstClient, dstCfg.Host, dstCfg.Port)
 	sendDaemonVerbose(conn, payload.Verbose, "destination %s", verboseProfile(dstProfile))
 
 	infoFn := func(msg string) {
@@ -312,7 +310,6 @@ func (dc *daemonContext) handleRelay(conn net.Conn, raw json.RawMessage) {
 		ipc.Send(conn, ipc.Frame{Type: "progress", Payload: json.RawMessage(b)})
 	}
 
-	ctx := context.Background()
 	var result *transfer.Result
 	var err error
 
@@ -327,12 +324,8 @@ func (dc *daemonContext) handleRelay(conn net.Conn, raw json.RawMessage) {
 		if !dc.sendAuditError(conn, entry, err) {
 			return
 		}
-		action := ""
-		var missingParent *transfer.RemoteParentMissingError
-		if errors.As(err, &missingParent) {
-			action = cpMkdirsAction(parsedArgsFromRelayPayload(payload), payload.Recursive)
-		}
-		ipc.SendError(conn, output.CodeTransferFailed, err.Error(), action)
+		ce := cpErrorToOutput(ctx, err, parsedArgsFromRelayPayload(payload), payload.Recursive)
+		ipc.SendError(conn, ce.Code, ce.Hint, ce.Action)
 		return
 	}
 	sendDaemonVerbose(conn, payload.Verbose, "transfer engine: %s", result.Engine)

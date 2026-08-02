@@ -68,6 +68,7 @@ type TransferPayload struct {
 	Alias      string `json:"alias"`
 	LocalPath  string `json:"local_path"`
 	RemotePath string `json:"remote_path"`
+	Timeout    int    `json:"timeout,omitempty"`
 	Recursive  bool   `json:"recursive,omitempty"`
 	Mkdirs     bool   `json:"mkdirs,omitempty"`
 	Verbose    bool   `json:"verbose,omitempty"`
@@ -78,6 +79,7 @@ type RelayPayload struct {
 	SrcPath   string `json:"src_path"`
 	DstAlias  string `json:"dst_alias"`
 	DstPath   string `json:"dst_path"`
+	Timeout   int    `json:"timeout,omitempty"`
 	Recursive bool   `json:"recursive,omitempty"`
 	Mkdirs    bool   `json:"mkdirs,omitempty"`
 	Verbose   bool   `json:"verbose,omitempty"`

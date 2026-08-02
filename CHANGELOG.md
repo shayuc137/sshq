@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Transfer timeout semantics
+
+- `cp` no longer inherits the root 30-second deadline. Transfer time scales with file size, so a fixed wall clock was the wrong unit — it capped uploads at whatever fit in 30 seconds. Pass `--timeout` explicitly to set a ceiling.
+- Explicit `cp --timeout` now applies on the daemon path, which previously dropped it: the payload carried no timeout field, so the deadline a caller asked for was silently ignored on the default path.
+- cp deadline failures return the `timeout` error code with an actionable hint, in both direct and daemon modes. They previously returned `transfer_failed`, whose advice is to retry — which could only fail the same way.
+
 ### exec --raw
 
 - New `--raw` flag for `exec`: mirrors remote stdout/stderr byte-for-byte with no envelope, and the process exit code mirrors the remote exit code verbatim (the one deliberate exception to the tri-state `0/1/2` contract). Mutually exclusive with `--json`/`--pretty`; other commands reject it. Fixes the surprise where `sshq exec web "cat conf" > conf` saved an envelope instead of the file.

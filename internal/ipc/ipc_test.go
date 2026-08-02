@@ -158,6 +158,49 @@ func TestExecPayloadCarriesShellOverride(t *testing.T) {
 	}
 }
 
+func TestTransferPayloadsCarryTimeout(t *testing.T) {
+	tests := []struct {
+		action  string
+		payload any
+		decode  func(json.RawMessage) int
+	}{
+		{
+			action:  "transfer",
+			payload: TransferPayload{Alias: "web", Direction: "upload", Timeout: 12},
+			decode: func(raw json.RawMessage) int {
+				var payload TransferPayload
+				if err := json.Unmarshal(raw, &payload); err != nil {
+					t.Fatal(err)
+				}
+				return payload.Timeout
+			},
+		},
+		{
+			action:  "relay",
+			payload: RelayPayload{SrcAlias: "web", DstAlias: "backup", Timeout: 15},
+			decode: func(raw json.RawMessage) int {
+				var payload RelayPayload
+				if err := json.Unmarshal(raw, &payload); err != nil {
+					t.Fatal(err)
+				}
+				return payload.Timeout
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.action, func(t *testing.T) {
+			env, err := MakeEnvelope(tt.action, tt.payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := tt.decode(env.Payload); got == 0 {
+				t.Fatal("timeout was lost during payload round-trip")
+			}
+		})
+	}
+}
+
 func TestMakeResultFrame(t *testing.T) {
 	result := ProfileResult{OS: "linux", Shell: "bash", Encoding: "utf-8"}
 	frame, err := MakeResultFrame(result)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"strings"
 	"time"
@@ -42,7 +43,23 @@ func newCpCommand() *cobra.Command {
 			recursive, _ := cmd.Flags().GetBool("recursive")
 			mkdirs, _ := cmd.Flags().GetBool("mkdirs")
 			noDaemon, _ := cmd.Flags().GetBool("no-daemon")
-			timeout, _ := cmd.Flags().GetDuration("timeout")
+			// Copy duration scales with payload size, so the root 30s default is
+			// the wrong unit and cp does not inherit it. A wedged transfer is
+			// still unbounded — see the follow-up task on connection-level abort;
+			// a deadline cannot help there because a blocked Read never reaches
+			// the loop's ctx check.
+			var timeout time.Duration
+			if cmd.Flags().Changed("timeout") {
+				timeout, _ = cmd.Flags().GetDuration("timeout")
+			}
+			// The IPC payload carries whole seconds, so a sub-second deadline would
+			// truncate to zero — which the daemon reads as "no limit". Round up so
+			// an explicit --timeout never silently becomes unlimited on one path
+			// while the direct path honors it.
+			timeoutSeconds := 0
+			if timeout > 0 {
+				timeoutSeconds = int((timeout + time.Second - 1) / time.Second)
+			}
 
 			progressFn := transferProgress(w)
 
@@ -56,7 +73,7 @@ func newCpCommand() *cobra.Command {
 			if !noDaemon && ipc.IsRunning() {
 				switch parsed.Direction {
 				case transfer.Upload, transfer.Download:
-					env, _ := ipc.MakeEnvelope("transfer", transferPayload(parsed, recursive, mkdirs, w.IsVerbose()))
+					env, _ := ipc.MakeEnvelope("transfer", transferPayload(parsed, recursive, mkdirs, w.IsVerbose(), timeoutSeconds))
 					return daemonDispatch(env,
 						func(conn net.Conn) error {
 							return recvTransferFrames(w, conn)
@@ -72,6 +89,7 @@ func newCpCommand() *cobra.Command {
 						SrcPath:   parsed.Src.Path,
 						DstAlias:  parsed.Dst.Alias,
 						DstPath:   parsed.Dst.Path,
+						Timeout:   timeoutSeconds,
 						Recursive: recursive,
 						Mkdirs:    mkdirs,
 						Verbose:   w.IsVerbose(),
@@ -106,7 +124,7 @@ func newCpCommand() *cobra.Command {
 
 // --- daemon paths ---
 
-func transferPayload(parsed transfer.ParsedArgs, recursive, mkdirs, verbose bool) ipc.TransferPayload {
+func transferPayload(parsed transfer.ParsedArgs, recursive, mkdirs, verbose bool, timeout int) ipc.TransferPayload {
 	alias := parsed.Src.Alias
 	localPath := parsed.Src.Path
 	remotePath := parsed.Dst.Path
@@ -129,6 +147,7 @@ func transferPayload(parsed transfer.ParsedArgs, recursive, mkdirs, verbose bool
 		Alias:      alias,
 		LocalPath:  localPath,
 		RemotePath: remotePath,
+		Timeout:    timeout,
 		Recursive:  recursive,
 		Mkdirs:     mkdirs,
 		Verbose:    verbose,
@@ -256,14 +275,7 @@ func cpTransferDirect(ctx context.Context, w *output.Writer, store *config.Store
 		if auditErr := recordAuditError(ctx, entry, err); auditErr != nil {
 			return auditErr
 		}
-		if ctx.Err() != nil {
-			return output.Errorf("transfer cancelled", "remote temp file cleaned up").WithCode(output.CodeTransferFailed)
-		}
-		var missingParent *transfer.RemoteParentMissingError
-		if errors.As(err, &missingParent) {
-			return output.Errorf(err.Error(), cpMkdirsAction(parsed, recursive)).WithCode(output.CodeTransferFailed)
-		}
-		return output.Errorf(err.Error(), "").WithCode(output.CodeTransferFailed)
+		return cpErrorToOutput(ctx, err, parsed, recursive)
 	}
 
 	if err := recordAudit(ctx, audit.TransferEntry(alias, direction, localPath, remotePath, audit.ResultSuccess, time.Since(auditStart).Milliseconds(), audit.SourceDirect)); err != nil {
@@ -367,14 +379,7 @@ func cpRelayDirect(ctx context.Context, w *output.Writer, store *config.Store, p
 		if auditErr := recordAuditError(ctx, entry, err); auditErr != nil {
 			return auditErr
 		}
-		if ctx.Err() != nil {
-			return output.Errorf("relay cancelled", "remote temp files cleaned up").WithCode(output.CodeTransferFailed)
-		}
-		var missingParent *transfer.RemoteParentMissingError
-		if errors.As(err, &missingParent) {
-			return output.Errorf(err.Error(), cpMkdirsAction(parsed, recursive)).WithCode(output.CodeTransferFailed)
-		}
-		return output.Errorf(err.Error(), "").WithCode(output.CodeTransferFailed)
+		return cpErrorToOutput(ctx, err, parsed, recursive)
 	}
 
 	if err := recordAudit(ctx, audit.RelayEntry(parsed.Src.Alias, parsed.Src.Path, parsed.Dst.Alias, parsed.Dst.Path, audit.ResultSuccess, time.Since(auditStart).Milliseconds(), audit.SourceDirect)); err != nil {
@@ -390,6 +395,41 @@ func transferEngineOptions(mkdirs bool) []transfer.EngineOption {
 		return []transfer.EngineOption{transfer.WithMkdirs()}
 	}
 	return nil
+}
+
+func cpErrorToOutput(ctx context.Context, err error, parsed transfer.ParsedArgs, recursive bool) *output.CmdError {
+	operation := "transfer"
+	tempState := "temporary file cleaned up"
+	if parsed.Direction == transfer.Relay {
+		operation = "relay"
+		tempState = "temporary files cleaned up"
+	}
+
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		return output.Errorf(
+			fmt.Sprintf("%s deadline exceeded; partial data may have been transferred; %s", operation, tempState),
+			"increase --timeout and retry",
+		).WithCode(output.CodeTimeout)
+	case ctx.Err() != nil:
+		return output.Errorf(
+			fmt.Sprintf("%s cancelled; %s", operation, tempState),
+			"re-run the command to retry",
+		).WithCode(output.CodeTransferFailed)
+	}
+
+	var missingParent *transfer.RemoteParentMissingError
+	if errors.As(err, &missingParent) {
+		return output.Errorf(err.Error(), cpMkdirsAction(parsed, recursive)).WithCode(output.CodeTransferFailed)
+	}
+	return output.Errorf(err.Error(), "").WithCode(output.CodeTransferFailed)
+}
+
+func contextWithTransferTimeout(timeoutSeconds int) (context.Context, context.CancelFunc) {
+	if timeoutSeconds <= 0 {
+		return context.Background(), func() {}
+	}
+	return context.WithTimeout(context.Background(), time.Duration(timeoutSeconds)*time.Second)
 }
 
 func cpMkdirsAction(parsed transfer.ParsedArgs, recursive bool) string {

@@ -181,6 +181,19 @@ func TestContractFailureMatrix(t *testing.T) {
 			code: output.CodeTimeout,
 		},
 		{
+			name: "cp timeout",
+			err: func(t *testing.T) *output.CmdError {
+				ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+				defer cancel()
+				parsed, err := transfer.ParseArgs("local.bin", "web-1:/tmp/local.bin")
+				if err != nil {
+					t.Fatal(err)
+				}
+				return cpErrorToOutput(ctx, context.DeadlineExceeded, parsed, false)
+			},
+			code: output.CodeTimeout,
+		},
+		{
 			name: "host not found",
 			err:  contractHostNotFoundError,
 			code: output.CodeHostNotFound,
