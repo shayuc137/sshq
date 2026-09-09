@@ -67,7 +67,8 @@ func (c *Client) Close() error {
 }
 
 func Dial(ctx context.Context, cfg ConnConfig) (*Client, error) {
-	sshCfg, err := buildSSHConfig(cfg)
+	sshCfg, cleanup, err := buildSSHConfig(cfg)
+	defer cleanup()
 	if err != nil {
 		return nil, err
 	}
@@ -189,18 +190,15 @@ func resolveProxyConfig(proxyJump string) (ConnConfig, error) {
 	return proxy, nil
 }
 
-func buildSSHConfig(cfg ConnConfig) (*ssh.ClientConfig, error) {
-	methods, err := authMethods(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("auth setup: %w", err)
-	}
+func buildSSHConfig(cfg ConnConfig) (*ssh.ClientConfig, func(), error) {
+	methods, cleanup := authMethods(cfg)
 	if len(methods) == 0 {
-		return nil, fmt.Errorf("no authentication methods available for %s@%s", cfg.User, cfg.Host)
+		return nil, cleanup, fmt.Errorf("no authentication methods available for %s@%s", cfg.User, cfg.Host)
 	}
 
 	hostKeyCallback, err := hostKeyCallback()
 	if err != nil {
-		return nil, fmt.Errorf("host key verification: %w", err)
+		return nil, cleanup, fmt.Errorf("host key verification: %w", err)
 	}
 
 	return &ssh.ClientConfig{
@@ -208,7 +206,7 @@ func buildSSHConfig(cfg ConnConfig) (*ssh.ClientConfig, error) {
 		Auth:            methods,
 		HostKeyCallback: hostKeyCallback,
 		Timeout:         cfg.Timeout,
-	}, nil
+	}, cleanup, nil
 }
 
 func handshake(ctx context.Context, conn net.Conn, addr string, sshCfg *ssh.ClientConfig, cfg ConnConfig) (*ssh.Client, error) {
@@ -230,17 +228,14 @@ func handshake(ctx context.Context, conn net.Conn, addr string, sshCfg *ssh.Clie
 	return ssh.NewClient(sshConn, chans, reqs), nil
 }
 
-func authMethods(cfg ConnConfig) ([]ssh.AuthMethod, error) {
+func authMethods(cfg ConnConfig) ([]ssh.AuthMethod, func()) {
 	var methods []ssh.AuthMethod
-
-	if m := agentAuth(); m != nil {
-		methods = append(methods, m)
-	}
+	signers, cleanup := agentSigners(cfg.Timeout)
 
 	if cfg.IdentityFile != "" {
-		m, err := keyAuth(cfg.IdentityFile)
+		m, err := keySigner(cfg.IdentityFile)
 		if err == nil {
-			methods = append(methods, m)
+			signers = append(signers, m)
 		}
 	}
 
@@ -253,32 +248,49 @@ func authMethods(cfg ConnConfig) ([]ssh.AuthMethod, error) {
 		if path == cfg.IdentityFile {
 			continue
 		}
-		m, err := keyAuth(path)
+		m, err := keySigner(path)
 		if err == nil {
-			methods = append(methods, m)
+			signers = append(signers, m)
 		}
+	}
+	// x/crypto/ssh tries each method name only once. Separate publickey
+	// methods would let an empty or rejected agent hide valid file keys.
+	if len(signers) > 0 {
+		methods = append(methods, ssh.PublicKeys(signers...))
 	}
 
 	if cfg.Password != "" {
 		methods = append(methods, ssh.Password(cfg.Password))
 	}
 
-	return methods, nil
+	return methods, cleanup
 }
 
-func agentAuth() ssh.AuthMethod {
+func agentSigners(timeout time.Duration) ([]ssh.Signer, func()) {
+	noop := func() {}
 	sock := os.Getenv("SSH_AUTH_SOCK")
 	if sock == "" {
-		return nil
+		return nil, noop
 	}
-	conn, err := net.Dial("unix", sock)
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	conn, err := net.DialTimeout("unix", sock, timeout)
 	if err != nil {
-		return nil
+		return nil, noop
 	}
-	return ssh.PublicKeysCallback(agent.NewClient(conn).Signers)
+	_ = conn.SetDeadline(time.Now().Add(timeout))
+	signers, err := agent.NewClient(conn).Signers()
+	if err != nil || len(signers) == 0 {
+		conn.Close()
+		return nil, noop
+	}
+	// Agent signers use this socket during authentication, but never need it
+	// after the handshake. Dial owns cleanup on success and every error path.
+	return signers, func() { conn.Close() }
 }
 
-func keyAuth(path string) (ssh.AuthMethod, error) {
+func keySigner(path string) (ssh.Signer, error) {
 	if path[0] == '~' {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -297,7 +309,7 @@ func keyAuth(path string) (ssh.AuthMethod, error) {
 		return nil, fmt.Errorf("parse key %s: %w", path, err)
 	}
 
-	return ssh.PublicKeys(signer), nil
+	return signer, nil
 }
 
 func hostKeyCallback() (ssh.HostKeyCallback, error) {
